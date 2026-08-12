@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GRN Entry — Veridion</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<link href="/shared/style.css" rel="stylesheet">
+</head>
+<body>
+<div id="navbar-root"></div>
+<div class="container" style="max-width:600px;">
+  <div class="card p-4 mb-4">
+    <h4 class="mb-3">Record Goods Receipt</h4>
+    <p class="small text-muted">No price or payment fields appear here by design — the Warehouse role never sees financial data.</p>
+    <div id="msg" class="alert d-none"></div>
+    <form id="form">
+      <div class="mb-3">
+        <label class="form-label">Purchase Order ID</label>
+        <div class="input-group">
+          <input type="number" class="form-control" id="po_id" required>
+          <button type="button" class="btn btn-outline-secondary" onclick="lookupPo()">Look up</button>
+        </div>
+      </div>
+      <div id="poInfo" class="alert alert-secondary d-none small"></div>
+
+      <div class="mb-3"><label class="form-label">Received Quantity</label><input type="number" class="form-control" id="received_quantity" required></div>
+      <div class="mb-3"><label class="form-label">Received Date</label><input type="date" class="form-control" id="received_date" required></div>
+      <div class="mb-3"><label class="form-label">Warehouse Notes</label><textarea class="form-control" id="warehouse_notes"></textarea></div>
+
+      <div id="shortfallFields" class="d-none border rounded p-3 mb-3 bg-light">
+        <p class="small mb-2"><strong>Shortfall detected</strong> — optionally record when the rest is expected.</p>
+        <div class="mb-2"><label class="form-label small">Expected Date for Remaining Quantity</label><input type="date" class="form-control" id="expected_next_delivery_date"></div>
+        <div class="mb-0"><label class="form-label small">Notes on Remaining Delivery</label><input class="form-control" id="next_delivery_notes"></div>
+      </div>
+
+      <button type="submit" class="btn btn-primary w-100">Submit GRN</button>
+    </form>
+  </div>
+
+  <h6>My Recent Submissions</h6>
+  <table class="table table-sm bg-white">
+    <thead><tr><th>PO</th><th>Received Qty</th><th>Date</th><th>Discrepancy</th></tr></thead>
+    <tbody id="rows"><tr><td colspan="4" class="text-muted">Loading...</td></tr></tbody>
+  </table>
+</div>
+<script src="/shared/api.js"></script>
+<script src="/shared/navbar.js"></script>
+<script>
+requireLogin(['warehouse']);
+let agreedQty = null;
+
+async function lookupPo() {
+  const id = document.getElementById('po_id').value;
+  if (!id) return;
+  const res = await fetchWithAuth(`/api/purchase-orders/${id}`);
+  if (!res) return;
+  const po = await res.json();
+  const box = document.getElementById('poInfo');
+  if (!res.ok) { box.classList.remove('d-none'); box.textContent = po.error || 'Not found'; agreedQty = null; return; }
+  agreedQty = Number(po.agreed_quantity);
+  box.classList.remove('d-none');
+  box.innerHTML = `PO #${po.id} — Agreed Quantity: <strong>${po.agreed_quantity}</strong> · Delivery Date: ${po.agreed_delivery_date || 'N/A'} · Fulfillment: ${po.fulfillment_status}`;
+  // Note: this response never contains agreed_price or cumulative_invoiced_amount — stripped server-side.
+}
+
+document.getElementById('received_quantity').addEventListener('input', (e) => {
+  const val = Number(e.target.value);
+  document.getElementById('shortfallFields').classList.toggle('d-none', !(agreedQty !== null && val < agreedQty && val > 0));
+});
+
+document.getElementById('form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const body = {
+    po_id: document.getElementById('po_id').value,
+    received_quantity: document.getElementById('received_quantity').value,
+    received_date: document.getElementById('received_date').value,
+    warehouse_notes: document.getElementById('warehouse_notes').value,
+    expected_next_delivery_date: document.getElementById('expected_next_delivery_date').value || undefined,
+    next_delivery_notes: document.getElementById('next_delivery_notes').value || undefined
+  };
+  const res = await fetchWithAuth('/api/grn', { method: 'POST', body: JSON.stringify(body) });
+  if (!res) return;
+  const data = await res.json();
+  const box = document.getElementById('msg');
+  box.classList.remove('d-none');
+  if (!res.ok) { box.className = 'alert alert-danger'; box.textContent = data.error || 'Failed'; return; }
+  box.className = 'alert alert-success';
+  box.textContent = `GRN recorded. ${data.discrepancy_flag ? 'Shortfall noted — PO marked partially_fulfilled.' : 'Full delivery — PO marked fulfilled.'}`;
+  document.getElementById('form').reset();
+  document.getElementById('shortfallFields').classList.add('d-none');
+  loadMine();
+});
+
+async function loadMine() {
+  const res = await fetchWithAuth('/api/grn/mine');
+  if (!res) return;
+  const grns = await res.json();
+  const rows = document.getElementById('rows');
+  rows.innerHTML = grns.length ? grns.map(g => `
+    <tr><td>#${g.po_id}</td><td>${g.received_quantity}</td><td>${g.received_date}</td>
+    <td>${g.discrepancy_flag ? '<span class="badge bg-warning text-dark">Shortfall</span>' : '<span class="badge bg-success">None</span>'}</td></tr>`
+  ).join('') : '<tr><td colspan="4" class="text-muted">No submissions yet.</td></tr>';
+}
+loadMine();
+</script>
+</body>
+</html>

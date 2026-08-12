@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Vendor Registration — Veridion</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<link href="/shared/style.css" rel="stylesheet">
+</head>
+<body>
+<div id="navbar-root"></div>
+<div class="container" style="max-width:520px;">
+  <div class="card p-4 mb-4">
+    <h4 class="mb-3">Vendor Registration</h4>
+    <div id="error" class="alert alert-danger d-none"></div>
+    <form id="form">
+      <div class="mb-3"><label class="form-label">Your Name</label><input class="form-control" id="name" required></div>
+      <div class="mb-3"><label class="form-label">Email</label><input type="email" class="form-control" id="email" required></div>
+      <div class="mb-3"><label class="form-label">Password</label><input type="password" class="form-control" id="password" required></div>
+      <div class="mb-3"><label class="form-label">Company Name</label><input class="form-control" id="company_name" required></div>
+      <div class="row">
+        <div class="col mb-3"><label class="form-label">GSTIN</label><input class="form-control" id="gstin"></div>
+        <div class="col mb-3"><label class="form-label">PAN</label><input class="form-control" id="pan"></div>
+      </div>
+      <div class="mb-3"><label class="form-label">Phone Number</label><input class="form-control" id="phone_number" placeholder="+91..."></div>
+      <div class="mb-3"><label class="form-label">Business Registration Proof</label><input type="file" class="form-control" id="proof"></div>
+      <button type="submit" class="btn btn-primary w-100">Register</button>
+    </form>
+  </div>
+</div>
+<script src="/shared/api.js"></script>
+<script src="/shared/navbar.js"></script>
+<script>
+document.getElementById('form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const errorBox = document.getElementById('error');
+  errorBox.classList.add('d-none');
+  const fd = new FormData();
+  fd.append('name', name.value);
+  fd.append('email', email.value);
+  fd.append('password', password.value);
+  fd.append('company_name', company_name.value);
+  fd.append('gstin', gstin.value);
+  fd.append('pan', pan.value);
+  fd.append('phone_number', phone_number.value);
+  if (proof.files[0]) fd.append('business_reg_proof', proof.files[0]);
+
+  const res = await fetch(`${API_BASE}/api/auth/register/vendor`, { method: 'POST', body: fd });
+  const data = await res.json();
+  if (!res.ok) { errorBox.textContent = data.error || 'Registration failed'; errorBox.classList.remove('d-none'); return; }
+  setSession(data.token, data.user);
+  window.location.href = '/vendor/dashboard.html';
+});
+</script>
+</body>
+</html>

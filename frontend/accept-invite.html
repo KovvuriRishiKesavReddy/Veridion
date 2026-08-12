@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Accept Invite — Veridion</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<link href="/shared/style.css" rel="stylesheet">
+</head>
+<body>
+<div id="navbar-root"></div>
+<div class="container" style="max-width:420px;">
+  <div class="card p-4">
+    <h4 class="mb-3">Accept Team Invitation</h4>
+    <div id="error" class="alert alert-danger d-none"></div>
+    <form id="form">
+      <div class="mb-3"><label class="form-label">Your Name</label><input class="form-control" id="name" required></div>
+      <div class="mb-3"><label class="form-label">Set a Password</label><input type="password" class="form-control" id="password" required></div>
+      <button type="submit" class="btn btn-primary w-100">Accept & Join</button>
+    </form>
+  </div>
+</div>
+<script src="/shared/api.js"></script>
+<script src="/shared/navbar.js"></script>
+<script>
+const token = new URLSearchParams(window.location.search).get('token');
+document.getElementById('form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const errorBox = document.getElementById('error');
+  errorBox.classList.add('d-none');
+  const res = await fetch(`${API_BASE}/api/auth/accept-invite/${token}`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: name.value, password: password.value })
+  });
+  const data = await res.json();
+  if (!res.ok) { errorBox.textContent = data.error || 'Could not accept invite'; errorBox.classList.remove('d-none'); return; }
+  setSession(data.token, data.user);
+  window.location.href = '/company/dashboard.html';
+});
+</script>
+</body>
+</html>

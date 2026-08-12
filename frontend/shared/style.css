@@ -1,0 +1,17 @@
+:root {
+  --navy: #0b2545;
+  --navy-light: #13315c;
+  --amber: #e0a72e;
+  --amber-dark: #b8860b;
+}
+body { background-color: #f5f7fa; }
+.navbar { background-color: var(--navy) !important; }
+.navbar-brand { color: var(--amber) !important; font-weight: 700; letter-spacing: 0.5px; }
+.nav-link { color: #dbe4f0 !important; }
+.nav-link:hover { color: var(--amber) !important; }
+.btn-primary { background-color: var(--navy); border-color: var(--navy); }
+.btn-primary:hover { background-color: var(--navy-light); border-color: var(--navy-light); }
+.btn-amber { background-color: var(--amber); border-color: var(--amber); color: #1a1a1a; }
+.btn-amber:hover { background-color: var(--amber-dark); border-color: var(--amber-dark); color: #fff; }
+.card { border: none; box-shadow: 0 1px 4px rgba(0,0,0,0.08); border-radius: 10px; }
+.status-badge { font-size: 0.75rem; text-transform: capitalize; }

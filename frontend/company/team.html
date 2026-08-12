@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Team — Veridion</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<link href="/shared/style.css" rel="stylesheet">
+</head>
+<body>
+<div id="navbar-root"></div>
+<div class="container">
+  <div class="d-flex justify-content-between align-items-center mb-4">
+    <h3>Team</h3>
+    <button class="btn btn-amber" data-bs-toggle="modal" data-bs-target="#inviteModal">Invite Team Member</button>
+  </div>
+
+  <h6>Current Team</h6>
+  <table class="table bg-white mb-4">
+    <thead><tr><th>Name</th><th>Email</th><th>Role</th></tr></thead>
+    <tbody id="teamRows"><tr><td colspan="3" class="text-muted">Loading...</td></tr></tbody>
+  </table>
+
+  <h6>Pending Invitations</h6>
+  <table class="table bg-white">
+    <thead><tr><th>Email</th><th>Invited Role</th><th>Status</th><th>Sent</th></tr></thead>
+    <tbody id="inviteRows"><tr><td colspan="4" class="text-muted">Loading...</td></tr></tbody>
+  </table>
+</div>
+
+<div class="modal fade" id="inviteModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title">Invite Team Member</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <div class="mb-3"><label class="form-label">Email</label><input type="email" class="form-control" id="invited_email" required></div>
+        <div class="mb-3"><label class="form-label">Role</label>
+          <select class="form-select" id="invited_role">
+            <option value="procurement">Procurement</option>
+            <option value="finance">Finance</option>
+            <option value="warehouse">Warehouse</option>
+          </select>
+        </div>
+        <div id="linkBox" class="alert alert-info d-none small"></div>
+      </div>
+      <div class="modal-footer"><button class="btn btn-primary" onclick="sendInvite()">Send Invite</button></div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="/shared/api.js"></script>
+<script src="/shared/navbar.js"></script>
+<script>
+requireLogin(['company_admin']);
+
+async function loadTeam() {
+  const res = await fetchWithAuth('/api/company/team');
+  if (!res) return;
+  const data = await res.json();
+  document.getElementById('teamRows').innerHTML = data.team.map(u =>
+    `<tr><td>${u.name}</td><td>${u.email}</td><td><span class="badge bg-secondary">${u.role}</span></td></tr>`
+  ).join('') || '<tr><td colspan="3" class="text-muted">No team members yet.</td></tr>';
+  document.getElementById('inviteRows').innerHTML = data.pending_invitations.map(i =>
+    `<tr><td>${i.invited_email}</td><td>${i.invited_role}</td><td><span class="badge bg-warning text-dark">${i.status}</span></td><td>${new Date(i.created_at).toLocaleDateString()}</td></tr>`
+  ).join('') || '<tr><td colspan="4" class="text-muted">No pending invitations.</td></tr>';
+}
+loadTeam();
+
+async function sendInvite() {
+  const body = { invited_email: document.getElementById('invited_email').value, invited_role: document.getElementById('invited_role').value };
+  const res = await fetchWithAuth('/api/company/invite', { method: 'POST', body: JSON.stringify(body) });
+  if (!res) return;
+  const data = await res.json();
+  if (!res.ok) { alert(data.error || 'Failed'); return; }
+  const box = document.getElementById('linkBox');
+  box.classList.remove('d-none');
+  box.innerHTML = `Invite created. Local accept link: <br><code>${window.location.origin}${data.accept_url}</code>`;
+  loadTeam();
+}
+</script>
+</body>
+</html>

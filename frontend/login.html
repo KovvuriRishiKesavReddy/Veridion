@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Veridion — Log in</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<link href="/shared/style.css" rel="stylesheet">
+</head>
+<body>
+<div id="navbar-root"></div>
+<div class="container" style="max-width:420px; margin-top:60px;">
+  <div class="card p-4">
+    <h4 class="mb-3 text-center">Log in to Veridion</h4>
+    <div id="error" class="alert alert-danger d-none"></div>
+    <form id="loginForm">
+      <div class="mb-3">
+        <label class="form-label">Email</label>
+        <input type="email" class="form-control" id="email" required>
+      </div>
+      <div class="mb-3">
+        <label class="form-label">Password</label>
+        <input type="password" class="form-control" id="password" required>
+      </div>
+      <button type="submit" class="btn btn-primary w-100">Log in</button>
+    </form>
+    <hr>
+    <div class="d-flex justify-content-between">
+      <a href="/vendor/register.html" class="small">Register as vendor</a>
+      <a href="/company/register.html" class="small">Register a company</a>
+    </div>
+    <p class="text-muted small mt-3 mb-0">Seeded logins (password: <code>password123</code>): admin@veridion.dev · admin@brightbuild.test · proc@brightbuild.test · finance@brightbuild.test · warehouse@brightbuild.test · vendor1@test.dev</p>
+  </div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="/shared/api.js"></script>
+<script src="/shared/navbar.js"></script>
+<script>
+document.getElementById('loginForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const email = document.getElementById('email').value;
+  const password = document.getElementById('password').value;
+  const errorBox = document.getElementById('error');
+  errorBox.classList.add('d-none');
+
+  try {
+    const res = await fetch(`${API_BASE}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password })
+    });
+    const data = await res.json();
+    if (!res.ok) { errorBox.textContent = data.error || 'Login failed'; errorBox.classList.remove('d-none'); return; }
+    setSession(data.token, data.user);
+    const dest = {
+      vendor: '/vendor/dashboard.html',
+      company_admin: '/company/dashboard.html',
+      procurement: '/company/dashboard.html',
+      finance: '/company/dashboard.html',
+      warehouse: '/company/dashboard.html',
+      platform_admin: '/company/dashboard.html'
+    }[data.user.role] || '/login.html';
+    window.location.href = dest;
+  } catch (err) {
+    errorBox.textContent = 'Could not reach the server — is the backend running on ' + API_BASE + '?';
+    errorBox.classList.remove('d-none');
+  }
+});
+</script>
+</body>
+</html>
