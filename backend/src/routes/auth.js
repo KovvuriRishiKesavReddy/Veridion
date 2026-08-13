@@ -9,9 +9,9 @@ const { requireRole } = require('../middleware/roles');
 
 const router = express.Router();
 
-function signToken(user) {
+function signToken(user, extra = {}) {
   return jwt.sign(
-    { id: user.id, role: user.role, company_id: user.company_id || null },
+    { id: user.id, role: user.role, company_id: user.company_id || null, ...extra },
     process.env.JWT_SECRET,
     { expiresIn: '7d' }
   );
@@ -33,13 +33,16 @@ router.post('/register/vendor', upload.single('business_reg_proof'), async (req,
     );
     const user = userRes.rows[0];
     const proofPath = req.file ? req.file.path : null;
-    await client.query(
+    // RETURNING id here is essential — without it there's no way to put vendor_id in the
+    // token, and every subsequent vendor action (quoting, invoicing, viewing own POs)
+    // silently fails until the person logs out and back in. That was a real bug: fixed.
+    const vendorRes = await client.query(
       `INSERT INTO vendors (user_id, company_name, gstin, pan, business_reg_proof_path, phone_number)
-       VALUES ($1,$2,$3,$4,$5,$6)`,
+       VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
       [user.id, company_name, gstin || null, pan || null, proofPath, phone_number || null]
     );
     await client.query('COMMIT');
-    const token = signToken({ ...user, company_id: null });
+    const token = signToken({ ...user, company_id: null }, { vendor_id: vendorRes.rows[0].id });
     res.status(201).json({ token, user });
   } catch (err) {
     await client.query('ROLLBACK');

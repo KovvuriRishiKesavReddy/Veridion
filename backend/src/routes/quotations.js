@@ -66,12 +66,24 @@ router.post('/:id/accept', requireAuth, requireRole('procurement', 'company_admi
     );
     await client.query(`UPDATE requirements SET status='closed' WHERE id=$1`, [quotation.requirement_id]);
 
+    // agreed_delivery_date = today (acceptance date) + the vendor's own quoted delivery_days.
+    // This was previously (incorrectly) set to the requirement's deadline, which has nothing
+    // to do with what the vendor actually promised in their quotation.
+    // agreed_delivery_date = today (acceptance date, in the server's local calendar)
+    // + the vendor's quoted delivery_days. Computed with pure Y/M/D arithmetic via
+    // Date.UTC so the result never depends on local-vs-UTC conversion at all — no
+    // .toISOString() applied to a locally-constructed Date, which is what caused the
+    // off-by-one-day bug in timezones ahead of UTC (e.g. IST).
+    const now = new Date();
+    const deliveryDate = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate() + Number(quotation.delivery_days)));
+    const agreedDeliveryDateStr = deliveryDate.toISOString().slice(0, 10); // YYYY-MM-DD
+
     const poRes = await client.query(
       `INSERT INTO purchase_orders (requirement_id, quotation_id, vendor_id, company_id, agreed_price, agreed_quantity, agreed_delivery_date)
        VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
       [
         quotation.requirement_id, quotation.id, quotation.vendor_id, quotation.company_id,
-        quotation.price, quotation.requirement_quantity, quotation.deadline
+        quotation.price, quotation.requirement_quantity, agreedDeliveryDateStr
       ]
     );
     const po = poRes.rows[0];
@@ -98,6 +110,23 @@ router.post('/:id/accept', requireAuth, requireRole('procurement', 'company_admi
   } finally {
     client.release();
   }
+});
+
+// GET /api/quotations/company (procurement) — every still-open (submitted) quotation
+// across ALL of this company's requirements in one place, so Procurement can see and
+// act on what's waiting without picking a requirement first each time.
+router.get('/company', requireAuth, requireRole('procurement', 'company_admin'), async (req, res) => {
+  const result = await db.query(
+    `SELECT q.*, r.title as requirement_title, r.category,
+            v.company_name as vendor_name, v.verification_status
+     FROM quotations q
+     JOIN requirements r ON r.id = q.requirement_id
+     JOIN vendors v ON v.id = q.vendor_id
+     WHERE r.company_id = $1 AND q.status = 'submitted'
+     ORDER BY q.submitted_at ASC`,
+    [req.user.company_id]
+  );
+  res.json(result.rows);
 });
 
 module.exports = router;

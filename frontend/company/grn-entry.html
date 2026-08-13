@@ -8,38 +8,44 @@
 </head>
 <body>
 <div id="navbar-root"></div>
-<div class="container" style="max-width:600px;">
-  <div class="card p-4 mb-4">
-    <h4 class="mb-3">Record Goods Receipt</h4>
-    <p class="small text-muted">No price or payment fields appear here by design — the Warehouse role never sees financial data.</p>
+<div class="container">
+  <h3 class="mb-1">Purchase Orders Awaiting Delivery</h3>
+  <p class="text-muted">Click a purchase order below to record what arrived — including closing out a partial delivery. No price or payment information ever appears on this page.</p>
+  <div id="cards" class="row g-3 mb-4"></div>
+
+  <div class="card p-4 mb-4" id="formCard" style="display:none;">
+    <h4 class="mb-3">Record Goods Receipt — <span id="formPoLabel"></span></h4>
     <div id="msg" class="alert d-none"></div>
     <form id="form">
-      <div class="mb-3">
-        <label class="form-label">Purchase Order ID</label>
-        <div class="input-group">
-          <input type="number" class="form-control" id="po_id" required>
-          <button type="button" class="btn btn-outline-secondary" onclick="lookupPo()">Look up</button>
-        </div>
-      </div>
-      <div id="poInfo" class="alert alert-secondary d-none small"></div>
+      <input type="hidden" id="po_id">
+      <div id="poInfo" class="alert alert-secondary small"></div>
 
-      <div class="mb-3"><label class="form-label">Received Quantity</label><input type="number" class="form-control" id="received_quantity" required></div>
+      <div class="mb-3">
+        <label class="form-label">Received Quantity <span class="text-muted small">(just this delivery — not the running total)</span></label>
+        <input type="number" class="form-control" id="received_quantity" required>
+      </div>
       <div class="mb-3"><label class="form-label">Received Date</label><input type="date" class="form-control" id="received_date" required></div>
       <div class="mb-3"><label class="form-label">Warehouse Notes</label><textarea class="form-control" id="warehouse_notes"></textarea></div>
 
       <div id="shortfallFields" class="d-none border rounded p-3 mb-3 bg-light">
-        <p class="small mb-2"><strong>Shortfall detected</strong> — optionally record when the rest is expected.</p>
+        <p class="small mb-2"><strong>Still short after this delivery</strong> — optionally record when the rest is expected.</p>
         <div class="mb-2"><label class="form-label small">Expected Date for Remaining Quantity</label><input type="date" class="form-control" id="expected_next_delivery_date"></div>
         <div class="mb-0"><label class="form-label small">Notes on Remaining Delivery</label><input class="form-control" id="next_delivery_notes"></div>
       </div>
 
-      <button type="submit" class="btn btn-primary w-100">Submit GRN</button>
+      <div id="overageWarning" class="alert alert-warning d-none small"></div>
+      <div id="exactWarning" class="alert alert-success d-none small"></div>
+
+      <div class="d-flex gap-2">
+        <button type="submit" class="btn btn-primary">Submit GRN</button>
+        <button type="button" class="btn btn-outline-secondary" onclick="closeForm()">Cancel</button>
+      </div>
     </form>
   </div>
 
   <h6>My Recent Submissions</h6>
   <table class="table table-sm bg-white">
-    <thead><tr><th>PO</th><th>Received Qty</th><th>Date</th><th>Discrepancy</th></tr></thead>
+    <thead><tr><th>PO</th><th>This Delivery</th><th>Date</th><th>Running Total</th></tr></thead>
     <tbody id="rows"><tr><td colspan="4" class="text-muted">Loading...</td></tr></tbody>
   </table>
 </div>
@@ -47,26 +53,72 @@
 <script src="/shared/navbar.js"></script>
 <script>
 requireLogin(['warehouse']);
-let agreedQty = null;
+let remainingQty = null; // remaining BEFORE this delivery, from the server
 
-async function lookupPo() {
-  const id = document.getElementById('po_id').value;
-  if (!id) return;
+async function loadAvailable() {
+  const res = await fetchWithAuth('/api/purchase-orders/mine');
+  if (!res) return;
+  const pos = await res.json();
+  const pending = pos.filter(po => po.fulfillment_status !== 'fulfilled');
+  const cards = document.getElementById('cards');
+  if (!pending.length) { cards.innerHTML = '<p class="text-muted">Nothing awaiting delivery right now.</p>'; return; }
+  cards.innerHTML = pending.map(po => `
+    <div class="col-md-6">
+      <div class="card p-3">
+        <h6 class="mb-1">${po.requirement_title}</h6>
+        <p class="small text-muted mb-1">Vendor: ${po.vendor_name}</p>
+        <p class="small text-muted mb-1">Received so far: <strong>${po.received_so_far} / ${po.agreed_quantity}</strong> · Remaining: <strong>${po.remaining_quantity}</strong></p>
+        <p class="small text-muted mb-2">Agreed Delivery Date: ${po.agreed_delivery_date || '—'}</p>
+        <span class="badge status-badge ${statusBadgeClass(po.fulfillment_status)} mb-2" style="width:fit-content">${po.fulfillment_status}</span>
+        <button class="btn btn-sm btn-amber" onclick="selectPo(${po.id}, '${po.requirement_title.replace(/'/g, "\\'")}')">Record Delivery</button>
+      </div>
+    </div>`).join('');
+}
+
+async function selectPo(id, title) {
+  document.getElementById('po_id').value = id;
+  document.getElementById('formPoLabel').textContent = `PO #${id} — ${title}`;
+  document.getElementById('formCard').style.display = 'block';
+  document.getElementById('formCard').scrollIntoView({ behavior: 'smooth' });
+
   const res = await fetchWithAuth(`/api/purchase-orders/${id}`);
   if (!res) return;
   const po = await res.json();
-  const box = document.getElementById('poInfo');
-  if (!res.ok) { box.classList.remove('d-none'); box.textContent = po.error || 'Not found'; agreedQty = null; return; }
-  agreedQty = Number(po.agreed_quantity);
-  box.classList.remove('d-none');
-  box.innerHTML = `PO #${po.id} — Agreed Quantity: <strong>${po.agreed_quantity}</strong> · Delivery Date: ${po.agreed_delivery_date || 'N/A'} · Fulfillment: ${po.fulfillment_status}`;
-  // Note: this response never contains agreed_price or cumulative_invoiced_amount — stripped server-side.
+  remainingQty = Number(po.remaining_quantity);
+  document.getElementById('poInfo').innerHTML =
+    `Agreed Quantity: <strong>${po.agreed_quantity}</strong> · Already Received: <strong>${po.received_so_far}</strong> · ` +
+    `<span class="text-primary">Remaining: <strong>${po.remaining_quantity}</strong></span> · Agreed Delivery Date: ${po.agreed_delivery_date || 'N/A'}`;
+  document.getElementById('received_quantity').value = po.remaining_quantity > 0 ? po.remaining_quantity : '';
+  updateHints();
 }
 
-document.getElementById('received_quantity').addEventListener('input', (e) => {
-  const val = Number(e.target.value);
-  document.getElementById('shortfallFields').classList.toggle('d-none', !(agreedQty !== null && val < agreedQty && val > 0));
-});
+function closeForm() {
+  document.getElementById('formCard').style.display = 'none';
+  document.getElementById('form').reset();
+  document.getElementById('shortfallFields').classList.add('d-none');
+  document.getElementById('overageWarning').classList.add('d-none');
+  document.getElementById('exactWarning').classList.add('d-none');
+}
+
+function updateHints() {
+  const val = Number(document.getElementById('received_quantity').value);
+  const shortBox = document.getElementById('shortfallFields');
+  const overBox = document.getElementById('overageWarning');
+  const exactBox = document.getElementById('exactWarning');
+  shortBox.classList.add('d-none'); overBox.classList.add('d-none'); exactBox.classList.add('d-none');
+  if (remainingQty === null || !val) return;
+
+  if (val < remainingQty) {
+    shortBox.classList.remove('d-none');
+  } else if (val > remainingQty) {
+    overBox.classList.remove('d-none');
+    overBox.textContent = `This is ${val - remainingQty} more than the remaining quantity (${remainingQty}). It will be recorded and flagged for the company to review.`;
+  } else {
+    exactBox.classList.remove('d-none');
+    exactBox.textContent = `This exactly closes out the remaining quantity — the PO will be marked fulfilled.`;
+  }
+}
+document.getElementById('received_quantity').addEventListener('input', updateHints);
 
 document.getElementById('form').addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -84,11 +136,18 @@ document.getElementById('form').addEventListener('submit', async (e) => {
   const box = document.getElementById('msg');
   box.classList.remove('d-none');
   if (!res.ok) { box.className = 'alert alert-danger'; box.textContent = data.error || 'Failed'; return; }
+
   box.className = 'alert alert-success';
-  box.textContent = `GRN recorded. ${data.discrepancy_flag ? 'Shortfall noted — PO marked partially_fulfilled.' : 'Full delivery — PO marked fulfilled.'}`;
-  document.getElementById('form').reset();
-  document.getElementById('shortfallFields').classList.add('d-none');
+  if (data.fulfillment_status === 'fulfilled') {
+    box.textContent = data.is_overage
+      ? `GRN recorded. Total received (${data.cumulative_received}) exceeds the agreed quantity (${data.agreed_quantity}) by ${data.cumulative_received - data.agreed_quantity} — PO marked fulfilled, flagged for review.`
+      : `GRN recorded. PO fully fulfilled — total received now matches the agreed quantity (${data.agreed_quantity}).`;
+  } else {
+    box.textContent = `GRN recorded. Still ${data.remaining_quantity} short of the agreed quantity — PO remains partially_fulfilled.`;
+  }
+  closeForm();
   loadMine();
+  loadAvailable();
 });
 
 async function loadMine() {
@@ -96,11 +155,12 @@ async function loadMine() {
   if (!res) return;
   const grns = await res.json();
   const rows = document.getElementById('rows');
-  rows.innerHTML = grns.length ? grns.map(g => `
-    <tr><td>#${g.po_id}</td><td>${g.received_quantity}</td><td>${g.received_date}</td>
-    <td>${g.discrepancy_flag ? '<span class="badge bg-warning text-dark">Shortfall</span>' : '<span class="badge bg-success">None</span>'}</td></tr>`
+  rows.innerHTML = grns.length ? grns.map(g =>
+    `<tr><td>#${g.po_id}</td><td>${g.received_quantity}</td><td>${g.received_date}</td><td>towards ${g.agreed_quantity} agreed</td></tr>`
   ).join('') : '<tr><td colspan="4" class="text-muted">No submissions yet.</td></tr>';
 }
+
+loadAvailable();
 loadMine();
 </script>
 </body>

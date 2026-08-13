@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Invoices — Veridion</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<link href="/shared/style.css" rel="stylesheet">
+</head>
+<body>
+<div id="navbar-root"></div>
+<div class="container">
+  <h3 class="mb-1">Invoices</h3>
+  <p class="text-muted">Every invoice submitted against your purchase orders — vendors can only submit one once a PO is fully delivered, so everything here represents a completed order awaiting payment (or already paid).</p>
+  <table class="table bg-white">
+    <thead><tr><th>Invoice #</th><th>Requirement</th><th>Vendor</th><th>Amount</th><th>GST</th><th>Status</th><th>Submitted</th><th>Action</th></tr></thead>
+    <tbody id="rows"><tr><td colspan="8" class="text-muted">Loading...</td></tr></tbody>
+  </table>
+</div>
+<script src="/shared/api.js"></script>
+<script src="/shared/navbar.js"></script>
+<script>
+const user = requireLogin(['finance', 'company_admin']);
+
+async function load() {
+  const res = await fetchWithAuth('/api/invoices/company');
+  if (!res) return;
+  const invs = await res.json();
+  const rows = document.getElementById('rows');
+  if (!invs.length) { rows.innerHTML = '<tr><td colspan="8" class="text-muted">No invoices submitted yet.</td></tr>'; return; }
+  rows.innerHTML = invs.map(i => `
+    <tr>
+      <td>${i.invoice_number || '—'}</td>
+      <td>${i.requirement_title}</td>
+      <td>${i.vendor_name}</td>
+      <td>₹${i.invoice_amount}</td>
+      <td>₹${i.gst_amount || 0}</td>
+      <td><span class="badge status-badge ${statusBadgeClass(i.status)}">${i.status}</span></td>
+      <td>${new Date(i.submitted_at).toLocaleDateString()}</td>
+      <td>${i.status !== 'paid' && user.role === 'finance' ? `<button class="btn btn-sm btn-amber" onclick="markPaid(${i.id})">Mark as Paid</button>` : (i.status === 'paid' ? '—' : '<span class="small text-muted">Finance only</span>')}</td>
+    </tr>`).join('');
+}
+
+async function markPaid(id) {
+  if (!confirm('Mark this invoice as paid?')) return;
+  const res = await fetchWithAuth(`/api/invoices/${id}/mark-paid`, { method: 'POST' });
+  if (!res) return;
+  const data = await res.json();
+  if (!res.ok) { alert(data.error || 'Failed'); return; }
+  load();
+}
+
+load();
+</script>
+</body>
+</html>

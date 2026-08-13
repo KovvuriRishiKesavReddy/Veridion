@@ -2,14 +2,21 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Quotation Comparison — Veridion</title>
+<title>Quotations — Veridion</title>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
 <link href="/shared/style.css" rel="stylesheet">
 </head>
 <body>
 <div id="navbar-root"></div>
 <div class="container">
-  <h3 class="mb-4">Quotation Comparison</h3>
+  <h3 class="mb-1">All Open Quotations</h3>
+  <p class="text-muted">Every quotation across every requirement that's still waiting on a decision — no need to pick a requirement first.</p>
+  <table class="table bg-white mb-5">
+    <thead><tr><th>Requirement</th><th>Vendor</th><th>Verification</th><th>Price</th><th>Delivery (days)</th><th>Submitted</th><th>Action</th></tr></thead>
+    <tbody id="allRows"><tr><td colspan="7" class="text-muted">Loading...</td></tr></tbody>
+  </table>
+
+  <h5 class="mb-3">Compare Quotations for One Requirement</h5>
   <div class="mb-3">
     <label class="form-label">Requirement</label>
     <select class="form-select" id="reqSelect" style="max-width:420px" onchange="loadQuotations()"></select>
@@ -25,6 +32,36 @@
 <script>
 requireLogin(['procurement', 'company_admin']);
 
+async function loadAll() {
+  const res = await fetchWithAuth('/api/quotations/company');
+  if (!res) return;
+  const qs = await res.json();
+  const rows = document.getElementById('allRows');
+  if (!qs.length) { rows.innerHTML = '<tr><td colspan="7" class="text-muted">No open quotations right now.</td></tr>'; return; }
+  rows.innerHTML = qs.map(q => `
+    <tr>
+      <td>${q.requirement_title}</td>
+      <td>${q.vendor_name}</td>
+      <td><span class="badge status-badge ${statusBadgeClass(q.verification_status)}">${q.verification_status}</span></td>
+      <td>₹${q.price}</td>
+      <td>${q.delivery_days}</td>
+      <td>${new Date(q.submitted_at).toLocaleDateString()}</td>
+      <td><button class="btn btn-sm btn-amber" onclick="acceptFromAll(${q.id})">Accept</button></td>
+    </tr>`).join('');
+}
+
+async function acceptFromAll(quotationId) {
+  if (!confirm('Accept this quotation? This generates a Purchase Order and closes the requirement.')) return;
+  const res = await fetchWithAuth(`/api/quotations/${quotationId}/accept`, { method: 'POST' });
+  if (!res) return;
+  const data = await res.json();
+  if (!res.ok) { alert(data.error || 'Failed'); return; }
+  alert(`PO #${data.id} created.`);
+  loadAll();
+  loadRequirements();
+  document.getElementById('rows').innerHTML = '<tr><td colspan="6" class="text-muted">Select a requirement above.</td></tr>';
+}
+
 async function loadRequirements() {
   const res = await fetchWithAuth('/api/requirements/mine');
   if (!res) return;
@@ -32,7 +69,6 @@ async function loadRequirements() {
   document.getElementById('reqSelect').innerHTML = '<option value="">— choose —</option>' +
     reqs.map(r => `<option value="${r.id}">${r.title} (${r.status})</option>`).join('');
 }
-loadRequirements();
 
 async function loadQuotations() {
   const id = document.getElementById('reqSelect').value;
@@ -61,7 +97,11 @@ async function accept(quotationId) {
   if (!res.ok) { alert(data.error || 'Failed'); return; }
   alert(`PO #${data.id} created.`);
   loadQuotations();
+  loadAll();
 }
+
+loadAll();
+loadRequirements();
 </script>
 </body>
 </html>

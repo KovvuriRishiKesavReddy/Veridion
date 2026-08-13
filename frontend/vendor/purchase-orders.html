@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Purchase Orders — Veridion</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<link href="/shared/style.css" rel="stylesheet">
+</head>
+<body>
+<div id="navbar-root"></div>
+<div class="container">
+  <h3 class="mb-4">Purchase Orders</h3>
+  <div id="cards" class="row g-3"></div>
+</div>
+
+<div class="modal fade" id="poModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title">PO Details</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body" id="poModalBody">Loading...</div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="/shared/api.js"></script>
+<script src="/shared/navbar.js"></script>
+<script>
+requireLogin(['vendor']);
+let poModal;
+document.addEventListener('DOMContentLoaded', () => { poModal = new bootstrap.Modal(document.getElementById('poModal')); load(); });
+
+async function load() {
+  const res = await fetchWithAuth('/api/purchase-orders/mine');
+  if (!res) return;
+  const pos = await res.json();
+  const cards = document.getElementById('cards');
+  if (!pos.length) { cards.innerHTML = '<p class="text-muted">No purchase orders yet — accepted quotations appear here automatically.</p>'; return; }
+
+  cards.innerHTML = pos.map(po => `
+    <div class="col-md-6">
+      <div class="card p-3">
+        <div class="d-flex justify-content-between align-items-start">
+          <div>
+            <h6 class="mb-1">PO #${po.id} — ${po.requirement_title}</h6>
+            <p class="small text-muted mb-1">Agreed Price: ₹${po.agreed_price} · Qty: ${po.agreed_quantity}</p>
+            <p class="small text-muted mb-1">Agreed Delivery Date: <strong>${po.agreed_delivery_date ? po.agreed_delivery_date.slice(0,10) : '—'}</strong></p>
+          </div>
+          <div class="text-end">
+            <span class="badge status-badge ${statusBadgeClass(po.status)} d-block mb-1">${po.status}</span>
+            <span class="badge status-badge ${statusBadgeClass(po.fulfillment_status)}">${po.fulfillment_status}</span>
+          </div>
+        </div>
+        <div class="mt-2 d-flex gap-2">
+          <button class="btn btn-sm btn-outline-secondary" onclick="viewDetails(${po.id})">View Fulfillment</button>
+          ${po.po_document_path ? `<button class="btn btn-sm btn-amber" onclick="downloadPo(${po.id})">Download PO PDF</button>` : ''}
+        </div>
+      </div>
+    </div>`).join('');
+}
+
+async function viewDetails(id) {
+  poModal.show();
+  const body = document.getElementById('poModalBody');
+  body.innerHTML = 'Loading...';
+  const res = await fetchWithAuth(`/api/purchase-orders/${id}/grns`);
+  if (!res) return;
+  const data = await res.json();
+  if (!res.ok) { body.innerHTML = `<p class="text-danger">${data.error}</p>`; return; }
+
+  const received = data.grns.reduce((sum, g) => sum + Number(g.received_quantity), 0);
+  body.innerHTML = `
+    <p><strong>PO #${data.po_id}</strong> — Agreed Quantity: ${data.agreed_quantity} · Status: <span class="badge status-badge ${statusBadgeClass(data.fulfillment_status)}">${data.fulfillment_status}</span></p>
+    <p>Total Received So Far: <strong>${received} / ${data.agreed_quantity}</strong></p>
+    ${data.grns.length ? `
+    <table class="table table-sm">
+      <thead><tr><th>Date</th><th>Qty Received</th><th>Notes</th><th>Next Expected</th></tr></thead>
+      <tbody>
+        ${data.grns.map(g => `
+          <tr>
+            <td>${g.received_date}</td>
+            <td>${g.received_quantity}${varianceBadge(g.variance_quantity)}</td>
+            <td>${g.warehouse_notes || '—'}</td>
+            <td>${g.expected_next_delivery_date || '—'}${g.next_delivery_notes ? `<br><span class="small text-muted">${g.next_delivery_notes}</span>` : ''}</td>
+          </tr>`).join('')}
+      </tbody>
+    </table>` : '<p class="text-muted">No goods receipt notes recorded yet for this PO.</p>'}
+  `;
+}
+
+async function downloadPo(id) {
+  const res = await fetchWithAuth(`/api/purchase-orders/${id}/document`);
+  if (!res || !res.ok) { alert('Could not fetch document'); return; }
+  const blob = await res.blob();
+  window.open(URL.createObjectURL(blob), '_blank');
+}
+</script>
+</body>
+</html>

@@ -11,6 +11,7 @@ const quotationsRoutes = require('./routes/quotations');
 const purchaseOrdersRoutes = require('./routes/purchaseOrders');
 const grnRoutes = require('./routes/grn');
 const invoicesRoutes = require('./routes/invoices');
+const adminRoutes = require('./routes/admin');
 
 const app = express();
 app.use(cors());
@@ -25,6 +26,7 @@ app.use('/api/quotations', quotationsRoutes);
 app.use('/api/purchase-orders', purchaseOrdersRoutes);
 app.use('/api/grn', grnRoutes);
 app.use('/api/invoices', invoicesRoutes);
+app.use('/api/admin', adminRoutes);
 
 // --- Frontend, served from this same process/port --------------------------
 // No build step: /frontend is plain HTML/CSS/JS, served directly.

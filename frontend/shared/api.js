@@ -70,3 +70,14 @@ function statusBadgeClass(status) {
   };
   return map[status] || 'bg-secondary';
 }
+
+// Renders the exact shortfall/excess amount as a small badge, given a signed
+// variance_quantity (received_quantity - agreed_quantity): negative = short,
+// positive = excess (over-delivery), 0 = exact match. Used on every page that
+// shows GRN/fulfillment data so the actual number is visible, not just "Short".
+function varianceBadge(variance) {
+  const v = Number(variance);
+  if (v < 0) return ` <span class="badge bg-warning text-dark">${Math.abs(v)} short</span>`;
+  if (v > 0) return ` <span class="badge bg-info text-dark">${v} excess</span>`;
+  return ` <span class="badge bg-success">Exact match</span>`;
+}

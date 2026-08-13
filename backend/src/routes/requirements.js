@@ -18,13 +18,18 @@ router.post('/', requireAuth, requireRole('procurement', 'company_admin'), async
   res.status(201).json(result.rows[0]);
 });
 
-// GET /api/requirements (vendor) — browsable, filterable by category, open only
+// GET /api/requirements (vendor) — browsable, filterable by category, open only.
+// Excludes any requirement this vendor has already quoted on — otherwise it stays
+// visible and inviting a second (duplicate/conflicting) quotation on the same job.
 router.get('/', requireAuth, requireRole('vendor'), async (req, res) => {
   const { category } = req.query;
-  const params = [];
+  const params = [req.user.vendor_id];
   let sql = `SELECT r.*, c.name as company_name FROM requirements r
              JOIN companies c ON c.id = r.company_id
-             WHERE r.status = 'open'`;
+             WHERE r.status = 'open'
+             AND NOT EXISTS (
+               SELECT 1 FROM quotations q WHERE q.requirement_id = r.id AND q.vendor_id = $1
+             )`;
   if (category) {
     params.push(category);
     sql += ` AND r.category = $${params.length}`;

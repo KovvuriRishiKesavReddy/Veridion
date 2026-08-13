@@ -9,10 +9,11 @@
 <body>
 <div id="navbar-root"></div>
 <div class="container">
-  <div class="d-flex justify-content-between align-items-center mb-4">
+  <div class="d-flex justify-content-between align-items-center mb-2">
     <h3>My Invoices</h3>
-    <button class="btn btn-amber" data-bs-toggle="modal" data-bs-target="#uploadModal">Upload Invoice</button>
+    <button class="btn btn-amber" id="uploadBtn" data-bs-toggle="modal" data-bs-target="#uploadModal">Upload Invoice</button>
   </div>
+  <p class="text-muted small">You can only invoice a PO once it's fully delivered and confirmed by the buyer's warehouse — that keeps an invoice meaning "this order is complete."</p>
   <table class="table bg-white">
     <thead><tr><th>Invoice #</th><th>PO</th><th>Amount</th><th>GST</th><th>Status</th><th>Submitted</th></tr></thead>
     <tbody id="rows"><tr><td colspan="6" class="text-muted">Loading...</td></tr></tbody>
@@ -24,17 +25,23 @@
     <div class="modal-content">
       <div class="modal-header"><h5 class="modal-title">Upload Invoice</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
       <div class="modal-body">
-        <div class="mb-3"><label class="form-label">Purchase Order</label>
-          <select class="form-select" id="po_id"></select>
+        <div id="noEligible" class="alert alert-info d-none small">No purchase orders are ready to invoice yet — a PO becomes eligible once it's fully delivered and confirmed by the warehouse.</div>
+        <div id="eligibleFields">
+          <div class="mb-3"><label class="form-label">Purchase Order</label>
+            <select class="form-select" id="po_id"></select>
+          </div>
+          <div class="mb-3"><label class="form-label">Invoice Number</label><input class="form-control" id="invoice_number"></div>
+          <div class="mb-3"><label class="form-label">Invoice Amount (₹)</label><input type="number" step="0.01" class="form-control" id="invoice_amount" required></div>
+          <div class="mb-3"><label class="form-label">GST Amount (₹)</label><input type="number" step="0.01" class="form-control" id="gst_amount"></div>
+          <div class="mb-3"><label class="form-label">GSTIN on Invoice</label><input class="form-control" id="gstin_on_invoice"></div>
+          <div class="mb-3">
+            <label class="form-label">Payment Due Date <span class="text-muted small">(when you expect to be paid — optional)</span></label>
+            <input type="date" class="form-control" id="due_date">
+          </div>
+          <div class="mb-3"><label class="form-label">Invoice File</label><input type="file" class="form-control" id="invoice_file"></div>
         </div>
-        <div class="mb-3"><label class="form-label">Invoice Number</label><input class="form-control" id="invoice_number"></div>
-        <div class="mb-3"><label class="form-label">Invoice Amount (₹)</label><input type="number" step="0.01" class="form-control" id="invoice_amount" required></div>
-        <div class="mb-3"><label class="form-label">GST Amount (₹)</label><input type="number" step="0.01" class="form-control" id="gst_amount"></div>
-        <div class="mb-3"><label class="form-label">GSTIN on Invoice</label><input class="form-control" id="gstin_on_invoice"></div>
-        <div class="mb-3"><label class="form-label">Due Date</label><input type="date" class="form-control" id="due_date"></div>
-        <div class="mb-3"><label class="form-label">Invoice File</label><input type="file" class="form-control" id="invoice_file"></div>
       </div>
-      <div class="modal-footer"><button class="btn btn-primary" onclick="submitInvoice()">Upload</button></div>
+      <div class="modal-footer"><button class="btn btn-primary" id="submitBtn" onclick="submitInvoice()">Upload</button></div>
     </div>
   </div>
 </div>
@@ -62,15 +69,27 @@ async function loadInvoices() {
     </tr>`).join('');
 }
 
-async function loadPoOptions() {
-  const res = await fetchWithAuth('/api/purchase-orders/mine');
+async function loadEligiblePos() {
+  const res = await fetchWithAuth('/api/invoices/eligible-pos');
   if (!res) return;
   const pos = await res.json();
-  document.getElementById('po_id').innerHTML = pos.map(po => `<option value="${po.id}">PO #${po.id} — ₹${po.agreed_price} (${po.fulfillment_status})</option>`).join('');
+  const noEligible = document.getElementById('noEligible');
+  const fields = document.getElementById('eligibleFields');
+  const submitBtn = document.getElementById('submitBtn');
+  if (!pos.length) {
+    noEligible.classList.remove('d-none');
+    fields.classList.add('d-none');
+    submitBtn.disabled = true;
+    return;
+  }
+  noEligible.classList.add('d-none');
+  fields.classList.remove('d-none');
+  submitBtn.disabled = false;
+  document.getElementById('po_id').innerHTML = pos.map(po => `<option value="${po.id}">PO #${po.id} — ${po.requirement_title} (₹${po.agreed_price})</option>`).join('');
 }
 
 loadInvoices();
-loadPoOptions();
+loadEligiblePos();
 
 async function submitInvoice() {
   const fd = new FormData();
@@ -89,6 +108,7 @@ async function submitInvoice() {
   if (!res.ok) { alert(data.error || 'Failed'); return; }
   bootstrap.Modal.getInstance(document.getElementById('uploadModal')).hide();
   loadInvoices();
+  loadEligiblePos();
 }
 </script>
 </body>

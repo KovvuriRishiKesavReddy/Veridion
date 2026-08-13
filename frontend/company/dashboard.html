@@ -13,11 +13,28 @@
 
   <div class="row g-3" id="quickLinks"></div>
 
-  <h5 class="mt-5">Your Requirements</h5>
-  <table class="table bg-white">
-    <thead><tr><th>Title</th><th>Category</th><th>Quantity</th><th>Status</th><th>Posted</th></tr></thead>
-    <tbody id="reqRows"><tr><td colspan="5" class="text-muted">Loading...</td></tr></tbody>
-  </table>
+  <div id="paymentsSection" class="mt-5" style="display:none;">
+    <h5 class="mb-2">Invoices Awaiting Payment</h5>
+    <table class="table bg-white">
+      <thead><tr><th>Invoice #</th><th>Requirement</th><th>Vendor</th><th>Amount</th><th>Submitted</th><th>Action</th></tr></thead>
+      <tbody id="paymentRows"></tbody>
+    </table>
+    <a href="/company/invoices.html" class="small">View all invoices &rarr;</a>
+  </div>
+
+  <div id="deliverySection" class="mt-5" style="display:none;">
+    <h5 class="mb-2">Purchase Orders Awaiting Delivery</h5>
+    <div id="deliveryCards" class="row g-3 mb-2"></div>
+    <a href="/company/grn-entry.html" class="small">Go to GRN Entry &rarr;</a>
+  </div>
+
+  <div id="requirementsSection" class="mt-5" style="display:none;">
+    <h5 class="mb-2">Your Requirements</h5>
+    <table class="table bg-white">
+      <thead><tr><th>Title</th><th>Category</th><th>Quantity</th><th>Status</th><th>Posted</th></tr></thead>
+      <tbody id="reqRows"><tr><td colspan="5" class="text-muted">Loading...</td></tr></tbody>
+    </table>
+  </div>
 </div>
 <script src="/shared/api.js"></script>
 <script src="/shared/navbar.js"></script>
@@ -27,10 +44,10 @@ document.getElementById('userName').textContent = user ? user.name : '';
 document.getElementById('roleBadge').textContent = user ? user.role : '';
 
 const linksByRole = {
-  company_admin: [['/company/team.html','Manage Team'], ['/company/post-requirement.html','Post Requirement'], ['/company/quotation-comparison.html','Review Quotations'], ['/company/grn-entry.html','GRN Entry']],
-  procurement: [['/company/post-requirement.html','Post Requirement'], ['/company/quotation-comparison.html','Review Quotations']],
-  finance: [],
-  warehouse: [['/company/grn-entry.html','GRN Entry']],
+  company_admin: [['/company/team.html','Manage Team'], ['/company/post-requirement.html','Post Requirement'], ['/company/quotation-comparison.html','Review Quotations'], ['/company/purchase-orders.html','Purchase Orders'], ['/company/grn-entry.html','GRN Entry'], ['/company/grn-documents.html','GRN Documents'], ['/company/invoices.html','Invoices']],
+  procurement: [['/company/post-requirement.html','Post Requirement'], ['/company/quotation-comparison.html','Review Quotations'], ['/company/purchase-orders.html','Purchase Orders'], ['/company/grn-documents.html','GRN Documents']],
+  finance: [['/company/purchase-orders.html','Purchase Orders'], ['/company/grn-documents.html','GRN Documents'], ['/company/invoices.html','Invoices']],
+  warehouse: [['/company/grn-entry.html','GRN Entry'], ['/company/purchase-orders.html','Purchase Orders'], ['/company/grn-documents.html','GRN Documents']],
   platform_admin: []
 };
 if (user) {
@@ -38,23 +55,75 @@ if (user) {
     .map(([href, label]) => `<div class="col-md-4"><div class="card p-3 text-center"><h6>${label}</h6><a href="${href}" class="btn btn-amber btn-sm mt-2">Go</a></div></div>`).join('');
 }
 
-(async () => {
-  if (!user || user.role === 'warehouse' || user.role === 'platform_admin') {
-    document.getElementById('reqRows').innerHTML = '<tr><td colspan="5" class="text-muted">Not applicable for this role.</td></tr>';
-    return;
-  }
-  const res = await fetchWithAuth('/api/requirements/mine');
+// "Your Requirements" only makes sense for roles that actually deal with requirements —
+// Warehouse and Platform Admin never touch this, so the whole section is hidden for them
+// rather than shown with a "Not applicable" placeholder.
+if (user && !['warehouse', 'platform_admin'].includes(user.role)) {
+  document.getElementById('requirementsSection').style.display = 'block';
+  (async () => {
+    const res = await fetchWithAuth('/api/requirements/mine');
+    if (!res) return;
+    const reqs = await res.json();
+    const rows = document.getElementById('reqRows');
+    if (!reqs.length) { rows.innerHTML = '<tr><td colspan="5" class="text-muted">No requirements posted yet.</td></tr>'; return; }
+    rows.innerHTML = reqs.map(r => `
+      <tr>
+        <td>${r.title}</td><td>${r.category || '—'}</td><td>${r.quantity} ${r.unit || ''}</td>
+        <td><span class="badge status-badge ${statusBadgeClass(r.status)}">${r.status}</span></td>
+        <td>${new Date(r.created_at).toLocaleDateString()}</td>
+      </tr>`).join('');
+  })();
+}
+
+// Invoices awaiting payment — this was the actual missing piece: previously nothing on
+// the dashboard ever showed that a fully-delivered order had an invoice sitting there.
+if (user && ['finance', 'company_admin'].includes(user.role)) {
+  (async () => {
+    const res = await fetchWithAuth('/api/invoices/company');
+    if (!res) return;
+    const invs = (await res.json()).filter(i => i.status !== 'paid');
+    if (!invs.length) return;
+    document.getElementById('paymentsSection').style.display = 'block';
+    document.getElementById('paymentRows').innerHTML = invs.map(i => `
+      <tr>
+        <td>${i.invoice_number || '—'}</td>
+        <td>${i.requirement_title}</td>
+        <td>${i.vendor_name}</td>
+        <td>₹${i.invoice_amount}</td>
+        <td>${new Date(i.submitted_at).toLocaleDateString()}</td>
+        <td>${user.role === 'finance' ? `<button class="btn btn-sm btn-amber" onclick="markPaid(${i.id})">Mark as Paid</button>` : '<span class="small text-muted">Finance only</span>'}</td>
+      </tr>`).join('');
+  })();
+}
+
+async function markPaid(id) {
+  if (!confirm('Mark this invoice as paid?')) return;
+  const res = await fetchWithAuth(`/api/invoices/${id}/mark-paid`, { method: 'POST' });
   if (!res) return;
-  const reqs = await res.json();
-  const rows = document.getElementById('reqRows');
-  if (!reqs.length) { rows.innerHTML = '<tr><td colspan="5" class="text-muted">No requirements posted yet.</td></tr>'; return; }
-  rows.innerHTML = reqs.map(r => `
-    <tr>
-      <td>${r.title}</td><td>${r.category || '—'}</td><td>${r.quantity} ${r.unit || ''}</td>
-      <td><span class="badge status-badge ${statusBadgeClass(r.status)}">${r.status}</span></td>
-      <td>${new Date(r.created_at).toLocaleDateString()}</td>
-    </tr>`).join('');
-})();
+  const data = await res.json();
+  if (!res.ok) { alert(data.error || 'Failed'); return; }
+  location.reload();
+}
+
+// Warehouse gets a direct preview of what's awaiting delivery, instead of an empty
+// dashboard with only link cards.
+if (user && user.role === 'warehouse') {
+  (async () => {
+    const res = await fetchWithAuth('/api/purchase-orders/mine');
+    if (!res) return;
+    const pending = (await res.json()).filter(po => po.fulfillment_status !== 'fulfilled');
+    if (!pending.length) return;
+    document.getElementById('deliverySection').style.display = 'block';
+    document.getElementById('deliveryCards').innerHTML = pending.slice(0, 4).map(po => `
+      <div class="col-md-6">
+        <div class="card p-3">
+          <h6 class="mb-1">${po.requirement_title}</h6>
+          <p class="small text-muted mb-1">Vendor: ${po.vendor_name} · Received: ${po.received_so_far}/${po.agreed_quantity}</p>
+          <span class="badge status-badge ${statusBadgeClass(po.fulfillment_status)}">${po.fulfillment_status}</span>
+        </div>
+      </div>`).join('');
+  })();
+}
 </script>
 </body>
 </html>

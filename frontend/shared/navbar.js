@@ -18,6 +18,8 @@ function renderNavbar() {
       ['/vendor/dashboard.html', 'Dashboard'],
       ['/vendor/requirements.html', 'Browse Requirements'],
       ['/vendor/my-quotations.html', 'My Quotations'],
+      ['/vendor/purchase-orders.html', 'Purchase Orders'],
+      ['/vendor/grn-documents.html', 'Deliveries (GRN)'],
       ['/vendor/my-invoices.html', 'My Invoices']
     ],
     company_admin: [
@@ -25,22 +27,32 @@ function renderNavbar() {
       ['/company/team.html', 'Team'],
       ['/company/post-requirement.html', 'Post Requirement'],
       ['/company/quotation-comparison.html', 'Quotations'],
-      ['/company/grn-entry.html', 'GRN Entry']
+      ['/company/purchase-orders.html', 'Purchase Orders'],
+      ['/company/grn-entry.html', 'GRN Entry'],
+      ['/company/grn-documents.html', 'GRN Documents'],
+      ['/company/invoices.html', 'Invoices']
     ],
     procurement: [
       ['/company/dashboard.html', 'Dashboard'],
       ['/company/post-requirement.html', 'Post Requirement'],
-      ['/company/quotation-comparison.html', 'Quotations']
+      ['/company/quotation-comparison.html', 'Quotations'],
+      ['/company/purchase-orders.html', 'Purchase Orders'],
+      ['/company/grn-documents.html', 'GRN Documents']
     ],
     finance: [
-      ['/company/dashboard.html', 'Dashboard']
+      ['/company/dashboard.html', 'Dashboard'],
+      ['/company/purchase-orders.html', 'Purchase Orders'],
+      ['/company/grn-documents.html', 'GRN Documents'],
+      ['/company/invoices.html', 'Invoices']
     ],
     warehouse: [
       ['/company/dashboard.html', 'Dashboard'],
-      ['/company/grn-entry.html', 'GRN Entry']
+      ['/company/grn-entry.html', 'GRN Entry'],
+      ['/company/purchase-orders.html', 'Purchase Orders'],
+      ['/company/grn-documents.html', 'GRN Documents']
     ],
     platform_admin: [
-      ['/company/dashboard.html', 'Dashboard']
+      ['/admin/dashboard.html', 'Dashboard']
     ]
   };
 
