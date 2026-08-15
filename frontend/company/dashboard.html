@@ -46,7 +46,7 @@ document.getElementById('roleBadge').textContent = user ? user.role : '';
 const linksByRole = {
   company_admin: [['/company/team.html','Manage Team'], ['/company/post-requirement.html','Post Requirement'], ['/company/quotation-comparison.html','Review Quotations'], ['/company/purchase-orders.html','Purchase Orders'], ['/company/grn-entry.html','GRN Entry'], ['/company/grn-documents.html','GRN Documents'], ['/company/invoices.html','Invoices']],
   procurement: [['/company/post-requirement.html','Post Requirement'], ['/company/quotation-comparison.html','Review Quotations'], ['/company/purchase-orders.html','Purchase Orders'], ['/company/grn-documents.html','GRN Documents']],
-  finance: [['/company/purchase-orders.html','Purchase Orders'], ['/company/grn-documents.html','GRN Documents'], ['/company/invoices.html','Invoices']],
+  finance: [['/company/purchase-orders.html','Purchase Orders'], ['/company/grn-documents.html','GRN Documents'], ['/company/invoices.html','Invoices'], ['/company/payment.html','Payments']],
   warehouse: [['/company/grn-entry.html','GRN Entry'], ['/company/purchase-orders.html','Purchase Orders'], ['/company/grn-documents.html','GRN Documents']],
   platform_admin: []
 };
@@ -91,7 +91,11 @@ if (user && ['finance', 'company_admin'].includes(user.role)) {
         <td>${i.vendor_name}</td>
         <td>₹${i.invoice_amount}</td>
         <td>${new Date(i.submitted_at).toLocaleDateString()}</td>
-        <td>${user.role === 'finance' ? `<button class="btn btn-sm btn-amber" onclick="markPaid(${i.id})">Mark as Paid</button>` : '<span class="small text-muted">Finance only</span>'}</td>
+        <td>${
+          user.role !== 'finance' ? '<span class="small text-muted">Finance only</span>' :
+          i.final_decision === 'auto_approved' ? `<button class="btn btn-sm btn-amber" onclick="markPaid(${i.id})">Mark as Paid</button>` :
+          `<a href="/company/invoice-review.html?id=${i.id}" class="small">Needs review &rarr;</a>`
+        }</td>
       </tr>`).join('');
   })();
 }

@@ -2,6 +2,7 @@ const express = require('express');
 const db = require('../db');
 const { requireAuth } = require('../middleware/auth');
 const { requireRole } = require('../middleware/roles');
+const { requireVerifiedVendor } = require('../middleware/vendorVerification');
 
 const router = express.Router();
 
@@ -21,7 +22,7 @@ router.post('/', requireAuth, requireRole('procurement', 'company_admin'), async
 // GET /api/requirements (vendor) — browsable, filterable by category, open only.
 // Excludes any requirement this vendor has already quoted on — otherwise it stays
 // visible and inviting a second (duplicate/conflicting) quotation on the same job.
-router.get('/', requireAuth, requireRole('vendor'), async (req, res) => {
+router.get('/', requireAuth, requireRole('vendor'), requireVerifiedVendor, async (req, res) => {
   const { category } = req.query;
   const params = [req.user.vendor_id];
   let sql = `SELECT r.*, c.name as company_name FROM requirements r

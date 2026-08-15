@@ -2,12 +2,13 @@ const express = require('express');
 const db = require('../db');
 const { requireAuth } = require('../middleware/auth');
 const { requireRole } = require('../middleware/roles');
+const { requireVerifiedVendor } = require('../middleware/vendorVerification');
 const { generatePoPdf } = require('../utils/pdf');
 
 const router = express.Router();
 
 // POST /api/quotations (vendor)
-router.post('/', requireAuth, requireRole('vendor'), async (req, res) => {
+router.post('/', requireAuth, requireRole('vendor'), requireVerifiedVendor, async (req, res) => {
   const { requirement_id, price, delivery_days, notes } = req.body;
   if (!requirement_id || !price || !delivery_days) {
     return res.status(400).json({ error: 'requirement_id, price, delivery_days are required' });
@@ -28,7 +29,7 @@ router.post('/', requireAuth, requireRole('vendor'), async (req, res) => {
 });
 
 // GET /api/quotations/mine (vendor)
-router.get('/mine', requireAuth, requireRole('vendor'), async (req, res) => {
+router.get('/mine', requireAuth, requireRole('vendor'), requireVerifiedVendor, async (req, res) => {
   const result = await db.query(
     `SELECT q.*, r.title as requirement_title FROM quotations q
      JOIN requirements r ON r.id = q.requirement_id

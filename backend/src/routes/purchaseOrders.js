@@ -5,6 +5,15 @@ const { requireAuth } = require('../middleware/auth');
 
 const router = express.Router();
 
+// This file branches by role inside single handlers rather than using requireRole,
+// so the vendor verification gate (see middleware/vendorVerification.js for the full
+// explanation) is applied inline via this small helper instead of as route middleware.
+async function vendorIsUnverified(req) {
+  if (req.user.role !== 'vendor') return false;
+  const result = await db.query(`SELECT verification_status FROM vendors WHERE id = $1`, [req.user.vendor_id]);
+  return result.rows[0]?.verification_status !== 'verified';
+}
+
 const FINANCIAL_FIELDS = ['agreed_price', 'cumulative_invoiced_amount'];
 
 function stripFinancials(po) {
@@ -26,6 +35,7 @@ const GRN_SUM_JOIN = `
 // GET /api/purchase-orders/mine — vendors get their own POs; company-side roles
 // (company_admin/procurement/finance/warehouse) get every PO for their company.
 router.get('/mine', requireAuth, async (req, res) => {
+  if (await vendorIsUnverified(req)) return res.status(403).json({ error: 'Your vendor account is not verified.' });
   let rows;
   if (req.user.role === 'vendor') {
     const result = await db.query(

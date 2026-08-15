@@ -68,3 +68,72 @@ on startup, your folder layout doesn't match `veridion/backend` and
 
 Once all of that works cleanly, we move to Flow 2 (AI: OCR, Matching,
 Compliance, the Context Gate).
+
+---
+
+# Flow 2 — The Core AI Decision (OCR, Matching, Compliance, the Context Gate)
+
+## What's new
+Every invoice a vendor submits now automatically runs through four stages: OCR/Structuring
+(Agent 1), Semantic Matching against the GRN (Agent 2), Compliance/GST validation (Agent 3),
+and the Context Gate Decision Engine (Agent 8) — producing an auto-approval or a flag with
+full plain-English reasoning, visible on the new Invoice Review page.
+
+## Setup (in addition to everything from Flow 1)
+
+### 1. Install RabbitMQ locally (no Docker)
+- **Mac:** `brew install rabbitmq && brew services start rabbitmq`
+- **Windows:** download the installer from rabbitmq.com (it needs Erlang installed first —
+  the installer will prompt you)
+- **Linux:** `sudo apt install rabbitmq-server && sudo service rabbitmq-server start`
+
+Confirm it's running: `rabbitmqctl status` should print server info without errors.
+
+### 2. Get a free Groq API key (optional, but recommended)
+Go to console.groq.com, sign up, create an API key. **The pipeline works without one** —
+every agent falls back to deterministic, honest logic (matching scores, GSTIN validation,
+the Context Gate math are all pure calculation, not AI). Only the natural-language
+`reasoning_text` on each decision is templated instead of LLM-written until you add a key.
+
+### 3. Set up the ai-service
+```bash
+cd ai-service
+cp .env.example .env
+# edit .env: DATABASE_URL (same as backend's), RABBITMQ_URL=amqp://localhost,
+# and GROQ_API_KEY if you have one
+npm install
+npm run dev      # starts on http://localhost:4100, and begins consuming the queue
+```
+
+### 4. Apply the new migration
+```bash
+cd backend
+npm run migrate   # picks up 002_ai_schema.sql automatically — safe to re-run
+```
+
+### 5. Run everything
+You now need **three things running at once**, each in its own terminal:
+1. `cd backend && npm run dev` (port 4000 — API + frontend)
+2. `cd ai-service && npm run dev` (port 4100 — AI agents + RabbitMQ consumer)
+3. RabbitMQ and Postgres running as background services (steps above)
+
+## How to test it
+1. Walk through the Flow 1 lifecycle as usual: quote → accept → GRN → invoice.
+2. The moment the invoice is submitted, the backend publishes to RabbitMQ — watch the
+   `ai-service` terminal, you should see `[pipeline] invoice N: starting OCR` and so on,
+   finishing with `DONE — auto_approved` or `DONE — flagged`.
+3. Log in as Finance → go to **Invoices** → click any invoice number (or **Review**) →
+   you'll see the full breakdown: System Decision, confidence badge, Matching results,
+   Compliance results, and the raw OCR/structuring output.
+4. Try a **clean** invoice (amounts matching the PO, valid GSTIN) — should auto-approve.
+5. Try a **mismatched** invoice (wrong quantity, or a garbage GSTIN like `INVALIDGSTIN`) —
+   should get flagged, with the mismatch specifics visible in the Matching card.
+
+## Troubleshooting
+- **Nothing happens after uploading an invoice:** check the `ai-service` terminal for
+  errors, and confirm RabbitMQ is running (`rabbitmqctl status`).
+- **Review page says "AI verification hasn't run yet":** the pipeline may still be
+  running (OCR can take a moment) — refresh after a few seconds. If it never appears,
+  check the ai-service log.
+- **Groq errors in the ai-service log:** double check `GROQ_API_KEY` in `ai-service/.env`
+  is correct, or leave it blank to use the fallback path.

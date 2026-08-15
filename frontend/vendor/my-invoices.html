@@ -32,13 +32,18 @@
           </div>
           <div class="mb-3"><label class="form-label">Invoice Number</label><input class="form-control" id="invoice_number"></div>
           <div class="mb-3"><label class="form-label">Invoice Amount (₹)</label><input type="number" step="0.01" class="form-control" id="invoice_amount" required></div>
+          <div class="mb-3"><label class="form-label">Quantity Being Billed</label><input type="number" step="0.01" class="form-control" id="invoice_quantity" required></div>
           <div class="mb-3"><label class="form-label">GST Amount (₹)</label><input type="number" step="0.01" class="form-control" id="gst_amount"></div>
           <div class="mb-3"><label class="form-label">GSTIN on Invoice</label><input class="form-control" id="gstin_on_invoice"></div>
           <div class="mb-3">
             <label class="form-label">Payment Due Date <span class="text-muted small">(when you expect to be paid — optional)</span></label>
             <input type="date" class="form-control" id="due_date">
           </div>
-          <div class="mb-3"><label class="form-label">Invoice File</label><input type="file" class="form-control" id="invoice_file"></div>
+          <div class="mb-3">
+            <label class="form-label">Your Invoice Document <span class="text-danger">*required</span></label>
+            <input type="file" class="form-control" id="invoice_file" required>
+            <p class="small text-muted mt-1">Upload your own invoice (from your accounting software) — this is what our AI actually reads and verifies. It's not optional; it's the core of how verification works.</p>
+          </div>
         </div>
       </div>
       <div class="modal-footer"><button class="btn btn-primary" id="submitBtn" onclick="submitInvoice()">Upload</button></div>
@@ -85,22 +90,36 @@ async function loadEligiblePos() {
   noEligible.classList.add('d-none');
   fields.classList.remove('d-none');
   submitBtn.disabled = false;
+  window.__eligiblePos = pos;
   document.getElementById('po_id').innerHTML = pos.map(po => `<option value="${po.id}">PO #${po.id} — ${po.requirement_title} (₹${po.agreed_price})</option>`).join('');
+  prefillFromPo();
 }
+
+function prefillFromPo() {
+  const id = Number(document.getElementById('po_id').value);
+  const po = (window.__eligiblePos || []).find(p => p.id === id);
+  if (!po) return;
+  document.getElementById('invoice_amount').value = po.agreed_price;
+  document.getElementById('invoice_quantity').value = po.received_so_far;
+}
+document.getElementById('po_id').addEventListener('change', prefillFromPo);
 
 loadInvoices();
 loadEligiblePos();
 
 async function submitInvoice() {
+  const file = document.getElementById('invoice_file').files[0];
+  if (!file) { alert('Please upload your invoice document — it is required.'); return; }
+
   const fd = new FormData();
   fd.append('po_id', document.getElementById('po_id').value);
   fd.append('invoice_number', document.getElementById('invoice_number').value);
   fd.append('invoice_amount', document.getElementById('invoice_amount').value);
+  fd.append('invoice_quantity', document.getElementById('invoice_quantity').value);
   fd.append('gst_amount', document.getElementById('gst_amount').value);
   fd.append('gstin_on_invoice', document.getElementById('gstin_on_invoice').value);
   fd.append('due_date', document.getElementById('due_date').value);
-  const file = document.getElementById('invoice_file').files[0];
-  if (file) fd.append('invoice_file', file);
+  fd.append('invoice_file', file);
 
   const res = await fetchWithAuth('/api/invoices', { method: 'POST', body: fd });
   if (!res) return;

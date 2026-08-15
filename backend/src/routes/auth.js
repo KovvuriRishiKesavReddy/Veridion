@@ -43,7 +43,7 @@ router.post('/register/vendor', upload.single('business_reg_proof'), async (req,
     );
     await client.query('COMMIT');
     const token = signToken({ ...user, company_id: null }, { vendor_id: vendorRes.rows[0].id });
-    res.status(201).json({ token, user });
+    res.status(201).json({ token, user: { ...user, vendor_verification_status: 'pending' } });
   } catch (err) {
     await client.query('ROLLBACK');
     if (err.code === '23505') return res.status(409).json({ error: 'Email already registered' });
@@ -101,11 +101,17 @@ router.post('/login', async (req, res) => {
   const match = await bcrypt.compare(password, user.password_hash);
   if (!match) return res.status(401).json({ error: 'Invalid credentials' });
 
-  // attach vendor_id if this user is a vendor, for convenience downstream
+  // attach vendor_id if this user is a vendor, for convenience downstream — and fetch
+  // their current verification_status so the frontend can route pending/rejected
+  // vendors to the awaiting-approval page instead of the full dashboard. This is a UX
+  // convenience only — requireVerifiedVendor on the backend is what actually enforces
+  // this regardless of what the frontend does with it.
   let vendorId = null;
+  let vendorVerificationStatus = null;
   if (user.role === 'vendor') {
-    const vRes = await db.query('SELECT id FROM vendors WHERE user_id = $1', [user.id]);
+    const vRes = await db.query('SELECT id, verification_status FROM vendors WHERE user_id = $1', [user.id]);
     vendorId = vRes.rows[0]?.id || null;
+    vendorVerificationStatus = vRes.rows[0]?.verification_status || null;
   }
 
   const token = jwt.sign(
@@ -116,7 +122,10 @@ router.post('/login', async (req, res) => {
 
   res.json({
     token,
-    user: { id: user.id, name: user.name, email: user.email, role: user.role, company_id: user.company_id, vendor_id: vendorId }
+    user: {
+      id: user.id, name: user.name, email: user.email, role: user.role, company_id: user.company_id, vendor_id: vendorId,
+      vendor_verification_status: vendorVerificationStatus
+    }
   });
 });
 
@@ -164,7 +173,15 @@ router.post('/accept-invite/:token', async (req, res) => {
 router.get('/me', requireAuth, async (req, res) => {
   const result = await db.query('SELECT id, name, email, role, company_id FROM users WHERE id = $1', [req.user.id]);
   if (!result.rows[0]) return res.status(404).json({ error: 'Not found' });
-  res.json(result.rows[0]);
+  const user = result.rows[0];
+
+  if (user.role === 'vendor') {
+    const vRes = await db.query('SELECT id, verification_status FROM vendors WHERE user_id = $1', [user.id]);
+    user.vendor_id = vRes.rows[0]?.id || null;
+    user.vendor_verification_status = vRes.rows[0]?.verification_status || null;
+  }
+
+  res.json(user);
 });
 
 module.exports = router;

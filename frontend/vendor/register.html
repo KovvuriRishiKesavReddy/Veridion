@@ -49,7 +49,7 @@ document.getElementById('form').addEventListener('submit', async (e) => {
   const data = await res.json();
   if (!res.ok) { errorBox.textContent = data.error || 'Registration failed'; errorBox.classList.remove('d-none'); return; }
   setSession(data.token, data.user);
-  window.location.href = '/vendor/dashboard.html';
+  window.location.href = '/vendor/awaiting-approval.html';
 });
 </script>
 </body>

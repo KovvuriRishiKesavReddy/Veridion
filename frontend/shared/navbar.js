@@ -20,7 +20,8 @@ function renderNavbar() {
       ['/vendor/my-quotations.html', 'My Quotations'],
       ['/vendor/purchase-orders.html', 'Purchase Orders'],
       ['/vendor/grn-documents.html', 'Deliveries (GRN)'],
-      ['/vendor/my-invoices.html', 'My Invoices']
+      ['/vendor/my-invoices.html', 'My Invoices'],
+      ['/vendor/payments.html', 'Payment Status']
     ],
     company_admin: [
       ['/company/dashboard.html', 'Dashboard'],
@@ -43,7 +44,8 @@ function renderNavbar() {
       ['/company/dashboard.html', 'Dashboard'],
       ['/company/purchase-orders.html', 'Purchase Orders'],
       ['/company/grn-documents.html', 'GRN Documents'],
-      ['/company/invoices.html', 'Invoices']
+      ['/company/invoices.html', 'Invoices'],
+      ['/company/payment.html', 'Payments']
     ],
     warehouse: [
       ['/company/dashboard.html', 'Dashboard'],
@@ -75,4 +77,25 @@ function renderNavbar() {
       </div>
     </nav>`;
 }
-document.addEventListener('DOMContentLoaded', renderNavbar);
+document.addEventListener('DOMContentLoaded', () => {
+  renderNavbar();
+  enforceVendorVerification();
+});
+
+// Backend routes already reject an unverified vendor's API calls (see
+// requireVerifiedVendor middleware) — this is just the frontend half, so a
+// bookmarked/direct URL to the dashboard redirects cleanly instead of rendering a
+// page full of 403 errors. Never trust this alone for security; the backend check
+// is what actually matters.
+async function enforceVendorVerification() {
+  const user = getUser();
+  if (!user || user.role !== 'vendor') return;
+  if (window.location.pathname.includes('/vendor/awaiting-approval.html')) return;
+
+  const res = await fetchWithAuth('/api/auth/me');
+  if (!res) return;
+  const me = await res.json();
+  if (me.vendor_verification_status !== 'verified') {
+    window.location.href = '/vendor/awaiting-approval.html';
+  }
+}

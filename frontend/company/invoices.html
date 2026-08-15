@@ -29,14 +29,17 @@ async function load() {
   if (!invs.length) { rows.innerHTML = '<tr><td colspan="8" class="text-muted">No invoices submitted yet.</td></tr>'; return; }
   rows.innerHTML = invs.map(i => `
     <tr>
-      <td>${i.invoice_number || '—'}</td>
+      <td><a href="/company/invoice-review.html?id=${i.id}">${i.invoice_number || '#' + i.id}</a></td>
       <td>${i.requirement_title}</td>
       <td>${i.vendor_name}</td>
       <td>₹${i.invoice_amount}</td>
       <td>₹${i.gst_amount || 0}</td>
       <td><span class="badge status-badge ${statusBadgeClass(i.status)}">${i.status}</span></td>
       <td>${new Date(i.submitted_at).toLocaleDateString()}</td>
-      <td>${i.status !== 'paid' && user.role === 'finance' ? `<button class="btn btn-sm btn-amber" onclick="markPaid(${i.id})">Mark as Paid</button>` : (i.status === 'paid' ? '—' : '<span class="small text-muted">Finance only</span>')}</td>
+      <td>
+        <a href="/company/invoice-review.html?id=${i.id}" class="btn btn-sm btn-outline-secondary me-1">Review</a>
+        ${i.status !== 'paid' && user.role === 'finance' ? `<button class="btn btn-sm btn-amber" onclick="markPaid(${i.id})">Mark as Paid</button>` : ''}
+      </td>
     </tr>`).join('');
 }
 

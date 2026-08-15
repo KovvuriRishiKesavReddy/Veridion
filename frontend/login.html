@@ -62,7 +62,7 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
     if (!res.ok) { errorBox.textContent = data.error || 'Login failed'; errorBox.classList.remove('d-none'); return; }
     setSession(data.token, data.user);
     const dest = {
-      vendor: '/vendor/dashboard.html',
+      vendor: data.user.vendor_verification_status === 'verified' ? '/vendor/dashboard.html' : '/vendor/awaiting-approval.html',
       company_admin: '/company/dashboard.html',
       procurement: '/company/dashboard.html',
       finance: '/company/dashboard.html',

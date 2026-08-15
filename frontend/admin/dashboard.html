@@ -36,6 +36,7 @@ async function load() {
       <td><span class="badge status-badge ${statusBadgeClass(v.verification_status)}">${v.verification_status}</span></td>
       <td>${new Date(v.created_at).toLocaleDateString()}</td>
       <td>
+        ${v.business_reg_proof_path ? `<button class="btn btn-sm btn-outline-secondary mb-1" onclick="viewProof(${v.id})">View Proof</button><br>` : '<span class="small text-muted d-block">No proof uploaded</span>'}
         ${v.verification_status === 'pending' ? `
           <button class="btn btn-sm btn-amber me-1" onclick="verify(${v.id}, 'verified')">Approve</button>
           <button class="btn btn-sm btn-outline-danger" onclick="verify(${v.id}, 'rejected')">Reject</button>
@@ -46,6 +47,13 @@ async function load() {
         `}
       </td>
     </tr>`).join('');
+}
+
+async function viewProof(id) {
+  const res = await fetchWithAuth(`/api/admin/vendors/${id}/proof-document`);
+  if (!res || !res.ok) { alert('No proof document on file for this vendor.'); return; }
+  const blob = await res.blob();
+  window.open(URL.createObjectURL(blob), '_blank');
 }
 
 async function verify(id, status) {

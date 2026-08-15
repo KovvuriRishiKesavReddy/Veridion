@@ -1,4 +1,5 @@
 const express = require('express');
+const path = require('path');
 const db = require('../db');
 const { requireAuth } = require('../middleware/auth');
 const { requireRole } = require('../middleware/roles');
@@ -16,6 +17,16 @@ router.get('/vendors', requireAuth, requireRole('platform_admin'), async (req, r
      ORDER BY v.created_at DESC`
   );
   res.json(result.rows);
+});
+
+// GET /api/admin/vendors/:id/proof-document — the actual uploaded business
+// registration proof. Approving/rejecting a vendor without ever being able to see
+// what they submitted made "verification" a rubber stamp — this closes that gap.
+router.get('/vendors/:id/proof-document', requireAuth, requireRole('platform_admin'), async (req, res) => {
+  const result = await db.query(`SELECT business_reg_proof_path FROM vendors WHERE id = $1`, [req.params.id]);
+  const vendor = result.rows[0];
+  if (!vendor || !vendor.business_reg_proof_path) return res.status(404).json({ error: 'No proof document on file' });
+  res.sendFile(path.resolve(vendor.business_reg_proof_path));
 });
 
 // POST /api/admin/vendors/:id/verify — approve or reject a vendor's registration.

@@ -2,6 +2,7 @@ const express = require('express');
 const db = require('../db');
 const { requireAuth } = require('../middleware/auth');
 const { requireRole } = require('../middleware/roles');
+const { requireVerifiedVendor } = require('../middleware/vendorVerification');
 
 const router = express.Router();
 
@@ -119,7 +120,7 @@ router.get('/company', requireAuth, requireRole('company_admin', 'procurement', 
 });
 
 // GET /api/grn/vendor — every GRN recorded against this vendor's own POs.
-router.get('/vendor', requireAuth, requireRole('vendor'), async (req, res) => {
+router.get('/vendor', requireAuth, requireRole('vendor'), requireVerifiedVendor, async (req, res) => {
   const result = await db.query(
     `SELECT g.*, po.agreed_quantity, po.fulfillment_status, po.company_id,
             c.name as company_name, r.title as requirement_title,
