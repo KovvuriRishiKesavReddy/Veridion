@@ -15,6 +15,13 @@
     <thead><tr><th>Company</th><th>Contact</th><th>Email</th><th>GSTIN</th><th>Status</th><th>Registered</th><th>Action</th></tr></thead>
     <tbody id="rows"><tr><td colspan="7" class="text-muted">Loading...</td></tr></tbody>
   </table>
+
+  <h3 class="mb-1 mt-5">Fraud Review Queue</h3>
+  <p class="text-muted">Invoices marked 'suspicious' by the Context Gate — a high-severity fraud signal (shell company, split billing) bypasses the normal weighted decision entirely and lands here for cross-company review.</p>
+  <table class="table bg-white">
+    <thead><tr><th>Vendor</th><th>Invoice</th><th>Flag Type</th><th>Severity</th><th>Status</th><th>Action</th></tr></thead>
+    <tbody id="fraudRows"><tr><td colspan="6" class="text-muted">Loading...</td></tr></tbody>
+  </table>
 </div>
 <script src="/shared/api.js"></script>
 <script src="/shared/navbar.js"></script>
@@ -65,6 +72,32 @@ async function verify(id, status) {
 }
 
 load();
+loadFraudFlags();
+
+async function loadFraudFlags() {
+  const res = await fetchWithAuth('/api/admin/fraud-flags');
+  if (!res) return;
+  const flags = await res.json();
+  const rows = document.getElementById('fraudRows');
+  if (!flags.length) { rows.innerHTML = '<tr><td colspan="6" class="text-muted">No fraud flags raised yet.</td></tr>'; return; }
+  rows.innerHTML = flags.map(f => `
+    <tr>
+      <td>${f.vendor_name}</td>
+      <td>${f.invoice_number || (f.invoice_id ? '#' + f.invoice_id : '—')}</td>
+      <td>${f.flag_type}</td>
+      <td><span class="badge ${f.severity === 'high' ? 'bg-danger' : f.severity === 'medium' ? 'bg-warning text-dark' : 'bg-secondary'}">${f.severity}</span></td>
+      <td>${f.resolved ? '<span class="badge bg-success">Resolved</span>' : '<span class="badge bg-warning text-dark">Open</span>'}</td>
+      <td>${f.resolved ? '—' : `<button class="btn btn-sm btn-outline-secondary" onclick="resolveFlag(${f.id})">Mark Resolved</button>`}</td>
+    </tr>`).join('');
+}
+
+async function resolveFlag(id) {
+  const res = await fetchWithAuth(`/api/admin/fraud-flags/${id}/resolve`, { method: 'POST' });
+  if (!res) return;
+  const data = await res.json();
+  if (!res.ok) { alert(data.error || 'Failed'); return; }
+  loadFraudFlags();
+}
 </script>
 </body>
 </html>

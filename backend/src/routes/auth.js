@@ -4,6 +4,7 @@ const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const db = require('../db');
 const upload = require('../utils/upload');
+const { syncVendorNode } = require('../utils/neo4jSync');
 const { requireAuth } = require('../middleware/auth');
 const { requireRole } = require('../middleware/roles');
 
@@ -22,6 +23,9 @@ router.post('/register/vendor', upload.single('business_reg_proof'), async (req,
   const { name, email, password, company_name, gstin, pan, phone_number } = req.body;
   if (!name || !email || !password || !company_name) {
     return res.status(400).json({ error: 'name, email, password, company_name are required' });
+  }
+  if (!req.file) {
+    return res.status(400).json({ error: 'Business registration proof document is required — Platform Admin cannot verify your account without it.' });
   }
   const client = await db.getClient();
   try {
@@ -44,6 +48,10 @@ router.post('/register/vendor', upload.single('business_reg_proof'), async (req,
     await client.query('COMMIT');
     const token = signToken({ ...user, company_id: null }, { vendor_id: vendorRes.rows[0].id });
     res.status(201).json({ token, user: { ...user, vendor_verification_status: 'pending' } });
+
+    // Fire-and-forget, after the response — a vendor registration must never fail or
+    // slow down because of graph sync trouble.
+    syncVendorNode({ id: vendorRes.rows[0].id, company_name, gstin, bank_account_number: null, address: null });
   } catch (err) {
     await client.query('ROLLBACK');
     if (err.code === '23505') return res.status(409).json({ error: 'Email already registered' });

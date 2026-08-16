@@ -46,8 +46,19 @@ async function load() {
         <div class="mb-2">${decisionBadge(i)}</div>
         <div class="mb-2">${paymentBadge(i)}</div>
         ${i.decision_reasoning ? `<details class="small text-muted"><summary>Why this decision?</summary><p class="mt-1">${i.decision_reasoning}</p></details>` : ''}
+        ${['flagged', 'suspicious'].includes(i.final_decision) && i.status !== 'paid' ? `<button class="btn btn-sm btn-outline-danger mt-2" onclick="withdrawInvoice(${i.id})">Withdraw &amp; Resubmit Corrected Invoice</button>` : ''}
       </div>
     </div>`).join('');
+}
+
+async function withdrawInvoice(id) {
+  if (!confirm('Withdraw this invoice? You will need to fix the issue and resubmit — this cannot be undone.')) return;
+  const res = await fetchWithAuth(`/api/invoices/${id}`, { method: 'DELETE' });
+  if (!res) return;
+  const data = await res.json();
+  if (!res.ok) { alert(data.error || 'Failed'); return; }
+  alert('Invoice withdrawn — go to My Invoices to resubmit a corrected version.');
+  load();
 }
 
 load();

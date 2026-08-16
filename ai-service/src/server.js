@@ -6,11 +6,13 @@ const { runOcrAgent } = require('./agents/ocr');
 const { runMatchingAgent } = require('./agents/matching');
 const { runComplianceAgent } = require('./agents/compliance');
 const { runDecisionAgent } = require('./agents/decide');
+const { runFraudAgent } = require('./agents/fraud');
+const { onGrnConfirmed, onDisputeResolved } = require('./agents/vendorRisk');
 
 const app = express();
 app.use(express.json());
 
-app.get('/health', (req, res) => res.json({ status: 'ok', groq_configured: !!process.env.GROQ_API_KEY }));
+app.get('/health', (req, res) => res.json({ status: 'ok', groq_configured: !!process.env.GROQ_API_KEY, neo4j_configured: !!process.env.NEO4J_URI }));
 
 // Each agent is exposed as its own route too — lets you test/re-run a single stage
 // directly (e.g. curl POST /agents/decide) without needing a queue message, which is
@@ -55,6 +57,40 @@ app.post('/agents/decide', async (req, res) => {
   }
 });
 
+app.post('/agents/fraud', async (req, res) => {
+  try {
+    const result = await runFraudAgent(req.body.invoice_id);
+    res.json(result);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /agents/vendor-risk/on-grn-confirmed — called by the backend's GRN route the
+// moment a delivery is recorded.
+app.post('/agents/vendor-risk/on-grn-confirmed', async (req, res) => {
+  try {
+    const result = await onGrnConfirmed(req.body.po_id, req.body.grn_id);
+    res.json(result);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /agents/vendor-risk/on-dispute-resolved — not called by anything yet (the
+// dispute flow is Flow 4), exposed now so Flow 4 can wire it directly.
+app.post('/agents/vendor-risk/on-dispute-resolved', async (req, res) => {
+  try {
+    const result = await onDisputeResolved(req.body.company_id, req.body.vendor_id, req.body.was_disputed);
+    res.json(result);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // The full pipeline in sequence: OCR -> Matching + Compliance (run concurrently, since
 // neither depends on the other's result) -> Decision Engine. This is the same logic the
 // RabbitMQ consumer below runs automatically for every submitted invoice.
@@ -65,7 +101,7 @@ async function runFullPipeline(invoiceId) {
   console.log(`[pipeline] invoice ${invoiceId}: running Matching + Compliance concurrently`);
   await Promise.all([runMatchingAgent(invoiceId), runComplianceAgent(invoiceId)]);
 
-  console.log(`[pipeline] invoice ${invoiceId}: running Decision Engine (Context Gate)`);
+  console.log(`[pipeline] invoice ${invoiceId}: running Decision Engine (Context Gate — now includes Fraud + Vendor Risk)`);
   const decision = await runDecisionAgent(invoiceId);
 
   console.log(`[pipeline] invoice ${invoiceId}: DONE — ${decision.final_decision} (score ${Number(decision.final_score).toFixed(2)})`);

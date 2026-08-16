@@ -1,10 +1,11 @@
 const db = require('../db');
 const { callGroqStructured } = require('../groqClient');
+const { runFraudAgent } = require('./fraud');
+const { onInvoiceDecisionFinalised } = require('./vendorRisk');
 
 // runDecisionAgent: Agent 8 — the Context Gate / Decision Engine.
-// For now this reads only Agents 2 (Matching) and 3 (Compliance) — Fraud and Vendor
-// Risk get added in Flow 3, at which point this route gets updated to include them,
-// exactly per the build doc's own staging.
+// Now reads all four suppliers (Matching, Compliance, Fraud, Vendor Risk) — this is
+// the Flow 3 update per the build doc's own staging (Flow 2 only had Matching+Compliance).
 //
 // The formula is applied EXACTLY as specified:
 //   raw_weight_i   = confidence_i * log(1 + data_volume_i)
@@ -19,23 +20,52 @@ async function runDecisionAgent(invoiceId) {
   const compliance = complianceRes.rows[0];
   if (!matching || !compliance) throw new Error(`Missing matching or compliance result for invoice ${invoiceId} — run those agents first`);
 
-  // Convert each agent's verdict into a 0-1 numeric score before applying the gate.
-  const matchingVerdictScore = Number(matching.grn_match_score); // already 0-1
+  const invRes = await db.query(`SELECT inv.*, po.company_id FROM invoices inv JOIN purchase_orders po ON po.id = inv.po_id WHERE inv.id = $1`, [invoiceId]);
+  const invoice = invRes.rows[0];
+
+  // Agent 4 — Fraud Detection. Runs fresh every time (checks the graph as it stands now).
+  const fraud = await runFraudAgent(invoiceId);
+
+  // High-severity fraud skips the normal gate calculation entirely and routes straight
+  // to a suspicious/rejected outcome for Platform Admin review — per Part 3.4/6.3, this
+  // is the one case where a supplier's finding overrides the gate math rather than
+  // just being weighted into it.
+  if (fraud.has_high_severity) {
+    const reasoningText = `This invoice was marked SUSPICIOUS immediately — Fraud Detection found a high-severity signal (${fraud.flags.map(f => f.flag_type).join(', ')}) and this bypasses the normal weighted decision entirely. Routed to the Platform Admin fraud review queue.`;
+    const result = await db.query(
+      `INSERT INTO decisions (invoice_id, agent_inputs, gate_weights, final_score, final_decision, reasoning_text)
+       VALUES ($1,$2,$3,$4,'suspicious',$5) RETURNING *`,
+      [invoiceId, JSON.stringify({ fraud }), JSON.stringify({}), 0, reasoningText]
+    );
+    await db.query(`UPDATE invoices SET status = 'suspicious' WHERE id = $1`, [invoiceId]);
+    if (invoice) await onInvoiceDecisionFinalised(invoiceId, 'suspicious');
+    return result.rows[0];
+  }
+
+  // Agent 5 — Vendor Risk. Reads the CURRENT stored score scoped to (company_id,
+  // vendor_id) — this agent does not run any gate logic itself, it only supplies
+  // score + data_volume for Agent 8 (and Agent 6, later) to weigh (Part 6.3/6.4).
+  const riskRes = await db.query(
+    `SELECT * FROM vendor_risk_scores WHERE company_id = $1 AND vendor_id = $2`,
+    [invoice.company_id, invoice.vendor_id]
+  );
+  const risk = riskRes.rows[0];
+  // No history yet (data_volume 0) is handled honestly, not faked: neutral verdict,
+  // zero data_volume, so the gate naturally assigns it near-zero weight — cold start
+  // by design (Part 5.7).
+  const riskVerdictScore = risk?.invoice_accuracy_pct != null ? Number(risk.invoice_accuracy_pct) / 100 : 0.5;
+  const riskDataVolume = risk?.data_volume || 0;
+  const riskConfidence = riskDataVolume > 0 ? 0.8 : 0;
+
+  // Convert each remaining agent's verdict into a 0-1 numeric score before applying the gate.
+  const matchingVerdictScore = Number(matching.grn_match_score);
   const complianceVerdictScore = compliance.gst_valid && compliance.issues_found.length === 0 ? 1 : 0.3;
 
   const agents = [
-    {
-      name: 'matching',
-      confidence: Number(matching.confidence_score),
-      data_volume: Number(matching.data_volume),
-      verdict_score: matchingVerdictScore
-    },
-    {
-      name: 'compliance',
-      confidence: Number(compliance.confidence_score),
-      data_volume: Number(compliance.data_volume),
-      verdict_score: complianceVerdictScore
-    }
+    { name: 'matching', confidence: Number(matching.confidence_score), data_volume: Number(matching.data_volume), verdict_score: matchingVerdictScore },
+    { name: 'compliance', confidence: Number(compliance.confidence_score), data_volume: Number(compliance.data_volume), verdict_score: complianceVerdictScore },
+    { name: 'fraud', confidence: fraud.confidence_score, data_volume: fraud.data_volume, verdict_score: fraud.verdict_score },
+    { name: 'vendor_risk', confidence: riskConfidence, data_volume: riskDataVolume, verdict_score: riskVerdictScore }
   ];
 
   const rawWeights = agents.map(a => a.confidence * Math.log(1 + a.data_volume));
@@ -44,7 +74,7 @@ async function runDecisionAgent(invoiceId) {
   let finalScore = 0;
 
   agents.forEach((a, i) => {
-    const gateWeight = totalRawWeight > 0 ? rawWeights[i] / totalRawWeight : 1 / agents.length;
+    const gateWeight = totalRawWeight > 0 ? rawWeights[i] / totalRawWeight : 0;
     gateWeights[a.name] = gateWeight;
     finalScore += gateWeight * a.verdict_score;
   });
@@ -52,7 +82,7 @@ async function runDecisionAgent(invoiceId) {
   let finalDecision = finalScore >= AUTO_APPROVE_THRESHOLD ? 'auto_approved' : 'flagged';
   // A genuine mismatch or invalid compliance always at least flags, regardless of score —
   // the gate weighs HOW MUCH to trust each signal, it never lets a high-confidence signal
-  // silently override a real problem the other agent found.
+  // silently override a real problem another agent found.
   if (!matching.overall_match || !compliance.gst_valid) {
     finalDecision = finalDecision === 'auto_approved' ? 'flagged' : finalDecision;
   }
@@ -61,8 +91,9 @@ async function runDecisionAgent(invoiceId) {
     obj[a.name] = { confidence: a.confidence, data_volume: a.data_volume, verdict_score: a.verdict_score };
     return obj;
   }, {});
+  agentInputs.fraud.flags_found = fraud.flags_found;
 
-  const reasoningText = await buildReasoningText(invoiceId, matching, compliance, gateWeights, finalScore, finalDecision);
+  const reasoningText = await buildReasoningText(matching, compliance, fraud, risk, gateWeights, finalScore, finalDecision);
 
   const result = await db.query(
     `INSERT INTO decisions (invoice_id, agent_inputs, gate_weights, final_score, final_decision, reasoning_text)
@@ -70,39 +101,37 @@ async function runDecisionAgent(invoiceId) {
     [invoiceId, JSON.stringify(agentInputs), JSON.stringify(gateWeights), finalScore, finalDecision, reasoningText]
   );
 
-  // Update the invoice's own status to reflect the decision, so it's visible without
-  // joining into the decisions table everywhere.
   await db.query(`UPDATE invoices SET status = $1 WHERE id = $2`, [finalDecision === 'auto_approved' ? 'verified' : 'flagged', invoiceId]);
+
+  // Agent 5 update: feed this decision back into the vendor's running invoice_accuracy_pct.
+  await onInvoiceDecisionFinalised(invoiceId, finalDecision);
 
   return result.rows[0];
 }
 
-async function buildReasoningText(invoiceId, matching, compliance, gateWeights, finalScore, finalDecision) {
-  const dominantAgent = gateWeights.matching >= gateWeights.compliance ? 'Matching' : 'Compliance';
+async function buildReasoningText(matching, compliance, fraud, risk, gateWeights, finalScore, finalDecision) {
+  const dominant = Object.entries(gateWeights).sort((a, b) => b[1] - a[1])[0]?.[0] || 'matching';
 
-  const systemPrompt = `You write a short, plain-English paragraph (2-3 sentences) explaining an invoice verification decision to a Finance reviewer who is not technical. Name which signal (Matching or Compliance) drove the decision and why, referencing the specific numbers given. Respond ONLY with a JSON object: {"reasoning": "..."}`;
+  const systemPrompt = `You write a short, plain-English paragraph (2-4 sentences) explaining an invoice verification decision to a Finance reviewer who is not technical. Name which signal (matching, compliance, fraud, or vendor_risk) drove the decision and why, referencing the specific numbers given. Respond ONLY with a JSON object: {"reasoning": "..."}`;
   const userPrompt = JSON.stringify({
     final_decision: finalDecision,
     final_score: finalScore.toFixed(2),
-    matching: { overall_match: matching.overall_match, issue_type: matching.issue_type, confidence: matching.confidence_score, weight: gateWeights.matching?.toFixed(2) },
-    compliance: { gst_valid: compliance.gst_valid, issues_found: compliance.issues_found, confidence: compliance.confidence_score, weight: gateWeights.compliance?.toFixed(2) }
+    matching: { overall_match: matching.overall_match, issue_type: matching.issue_type, weight: gateWeights.matching?.toFixed(2) },
+    compliance: { gst_valid: compliance.gst_valid, issues_found: compliance.issues_found, weight: gateWeights.compliance?.toFixed(2) },
+    fraud: { flags_found: fraud.flags_found, weight: gateWeights.fraud?.toFixed(2) },
+    vendor_risk: { has_history: !!risk, invoice_accuracy_pct: risk?.invoice_accuracy_pct, data_volume: risk?.data_volume || 0, weight: gateWeights.vendor_risk?.toFixed(2) }
   });
 
   const groqResult = await callGroqStructured(systemPrompt, userPrompt);
-  if (!groqResult.__stub && groqResult.reasoning) {
-    return groqResult.reasoning;
-  }
+  if (!groqResult.__stub && groqResult.reasoning) return groqResult.reasoning;
 
-  // Deterministic fallback — no Groq key configured. Honest and specific, just less
-  // fluent than the LLM version would be.
+  // Deterministic fallback — no Groq key configured.
   const decisionWord = finalDecision === 'auto_approved' ? 'auto-approved' : 'flagged for review';
-  const matchNote = matching.overall_match
-    ? 'the invoice quantity and amount matched what the warehouse confirmed and the PO agreed'
-    : `a mismatch was found (see mismatch_fields: ${JSON.stringify(matching.mismatch_fields)})`;
-  const complianceNote = compliance.gst_valid && compliance.issues_found.length === 0
-    ? 'GST compliance checks passed'
-    : `compliance issues were found: ${compliance.issues_found.join('; ')}`;
-  return `This invoice was ${decisionWord} with a final score of ${finalScore.toFixed(2)}. ${dominantAgent} carried the larger weight (${(gateWeights[dominantAgent.toLowerCase()] * 100).toFixed(0)}%) in this decision. On matching: ${matchNote}. On compliance: ${complianceNote}. (Generated without a Groq API key — set GROQ_API_KEY in ai-service/.env for more natural-language reasoning.)`;
+  const matchNote = matching.overall_match ? 'quantities/amounts matched' : `a mismatch was found (${JSON.stringify(matching.mismatch_fields)})`;
+  const complianceNote = compliance.gst_valid && compliance.issues_found.length === 0 ? 'GST checks passed' : `compliance issues found: ${compliance.issues_found.join('; ')}`;
+  const fraudNote = fraud.flags_found > 0 ? `${fraud.flags_found} fraud flag(s) present` : 'no fraud signals';
+  const riskNote = risk ? `vendor's track record is ${risk.invoice_accuracy_pct != null ? Number(risk.invoice_accuracy_pct).toFixed(0) + '% accurate' : 'not yet established'} (${risk.data_volume} prior events)` : 'no prior history with this vendor yet, so this carried little weight';
+  return `This invoice was ${decisionWord} with a final score of ${finalScore.toFixed(2)}. The ${dominant} signal carried the most weight (${(gateWeights[dominant] * 100).toFixed(0)}%). Matching: ${matchNote}. Compliance: ${complianceNote}. Fraud: ${fraudNote}. Vendor risk: ${riskNote}. (Generated without a Groq API key — set GROQ_API_KEY in ai-service/.env for more natural-language reasoning.)`;
 }
 
 module.exports = { runDecisionAgent };

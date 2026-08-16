@@ -6,6 +6,25 @@ const { requireVerifiedVendor } = require('../middleware/vendorVerification');
 
 const router = express.Router();
 
+const AI_SERVICE_URL = process.env.AI_SERVICE_URL || 'http://localhost:4100';
+
+// notifyGrnConfirmed: fire-and-forget HTTP call to ai-service's Agent 5 trigger. If
+// ai-service is down or unreachable, this must NEVER fail the GRN submission — the
+// GRN is already safely in Postgres; the vendor risk score update is a separate
+// concern, same pattern as the RabbitMQ publish in invoices.js.
+async function notifyGrnConfirmed(poId, grnId) {
+  try {
+    const res = await fetch(`${AI_SERVICE_URL}/agents/vendor-risk/on-grn-confirmed`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ po_id: poId, grn_id: grnId })
+    });
+    if (!res.ok) console.error(`on-grn-confirmed call failed (${res.status}) for PO ${poId} — GRN itself still succeeded.`);
+  } catch (err) {
+    console.error(`Could not reach ai-service for on-grn-confirmed (GRN itself still succeeded):`, err.message);
+  }
+}
+
 // POST /api/grn (warehouse)
 // Fulfillment is tracked CUMULATIVELY across every GRN recorded against a PO — not just
 // the latest single delivery. This is what lets a warehouse team close out a shortfall:
@@ -71,6 +90,11 @@ router.post('/', requireAuth, requireRole('warehouse'), async (req, res) => {
       is_overage: isOverage,
       fulfillment_status: fulfillmentStatus
     });
+
+    // Fire-and-forget, after the response — this is Agent 5's on-grn-confirmed trigger
+    // (updates the vendor's running on_time_delivery_pct). Never blocks or fails the
+    // GRN submission itself if ai-service happens to be down.
+    notifyGrnConfirmed(po_id, grnRes.rows[0].id);
   } catch (err) {
     await client.query('ROLLBACK');
     console.error(err);

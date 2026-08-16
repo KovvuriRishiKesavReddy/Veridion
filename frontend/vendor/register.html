@@ -22,7 +22,11 @@
         <div class="col mb-3"><label class="form-label">PAN</label><input class="form-control" id="pan"></div>
       </div>
       <div class="mb-3"><label class="form-label">Phone Number</label><input class="form-control" id="phone_number" placeholder="+91..."></div>
-      <div class="mb-3"><label class="form-label">Business Registration Proof</label><input type="file" class="form-control" id="proof"></div>
+      <div class="mb-3">
+        <label class="form-label">Business Registration Proof <span class="text-danger">*required</span></label>
+        <input type="file" class="form-control" id="proof" required>
+        <p class="small text-muted mt-1">Platform Admin reviews this before approving your account — without it, there's nothing to verify you against.</p>
+      </div>
       <button type="submit" class="btn btn-primary w-100">Register</button>
     </form>
     <p class="text-muted small mt-3 mb-0 text-center">Already have an account, or logging in as a company/platform admin? <a href="/login.html">Log in here</a>.</p>
@@ -35,6 +39,7 @@ document.getElementById('form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const errorBox = document.getElementById('error');
   errorBox.classList.add('d-none');
+  if (!proof.files[0]) { errorBox.textContent = 'Business registration proof is required.'; errorBox.classList.remove('d-none'); return; }
   const fd = new FormData();
   fd.append('name', name.value);
   fd.append('email', email.value);
@@ -43,7 +48,7 @@ document.getElementById('form').addEventListener('submit', async (e) => {
   fd.append('gstin', gstin.value);
   fd.append('pan', pan.value);
   fd.append('phone_number', phone_number.value);
-  if (proof.files[0]) fd.append('business_reg_proof', proof.files[0]);
+  fd.append('business_reg_proof', proof.files[0]);
 
   const res = await fetch(`${API_BASE}/api/auth/register/vendor`, { method: 'POST', body: fd });
   const data = await res.json();

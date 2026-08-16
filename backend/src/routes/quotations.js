@@ -4,6 +4,7 @@ const { requireAuth } = require('../middleware/auth');
 const { requireRole } = require('../middleware/roles');
 const { requireVerifiedVendor } = require('../middleware/vendorVerification');
 const { generatePoPdf } = require('../utils/pdf');
+const { syncPurchaseOrderNode } = require('../utils/neo4jSync');
 
 const router = express.Router();
 
@@ -104,6 +105,7 @@ router.post('/:id/accept', requireAuth, requireRole('procurement', 'company_admi
     }
 
     res.status(201).json({ ...po, po_document_path: pdfPath });
+    syncPurchaseOrderNode(po);
   } catch (err) {
     await client.query('ROLLBACK');
     console.error(err);

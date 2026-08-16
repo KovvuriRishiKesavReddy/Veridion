@@ -5,6 +5,7 @@ const { requireRole } = require('../middleware/roles');
 const { requireVerifiedVendor } = require('../middleware/vendorVerification');
 const upload = require('../utils/upload');
 const { publishInvoiceSubmitted } = require('../utils/queue');
+const { syncInvoiceNode } = require('../utils/neo4jSync');
 
 const router = express.Router();
 
@@ -47,6 +48,7 @@ router.post('/', requireAuth, requireRole('vendor'), requireVerifiedVendor, uplo
   // Compliance -> the Context Gate) in the ai-service. Never awaited in a way that could
   // fail the response — the invoice is already safely stored regardless of queue health.
   publishInvoiceSubmitted(result.rows[0].id);
+  syncInvoiceNode(result.rows[0]);
 
   res.status(201).json(result.rows[0]);
 });
@@ -164,11 +166,13 @@ router.get('/:id/review', requireAuth, requireRole('finance', 'company_admin'), 
   const invoice = invRes.rows[0];
   if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
 
-  const [extraction, matching, compliance, decision] = await Promise.all([
+  const [extraction, matching, compliance, decision, fraudFlags, vendorRisk] = await Promise.all([
     db.query(`SELECT * FROM document_extractions WHERE invoice_id = $1 ORDER BY id DESC LIMIT 1`, [req.params.id]),
     db.query(`SELECT * FROM matching_results WHERE invoice_id = $1 ORDER BY id DESC LIMIT 1`, [req.params.id]),
     db.query(`SELECT * FROM compliance_checks WHERE invoice_id = $1 ORDER BY id DESC LIMIT 1`, [req.params.id]),
-    db.query(`SELECT * FROM decisions WHERE invoice_id = $1 ORDER BY id DESC LIMIT 1`, [req.params.id])
+    db.query(`SELECT * FROM decisions WHERE invoice_id = $1 ORDER BY id DESC LIMIT 1`, [req.params.id]),
+    db.query(`SELECT * FROM fraud_flags WHERE invoice_id = $1 ORDER BY id DESC`, [req.params.id]),
+    db.query(`SELECT * FROM vendor_risk_scores WHERE company_id = $1 AND vendor_id = $2`, [req.user.company_id, invoice.vendor_id])
   ]);
 
   res.json({
@@ -176,8 +180,28 @@ router.get('/:id/review', requireAuth, requireRole('finance', 'company_admin'), 
     document_extraction: extraction.rows[0] || null,
     matching_result: matching.rows[0] || null,
     compliance_check: compliance.rows[0] || null,
-    decision: decision.rows[0] || null
+    decision: decision.rows[0] || null,
+    fraud_flags: fraudFlags.rows,
+    vendor_risk: vendorRisk.rows[0] || null
   });
+});
+
+// DELETE /api/invoices/:id (vendor) — withdraw a flagged or suspicious invoice so it can
+// be corrected and resubmitted. This closes a real gap: Flow 1's "one invoice per PO"
+// rule has no other resolution path yet (the full dispute/vendor_communications flow is
+// Flow 4). Deliberately restricted to flagged/suspicious only — an auto_approved or paid
+// invoice can never be withdrawn this way; that would defeat the whole point of the gate.
+router.delete('/:id', requireAuth, requireRole('vendor'), requireVerifiedVendor, async (req, res) => {
+  const invRes = await db.query(`SELECT * FROM invoices WHERE id = $1 AND vendor_id = $2`, [req.params.id, req.user.vendor_id]);
+  const invoice = invRes.rows[0];
+  if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
+
+  if (!['flagged', 'suspicious'].includes(invoice.status)) {
+    return res.status(400).json({ error: `Cannot withdraw an invoice with status '${invoice.status}' — only flagged or suspicious invoices can be withdrawn and resubmitted.` });
+  }
+
+  await db.query(`DELETE FROM invoices WHERE id = $1`, [req.params.id]);
+  res.json({ withdrawn: true, po_id: invoice.po_id });
 });
 
 module.exports = router;

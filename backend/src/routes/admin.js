@@ -43,4 +43,29 @@ router.post('/vendors/:id/verify', requireAuth, requireRole('platform_admin'), a
   res.json(result.rows[0]);
 });
 
+// GET /api/admin/fraud-flags — every fraud flag raised across the whole platform,
+// unresolved first. This is the destination Prompt 3.4 refers to: a high-severity
+// fraud finding routes an invoice to 'suspicious' status and lands here for a human
+// with cross-company authority to review — never auto-resolved by the gate itself.
+router.get('/fraud-flags', requireAuth, requireRole('platform_admin'), async (req, res) => {
+  const result = await db.query(
+    `SELECT ff.*, v.company_name as vendor_name, inv.invoice_number, inv.invoice_amount
+     FROM fraud_flags ff
+     JOIN vendors v ON v.id = ff.vendor_id
+     LEFT JOIN invoices inv ON inv.id = ff.invoice_id
+     ORDER BY ff.resolved ASC, ff.created_at DESC`
+  );
+  res.json(result.rows);
+});
+
+// POST /api/admin/fraud-flags/:id/resolve — mark a flag as reviewed. Doesn't change
+// the invoice's own status automatically (that's a deliberate human decision, made
+// separately, not something this endpoint should silently do) — it just closes out
+// the flag itself from the review queue.
+router.post('/fraud-flags/:id/resolve', requireAuth, requireRole('platform_admin'), async (req, res) => {
+  const result = await db.query(`UPDATE fraud_flags SET resolved = true WHERE id = $1 RETURNING *`, [req.params.id]);
+  if (!result.rows[0]) return res.status(404).json({ error: 'Fraud flag not found' });
+  res.json(result.rows[0]);
+});
+
 module.exports = router;

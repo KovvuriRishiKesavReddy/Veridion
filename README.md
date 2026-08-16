@@ -137,3 +137,70 @@ You now need **three things running at once**, each in its own terminal:
   check the ai-service log.
 - **Groq errors in the ai-service log:** double check `GROQ_API_KEY` in `ai-service/.env`
   is correct, or leave it blank to use the fallback path.
+
+---
+
+# Flow 3 — Fraud Detection and Vendor Risk (completing the Decision Engine)
+
+## What's new
+The Context Gate now factors in all four suppliers: Matching, Compliance, Fraud
+Detection (Agent 4, via Neo4j), and Vendor Risk (Agent 5, an event-triggered running
+average). A vendor's on-time-delivery and invoice-accuracy scores now update
+automatically after every GRN and every invoice decision. A high-severity fraud
+finding bypasses the normal weighted score entirely and routes straight to a new
+Platform Admin **Fraud Review Queue**.
+
+## Neo4j setup — use AuraDB free tier, not a local install
+Unlike Postgres/RabbitMQ, Neo4j's local install is heavier (needs the JVM, more
+moving parts). The genuinely easiest no-Docker path is the free cloud tier:
+1. Go to https://neo4j.com/cloud/aura-free/, sign up, create a free instance
+2. It gives you a connection URI (`neo4j+s://...`), a username (`neo4j`), and a password
+3. Put those into `ai-service/.env`:
+   ```
+   NEO4J_URI=neo4j+s://your-instance.databases.neo4j.io
+   NEO4J_USER=neo4j
+   NEO4J_PASSWORD=your-generated-password
+   ```
+4. Restart `ai-service`
+
+**Without Neo4j configured, everything still works** — Fraud Detection just reports
+"no signal" for every invoice (logged once as a warning in the ai-service terminal,
+not a silent failure). Vendor Risk Scoring, Matching, Compliance, and the Context
+Gate math all work identically either way, since Neo4j only feeds Agent 4.
+
+## How to test Vendor Risk Scoring
+1. Run through a delivery (post requirement → quote → accept → GRN).
+2. Check the database directly to see it update:
+   ```sql
+   SELECT * FROM vendor_risk_scores;
+   ```
+   You should see `data_volume: 1`, `on_time_delivery_pct: 100` (or `0` if the GRN's
+   `received_date` was after the PO's `agreed_delivery_date`) immediately after the GRN.
+3. Submit and get an invoice decided — `data_volume` should tick up again, and
+   `invoice_accuracy_pct` should now be populated.
+4. Do a second full cycle with the same vendor — watch the running average shift
+   slightly rather than resetting, exactly like the spec's own worked examples.
+
+## How to test Fraud Detection
+Without a live Neo4j, the realistic test is confirming graceful degradation:
+1. Submit any invoice, check the `ai-service` terminal — you should see the `[Neo4j]
+   NEO4J_URI not configured...` warning exactly once, and the pipeline should still
+   complete normally (`DONE — auto_approved` or `flagged`, never crashing).
+
+With Neo4j configured, to actually trigger a fraud flag you'd need two vendors
+sharing a bank account or address in the graph — this isn't wired into the UI yet
+(no form for entering bank details currently), so the realistic way to test the full
+suspicious-routing path for now is inserting a fraud_flags row directly:
+```sql
+INSERT INTO fraud_flags (vendor_id, invoice_id, flag_type, severity, evidence, confidence_score)
+VALUES (1, 1, 'shell_company_shared_bank_account', 'high', '{}', 0.95);
+```
+Then log in as Platform Admin → you should see it under **Fraud Review Queue**, with
+a **Mark Resolved** action.
+
+## Platform Admin: Fraud Review Queue
+New section on the admin dashboard. Any invoice the Context Gate marks `suspicious`
+(triggered by a high-severity fraud flag) shows up here — this is a deliberate
+override, not just a heavily-weighted low score: the gate skips its normal
+calculation entirely rather than letting other clean signals dilute a real fraud
+finding.

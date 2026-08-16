@@ -15,7 +15,7 @@
   </div>
   <p class="text-muted small">You can only invoice a PO once it's fully delivered and confirmed by the buyer's warehouse — that keeps an invoice meaning "this order is complete."</p>
   <table class="table bg-white">
-    <thead><tr><th>Invoice #</th><th>PO</th><th>Amount</th><th>GST</th><th>Status</th><th>Submitted</th></tr></thead>
+    <thead><tr><th>Invoice #</th><th>PO</th><th>Amount</th><th>GST</th><th>Status</th><th>Submitted</th><th>Action</th></tr></thead>
     <tbody id="rows"><tr><td colspan="6" class="text-muted">Loading...</td></tr></tbody>
   </table>
 </div>
@@ -62,7 +62,7 @@ async function loadInvoices() {
   if (!res) return;
   const invs = await res.json();
   const rows = document.getElementById('rows');
-  if (!invs.length) { rows.innerHTML = '<tr><td colspan="6" class="text-muted">No invoices yet.</td></tr>'; return; }
+  if (!invs.length) { rows.innerHTML = '<tr><td colspan="7" class="text-muted">No invoices yet.</td></tr>'; return; }
   rows.innerHTML = invs.map(i => `
     <tr>
       <td>${i.invoice_number || '—'}</td>
@@ -71,7 +71,19 @@ async function loadInvoices() {
       <td>₹${i.gst_amount || 0}</td>
       <td><span class="badge status-badge ${statusBadgeClass(i.status)}">${i.status}</span></td>
       <td>${new Date(i.submitted_at).toLocaleDateString()}</td>
+      <td>${['flagged', 'suspicious'].includes(i.status) ? `<button class="btn btn-sm btn-outline-danger" onclick="withdrawInvoice(${i.id})">Withdraw &amp; Resubmit</button>` : '—'}</td>
     </tr>`).join('');
+}
+
+async function withdrawInvoice(id) {
+  if (!confirm('Withdraw this invoice? You will need to fix the issue and resubmit — this cannot be undone.')) return;
+  const res = await fetchWithAuth(`/api/invoices/${id}`, { method: 'DELETE' });
+  if (!res) return;
+  const data = await res.json();
+  if (!res.ok) { alert(data.error || 'Failed'); return; }
+  alert('Invoice withdrawn. It now appears again under "Ready to Invoice" so you can resubmit a corrected version.');
+  loadInvoices();
+  loadEligiblePos();
 }
 
 async function loadEligiblePos() {
