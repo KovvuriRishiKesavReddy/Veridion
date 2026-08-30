@@ -1,4 +1,5 @@
 const db = require('../db');
+const { computeBaseAmount } = require('../utils/taxAmount');
 
 const GSTIN_REGEX = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/;
 
@@ -38,19 +39,38 @@ async function runComplianceAgent(invoiceId) {
   const gstin = structured.gstin || invoice.gstin_on_invoice;
 
   const issuesFound = [];
-  const gstValid = !!gstin && GSTIN_REGEX.test(gstin);
+  const gstinValid = !!gstin && GSTIN_REGEX.test(gstin);
   if (!gstin) issuesFound.push('No GSTIN present on invoice');
-  else if (!gstValid) issuesFound.push('GSTIN does not match the standard 15-character format');
+  else if (!gstinValid) issuesFound.push('GSTIN does not match the standard 15-character format');
 
+  // FIXED: previously used structured.total_amount directly as the base to recompute
+  // GST from. total_amount is GST-INCLUSIVE on a standard tax invoice (e.g. subtotal
+  // ₹10,000 + 18% GST ₹1,800 = total ₹11,800) — taxing that figure again always
+  // overshot by a factor of (1 + rate) and flagged every correctly-GST-compliant
+  // invoice as a mismatch. See utils/taxAmount.js for the full explanation.
   const rate = GST_RATES_BY_CATEGORY[invoice.category] ?? GST_RATES_BY_CATEGORY.default;
-  const baseAmount = Number(structured.total_amount ?? invoice.invoice_amount ?? 0);
+  const { baseAmount, source: baseAmountSource } = computeBaseAmount(structured, invoice.invoice_amount, invoice.gst_amount);
   const expectedGst = Math.round(baseAmount * rate * 100) / 100;
   const submittedGst = Number(structured.gst_amount ?? invoice.gst_amount ?? 0);
   const gstDelta = submittedGst - expectedGst;
 
-  if (Math.abs(gstDelta) > Math.max(1, expectedGst * 0.02)) { // >2% tolerance
-    issuesFound.push(`GST amount ₹${submittedGst} does not match the recalculated expected amount ₹${expectedGst} (${(rate * 100).toFixed(0)}% of ₹${baseAmount})`);
+  let amountReconciles = true;
+  if (baseAmountSource === 'unavailable') {
+    // Can't verify the amount at all — don't claim a mismatch we have no basis for,
+    // but also don't claim reconciliation we didn't actually check.
+    amountReconciles = false;
+    issuesFound.push('Could not determine a pre-tax base amount to verify the GST calculation against (no line items and no usable total/GST breakdown)');
+  } else if (Math.abs(gstDelta) > Math.max(1, expectedGst * 0.02)) { // >2% tolerance
+    amountReconciles = false;
+    issuesFound.push(`GST amount ₹${submittedGst} does not match the recalculated expected amount ₹${expectedGst} (${(rate * 100).toFixed(0)}% of ₹${baseAmount} base, derived via ${baseAmountSource})`);
   }
+
+  // FIXED: gst_valid previously reflected ONLY the GSTIN format check — an invoice
+  // could show "GST valid: Yes" right next to a listed GST-amount-mismatch issue,
+  // which is misleading to a Finance reviewer scanning the summary badge. gst_valid
+  // now means what its name and its UI placement both imply: the GST information on
+  // this invoice, taken as a whole, is trustworthy — format AND amount.
+  const gstValid = gstinValid && amountReconciles;
 
   const confidenceScore = gstin ? 0.9 : 0.4; // format check is deterministic and reliable when a GSTIN exists at all
   const dataVolume = 1; // single invoice-level check, no historical GST-rate volume tracked yet
@@ -60,7 +80,7 @@ async function runComplianceAgent(invoiceId) {
      VALUES ($1,$2,$3,$4,$5,$6,$7,CURRENT_DATE) RETURNING *`,
     [
       invoiceId, gstValid,
-      JSON.stringify({ gstin, expected_gst: expectedGst, submitted_gst: submittedGst, base_amount: baseAmount }),
+      JSON.stringify({ gstin, expected_gst: expectedGst, submitted_gst: submittedGst, base_amount: baseAmount, base_amount_source: baseAmountSource }),
       issuesFound, confidenceScore, dataVolume, rate
     ]
   );

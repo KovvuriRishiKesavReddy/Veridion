@@ -47,7 +47,7 @@ router.get('/mine', requireAuth, async (req, res) => {
       [req.user.vendor_id]
     );
     rows = result.rows;
-  } else if (['company_admin', 'procurement', 'finance', 'warehouse'].includes(req.user.role)) {
+  } else if (['procurement', 'finance', 'warehouse'].includes(req.user.role)) {
     const result = await db.query(
       `SELECT po.*, r.title as requirement_title, v.company_name as vendor_name,
               COALESCE(grn_totals.total_received, 0) as received_so_far
@@ -71,6 +71,12 @@ router.get('/mine', requireAuth, async (req, res) => {
 
 // GET /api/purchase-orders/:id — warehouse role gets price/financial fields stripped server-side
 router.get('/:id', requireAuth, async (req, res) => {
+  // Company Admin has no operational role in the procurement lifecycle — this and the
+  // two routes below used to allow it implicitly (anyone company-scoped, not just an
+  // explicit allowlist). Excluded explicitly now, consistent with requirements.js,
+  // quotations.js, grn.js, and invoices.js all having company_admin removed.
+  if (req.user.role === 'company_admin') return res.status(403).json({ error: 'Forbidden' });
+
   const result = await db.query(
     `SELECT po.*, COALESCE(grn_totals.total_received, 0) as received_so_far
      FROM purchase_orders po ${GRN_SUM_JOIN} WHERE po.id = $1`,
@@ -93,6 +99,8 @@ router.get('/:id', requireAuth, async (req, res) => {
 
 // GET /api/purchase-orders/:id/document — download the generated PO PDF, auth-scoped same as above
 router.get('/:id/document', requireAuth, async (req, res) => {
+  if (req.user.role === 'company_admin') return res.status(403).json({ error: 'Forbidden' });
+
   const result = await db.query(`SELECT * FROM purchase_orders WHERE id = $1`, [req.params.id]);
   const po = result.rows[0];
   if (!po || !po.po_document_path) return res.status(404).json({ error: 'Not found' });
@@ -112,6 +120,8 @@ router.get('/:id/document', requireAuth, async (req, res) => {
 // a running cumulative total after each one — so a multi-delivery PO (e.g. 90 then 10)
 // shows how the fulfillment closed out step by step, not just a final snapshot.
 router.get('/:id/grns', requireAuth, async (req, res) => {
+  if (req.user.role === 'company_admin') return res.status(403).json({ error: 'Forbidden' });
+
   const poResult = await db.query(`SELECT * FROM purchase_orders WHERE id = $1`, [req.params.id]);
   const po = poResult.rows[0];
   if (!po) return res.status(404).json({ error: 'Not found' });

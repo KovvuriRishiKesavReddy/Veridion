@@ -31,7 +31,23 @@ async function runDecisionAgent(invoiceId) {
   // is the one case where a supplier's finding overrides the gate math rather than
   // just being weighted into it.
   if (fraud.has_high_severity) {
-    const reasoningText = `This invoice was marked SUSPICIOUS immediately — Fraud Detection found a high-severity signal (${fraud.flags.map(f => f.flag_type).join(', ')}) and this bypasses the normal weighted decision entirely. Routed to the Platform Admin fraud review queue.`;
+    // FIXED: this reasoning text previously only mentioned the fraud flags, never
+    // explaining that Matching/Compliance still ran and produced their own results —
+    // which created real, reported confusion: a user seeing "Semantic Matching:
+    // Overall match Yes" right next to "System Decision: Suspicious" reasonably reads
+    // that as a contradiction, or as Matching having failed to do its job. It didn't
+    // fail — it's scoped to quantity, amount, and item-description consistency against
+    // the PO/GRN/requirement, and none of those were actually wrong here. Vendor
+    // identity (GSTIN, company name, bank account) is deliberately NOT part of
+    // Matching's scope — that's what Fraud Detection just caught, and correctly
+    // bypassed the gate for. Now stated explicitly rather than left for the reader to
+    // infer from two disconnected-looking cards.
+    const matchingRes = await db.query(`SELECT overall_match FROM matching_results WHERE invoice_id = $1 ORDER BY id DESC LIMIT 1`, [invoiceId]);
+    const matchingWasClean = matchingRes.rows[0]?.overall_match !== false;
+    const scopeNote = matchingWasClean
+      ? ` Semantic Matching and Compliance both came back clean for this invoice — that is expected and not a contradiction: those two checks only verify quantity, amount, and item consistency against the PO/GRN/requirement, and none of those were actually wrong here. Vendor identity (GSTIN, company name, bank account) is checked separately, by Fraud Detection — which is exactly what caught this.`
+      : ` Semantic Matching and/or Compliance also found separate issues on this invoice, shown below — those are independent of the fraud signal above.`;
+    const reasoningText = `This invoice was marked SUSPICIOUS immediately — Fraud Detection found a high-severity signal (${fraud.flags.map(f => f.flag_type).join(', ')}) and this bypasses the normal weighted decision entirely. Routed to the Platform Admin fraud review queue.${scopeNote}`;
     const result = await db.query(
       `INSERT INTO decisions (invoice_id, agent_inputs, gate_weights, final_score, final_decision, reasoning_text)
        VALUES ($1,$2,$3,$4,'suspicious',$5) RETURNING *`,
@@ -122,10 +138,22 @@ async function buildReasoningText(matching, compliance, fraud, risk, gateWeights
     vendor_risk: { has_history: !!risk, invoice_accuracy_pct: risk?.invoice_accuracy_pct, data_volume: risk?.data_volume || 0, weight: gateWeights.vendor_risk?.toFixed(2) }
   });
 
-  const groqResult = await callGroqStructured(systemPrompt, userPrompt);
-  if (!groqResult.__stub && groqResult.reasoning) return groqResult.reasoning;
+  // FIXED: this call was previously unwrapped, so ANY Groq failure here (rate
+  // limit, transient network issue, invalid/missing key, a malformed response
+  // that still fails to parse as JSON) threw all the way out of
+  // runDecisionAgent — meaning the invoice's decision was never written at
+  // all, leaving it stuck indefinitely and making the whole pipeline look
+  // broken from the outside. The deterministic fallback text below already
+  // existed but was unreachable dead code, since nothing in groqClient.js
+  // ever actually returns a `__stub` marker. Now genuinely used on failure.
+  try {
+    const groqResult = await callGroqStructured(systemPrompt, userPrompt);
+    if (groqResult?.reasoning) return groqResult.reasoning;
+  } catch (err) {
+    console.error(`[decide] reasoning-text Groq call failed, using deterministic fallback: ${err.message}`);
+  }
 
-  // Deterministic fallback — no Groq key configured.
+  // Deterministic fallback — no Groq key configured, or the Groq call failed.
   const decisionWord = finalDecision === 'auto_approved' ? 'auto-approved' : 'flagged for review';
   const matchNote = matching.overall_match ? 'quantities/amounts matched' : `a mismatch was found (${JSON.stringify(matching.mismatch_fields)})`;
   const complianceNote = compliance.gst_valid && compliance.issues_found.length === 0 ? 'GST checks passed' : `compliance issues found: ${compliance.issues_found.join('; ')}`;

@@ -16,7 +16,7 @@
   <div id="paymentsSection" class="mt-5" style="display:none;">
     <h5 class="mb-2">Invoices Awaiting Payment</h5>
     <table class="table bg-white">
-      <thead><tr><th>Invoice #</th><th>Requirement</th><th>Vendor</th><th>Amount</th><th>Submitted</th><th>Action</th></tr></thead>
+      <thead><tr><th>Invoice #</th><th>Requirement</th><th>Vendor</th><th>Amount (incl. GST)</th><th>Submitted</th><th>Action</th></tr></thead>
       <tbody id="paymentRows"></tbody>
     </table>
     <a href="/company/invoices.html" class="small">View all invoices &rarr;</a>
@@ -44,7 +44,7 @@ document.getElementById('userName').textContent = user ? user.name : '';
 document.getElementById('roleBadge').textContent = user ? user.role : '';
 
 const linksByRole = {
-  company_admin: [['/company/team.html','Manage Team'], ['/company/post-requirement.html','Post Requirement'], ['/company/quotation-comparison.html','Review Quotations'], ['/company/purchase-orders.html','Purchase Orders'], ['/company/grn-entry.html','GRN Entry'], ['/company/grn-documents.html','GRN Documents'], ['/company/invoices.html','Invoices']],
+  company_admin: [['/company/team.html','Manage Team'], ['/company/profile.html','Company Profile']],
   procurement: [['/company/post-requirement.html','Post Requirement'], ['/company/quotation-comparison.html','Review Quotations'], ['/company/purchase-orders.html','Purchase Orders'], ['/company/grn-documents.html','GRN Documents']],
   finance: [['/company/purchase-orders.html','Purchase Orders'], ['/company/grn-documents.html','GRN Documents'], ['/company/invoices.html','Invoices'], ['/company/payment.html','Payments']],
   warehouse: [['/company/grn-entry.html','GRN Entry'], ['/company/purchase-orders.html','Purchase Orders'], ['/company/grn-documents.html','GRN Documents']],
@@ -56,9 +56,11 @@ if (user) {
 }
 
 // "Your Requirements" only makes sense for roles that actually deal with requirements —
-// Warehouse and Platform Admin never touch this, so the whole section is hidden for them
-// rather than shown with a "Not applicable" placeholder.
-if (user && !['warehouse', 'platform_admin'].includes(user.role)) {
+// Warehouse and Platform Admin never touch this, and Company Admin no longer has API
+// access to it at all (see requirements.js — company_admin was removed from every
+// requirement/quotation/PO/GRN/invoice route; this is now Procurement/Finance/
+// Warehouse territory only, with Company Admin scoped to team + company profile).
+if (user && !['warehouse', 'platform_admin', 'company_admin'].includes(user.role)) {
   document.getElementById('requirementsSection').style.display = 'block';
   (async () => {
     const res = await fetchWithAuth('/api/requirements/mine');
@@ -75,9 +77,9 @@ if (user && !['warehouse', 'platform_admin'].includes(user.role)) {
   })();
 }
 
-// Invoices awaiting payment — this was the actual missing piece: previously nothing on
-// the dashboard ever showed that a fully-delivered order had an invoice sitting there.
-if (user && ['finance', 'company_admin'].includes(user.role)) {
+// Invoices awaiting payment — Finance only now (Company Admin no longer has API
+// access to /api/invoices/company; see invoices.js).
+if (user && user.role === 'finance') {
   (async () => {
     const res = await fetchWithAuth('/api/invoices/company');
     if (!res) return;
@@ -89,10 +91,9 @@ if (user && ['finance', 'company_admin'].includes(user.role)) {
         <td>${i.invoice_number || '—'}</td>
         <td>${i.requirement_title}</td>
         <td>${i.vendor_name}</td>
-        <td>₹${i.invoice_amount}</td>
+        <td>${formatInvoiceTotal(i)}</td>
         <td>${new Date(i.submitted_at).toLocaleDateString()}</td>
         <td>${
-          user.role !== 'finance' ? '<span class="small text-muted">Finance only</span>' :
           i.final_decision === 'auto_approved' ? `<button class="btn btn-sm btn-amber" onclick="markPaid(${i.id})">Mark as Paid</button>` :
           `<a href="/company/invoice-review.html?id=${i.id}" class="small">Needs review &rarr;</a>`
         }</td>

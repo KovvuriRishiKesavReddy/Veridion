@@ -1,14 +1,37 @@
 const db = require('../db');
 const { runCypher } = require('../neo4jClient');
 
+// Loose but deliberately conservative name comparison — tolerates "Pvt. Ltd." vs
+// "Private Limited" style formatting drift (normalize + token overlap) rather than
+// requiring exact string equality, so we don't flag genuine vendors over punctuation.
+// A LOW overlap score is still a meaningful signal that these are plausibly two
+// different companies entirely, which is what we actually care about here.
+function normalizeCompanyName(name) {
+  return (name || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\b(pvt|private|ltd|limited|llp|inc|corp|corporation|co)\b/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+function nameSimilarity(a, b) {
+  const tokensA = new Set(normalizeCompanyName(a).split(' ').filter(Boolean));
+  const tokensB = new Set(normalizeCompanyName(b).split(' ').filter(Boolean));
+  if (tokensA.size === 0 || tokensB.size === 0) return null; // not enough to compare
+  const intersection = [...tokensA].filter(t => tokensB.has(t)).length;
+  const union = new Set([...tokensA, ...tokensB]).size;
+  return intersection / union; // Jaccard similarity, 0 = nothing in common, 1 = identical token sets
+}
+
 // runFraudAgent: Agent 4 — Fraud Detection.
-// Two independent checks, both using Neo4j as ground truth (graph queries are the
-// right tool here — relational joins would be awkward for "does this vendor share
-// anything with a DIFFERENT vendor" across an arbitrary, growing set of entities):
+// Three checks:
 //
 // 1. Shell-company detection: does this vendor share a bank account or address with
-//    a DIFFERENT vendor node in the graph?
-// 2. Split-billing detection: multiple invoices against the same PO, submitted close
+//    a DIFFERENT vendor node in the graph? (Neo4j)
+// 2. Vendor identity consistency: does the invoice DOCUMENT itself (as OCR'd) claim to
+//    be issued by the SAME company as the vendor account actually uploading it?
+//    (Postgres — compares against the registered vendors row, not graph-based)
+// 3. Split-billing detection: multiple invoices against the same PO, submitted close
 //    together, each individually small — WITHOUT proportional real GRN backing. This
 //    is the exact signal that distinguishes fraud from a legitimate partial delivery
 //    (which always has a real GRN behind it, per Part 7.4's own reasoning) — but note
@@ -57,7 +80,82 @@ async function runFraudAgent(invoiceId) {
     });
   }
 
-  // --- Check 2: split billing (multiple invoices, same PO, close together, thin GRN backing) ---
+  // --- Check 2 (NEW): vendor identity consistency — does the invoice DOCUMENT itself
+  // claim to be issued by the SAME company as the vendor account that's actually
+  // uploading it? Every check elsewhere in the pipeline (Matching's form_vs_document,
+  // Compliance's GST check) only compares the upload FORM against the DOCUMENT — never
+  // either of those against the REGISTERED VENDOR PROFILE tied to invoice.vendor_id.
+  // That's a real gap: an authenticated vendor account could upload an invoice PDF
+  // that's actually for a completely different company (impersonation, or laundering
+  // an unrelated business's invoice through an unrelated account), and nothing
+  // upstream would ever notice, because the form fields and the document can be
+  // perfectly self-consistent with EACH OTHER while both disagreeing with who is
+  // actually logged in submitting them.
+  //
+  // Only meaningful when OCR genuinely read the document (not the vendor_submitted_
+  // fallback case, which would trivially "match" the vendor's own account since it's
+  // just the form data again).
+  const extractionRes = await db.query(
+    `SELECT structured_data FROM document_extractions WHERE invoice_id = $1 ORDER BY id DESC LIMIT 1`,
+    [invoiceId]
+  );
+  const structured = extractionRes.rows[0]?.structured_data || {};
+
+  if (structured.__source === 'ocr_extraction') {
+    const vendorRes = await db.query(
+      `SELECT company_name, gstin, bank_account_number FROM vendors WHERE id = $1`,
+      [invoice.vendor_id]
+    );
+    const registeredVendor = vendorRes.rows[0];
+
+    if (registeredVendor) {
+      const identityMismatches = {};
+
+      // GSTIN — exact, normalized comparison. A precise 15-character identifier;
+      // any difference here (when both are present) is a strong, unambiguous signal,
+      // not a fuzzy judgment call.
+      const docGstin = (structured.gstin || '').trim().toUpperCase();
+      const registeredGstin = (registeredVendor.gstin || '').trim().toUpperCase();
+      if (docGstin && registeredGstin && docGstin !== registeredGstin) {
+        identityMismatches.gstin = { document_shows: docGstin, registered_vendor_gstin: registeredGstin };
+      }
+
+      // Bank account — exact comparison when both are known. Equally strong signal
+      // when present; frequently absent since not every invoice layout prints one.
+      const docBank = (structured.bank_account_number || '').replace(/\s/g, '');
+      const registeredBank = (registeredVendor.bank_account_number || '').replace(/\s/g, '');
+      if (docBank && registeredBank && docBank !== registeredBank) {
+        identityMismatches.bank_account_number = { document_shows: docBank, registered_vendor_account: registeredBank };
+      }
+
+      // Company name — fuzzy, conservative comparison (see nameSimilarity above).
+      // Only treated as a signal below a low threshold, and only counted toward the
+      // flag alongside at least one of the two exact signals above, OR on its own if
+      // clearly unrelated (similarity === 0, i.e. not even one word in common) — a
+      // single loose name comparison alone below that isn't enough to accuse someone
+      // of impersonation on formatting grounds.
+      const similarity = nameSimilarity(structured.vendor_name, registeredVendor.company_name);
+      if (similarity !== null && similarity < 0.2) {
+        identityMismatches.vendor_name = { document_shows: structured.vendor_name, registered_vendor_name: registeredVendor.company_name, name_similarity: Math.round(similarity * 100) / 100 };
+      }
+
+      if (identityMismatches.gstin || identityMismatches.bank_account_number || identityMismatches.vendor_name) {
+        flags.push({
+          flag_type: 'vendor_identity_mismatch',
+          severity: 'high',
+          // High but not maximal: OCR misreads are the main source of a false positive
+          // here (a garbled GSTIN character, a mis-extracted name) — still routed to
+          // suspicious/human review either way, but the confidence score is honest
+          // about that residual uncertainty rather than claiming graph-query-level certainty.
+          confidence_score: 0.8,
+          evidence: { ...identityMismatches, uploading_vendor_id: invoice.vendor_id }
+        });
+      }
+    }
+  }
+
+
+  // --- Check 3: split billing (multiple invoices, same PO, close together, thin GRN backing) ---
   const splitBillingRecords = await runCypher(
     `MATCH (inv:Invoice)-[:AGAINST]->(po:PurchaseOrder {id: $poId})
      RETURN inv.id as invoice_id, inv.amount as amount, inv.submitted_at as submitted_at

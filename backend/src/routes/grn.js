@@ -3,6 +3,7 @@ const db = require('../db');
 const { requireAuth } = require('../middleware/auth');
 const { requireRole } = require('../middleware/roles');
 const { requireVerifiedVendor } = require('../middleware/vendorVerification');
+const { requireApprovedCompany } = require('../middleware/companyApproval');
 
 const router = express.Router();
 
@@ -30,7 +31,7 @@ async function notifyGrnConfirmed(poId, grnId) {
 // the latest single delivery. This is what lets a warehouse team close out a shortfall:
 // PO agreed 100 -> GRN #1 records 90 (partially_fulfilled, 10 remaining) -> GRN #2 records
 // the remaining 10 -> cumulative total now 100 -> PO flips to fulfilled automatically.
-router.post('/', requireAuth, requireRole('warehouse'), async (req, res) => {
+router.post('/', requireAuth, requireRole('warehouse'), requireApprovedCompany, async (req, res) => {
   const { po_id, received_quantity, received_date, warehouse_notes, expected_next_delivery_date, next_delivery_notes } = req.body;
   if (!po_id || received_quantity === undefined || !received_date) {
     return res.status(400).json({ error: 'po_id, received_quantity, received_date are required' });
@@ -118,7 +119,7 @@ router.get('/mine', requireAuth, requireRole('warehouse'), async (req, res) => {
 
 // GET /api/grn/company — every GRN across the whole company. No price fields at all —
 // GRNs never carry pricing to begin with.
-router.get('/company', requireAuth, requireRole('company_admin', 'procurement', 'finance', 'warehouse'), async (req, res) => {
+router.get('/company', requireAuth, requireRole('procurement', 'finance', 'warehouse'), async (req, res) => {
   const result = await db.query(
     `SELECT g.*, po.agreed_quantity, po.fulfillment_status, po.requirement_id,
             v.company_name as vendor_name, r.title as requirement_title,

@@ -20,7 +20,7 @@
 <script src="/shared/api.js"></script>
 <script src="/shared/navbar.js"></script>
 <script>
-const user = requireLogin(['finance', 'company_admin']);
+const user = requireLogin(['finance']);
 const invoiceId = new URLSearchParams(window.location.search).get('id');
 
 function confidenceLabel(decision) {
@@ -49,6 +49,7 @@ async function load() {
   content.innerHTML = `
     <h3 class="mt-3 mb-1">Invoice #${invoice.invoice_number || invoice.id} <span class="badge status-badge ${statusBadgeClass(invoice.status)}">${invoice.status}</span></h3>
     <p class="text-muted">${invoice.requirement_title} · ${invoice.vendor_name} · PO #${invoice.po_id}</p>
+    <p class="mb-3"><strong>Amount to Pay: ₹${invoiceTotal(invoice)}</strong> <span class="text-muted small">(₹${invoice.invoice_amount} + ₹${invoice.gst_amount || 0} GST)</span></p>
 
     ${decision ? `
     <div class="card p-3 mb-4">
@@ -115,13 +116,35 @@ async function load() {
       ` : '<p class="text-muted small">Not yet run.</p>'}
     </div>
 
-    ${invoice.status !== 'paid' ? (user.role === 'finance' ? `<button class="btn btn-amber" onclick="markPaid()">Approve Payment</button>` : `<span class="small text-muted">Only Finance can approve payment.</span>`) : `<span class="badge bg-success">Already Paid</span>`}
+    ${data.overrides && data.overrides.length ? `
+    <div class="alert alert-secondary">
+      <strong>Override history:</strong>
+      ${data.overrides.map(o => `<div class="small mt-1">Paid despite being flagged, by ${o.overridden_by_name} on ${new Date(o.overridden_at).toLocaleDateString()} — "${o.reason}"</div>`).join('')}
+    </div>` : ''}
+
+    ${invoice.status !== 'paid' ? (
+      user.role !== 'finance' ? `<span class="small text-muted">Only Finance can approve payment.</span>` :
+      decision && decision.final_decision === 'auto_approved' ? `<button class="btn btn-amber" onclick="markPaid()">Approve Payment</button>` :
+      decision ? `<button class="btn btn-outline-danger" onclick="overrideAndPay()">Override &amp; Approve Payment Anyway</button>
+        <p class="small text-muted mt-1">This was ${decision.final_decision} by verification — approving anyway requires a reason, which is kept on record.</p>` :
+      `<span class="small text-muted">Waiting on AI verification.</span>`
+    ) : `<span class="badge bg-success">Already Paid</span>`}
   `;
 }
 
 async function markPaid() {
   if (!confirm('Approve payment for this invoice? This is your decision — the system only recommends.')) return;
   const res = await fetchWithAuth(`/api/invoices/${invoiceId}/mark-paid`, { method: 'POST' });
+  if (!res) return;
+  const data = await res.json();
+  if (!res.ok) { alert(data.error || 'Failed'); return; }
+  load();
+}
+
+async function overrideAndPay() {
+  const reason = prompt('This invoice was flagged by verification. Enter a reason for approving payment anyway (kept on the audit record):');
+  if (!reason || !reason.trim()) return;
+  const res = await fetchWithAuth(`/api/invoices/${invoiceId}/override-and-pay`, { method: 'POST', body: JSON.stringify({ reason }) });
   if (!res) return;
   const data = await res.json();
   if (!res.ok) { alert(data.error || 'Failed'); return; }

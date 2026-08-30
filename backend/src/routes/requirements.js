@@ -3,11 +3,12 @@ const db = require('../db');
 const { requireAuth } = require('../middleware/auth');
 const { requireRole } = require('../middleware/roles');
 const { requireVerifiedVendor } = require('../middleware/vendorVerification');
+const { requireApprovedCompany } = require('../middleware/companyApproval');
 
 const router = express.Router();
 
 // POST /api/requirements (procurement)
-router.post('/', requireAuth, requireRole('procurement', 'company_admin'), async (req, res) => {
+router.post('/', requireAuth, requireRole('procurement'), requireApprovedCompany, async (req, res) => {
   const { title, description, category, quantity, unit, deadline } = req.body;
   if (!title || !quantity) return res.status(400).json({ error: 'title and quantity are required' });
 
@@ -41,7 +42,7 @@ router.get('/', requireAuth, requireRole('vendor'), requireVerifiedVendor, async
 });
 
 // GET /api/requirements/mine (procurement) — company's own requirements
-router.get('/mine', requireAuth, requireRole('procurement', 'company_admin', 'finance'), async (req, res) => {
+router.get('/mine', requireAuth, requireRole('procurement', 'finance'), async (req, res) => {
   const result = await db.query(
     `SELECT * FROM requirements WHERE company_id = $1 ORDER BY created_at DESC`,
     [req.user.company_id]
@@ -50,7 +51,7 @@ router.get('/mine', requireAuth, requireRole('procurement', 'company_admin', 'fi
 });
 
 // GET /api/requirements/:id/quotations (procurement) — sorted by price for now (Flow 4 adds AI ranking)
-router.get('/:id/quotations', requireAuth, requireRole('procurement', 'company_admin'), async (req, res) => {
+router.get('/:id/quotations', requireAuth, requireRole('procurement'), async (req, res) => {
   const reqCheck = await db.query(
     `SELECT id FROM requirements WHERE id = $1 AND company_id = $2`,
     [req.params.id, req.user.company_id]

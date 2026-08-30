@@ -13,19 +13,39 @@
     <h4 class="mb-3">Vendor Registration</h4>
     <div id="error" class="alert alert-danger d-none"></div>
     <form id="form">
-      <div class="mb-3"><label class="form-label">Your Name</label><input class="form-control" id="name" required></div>
+      <div class="mb-3"><label class="form-label">Your Name</label><input class="form-control" id="personName" required></div>
       <div class="mb-3"><label class="form-label">Email</label><input type="email" class="form-control" id="email" required></div>
       <div class="mb-3"><label class="form-label">Password</label><input type="password" class="form-control" id="password" required></div>
       <div class="mb-3"><label class="form-label">Company Name</label><input class="form-control" id="company_name" required></div>
       <div class="row">
-        <div class="col mb-3"><label class="form-label">GSTIN</label><input class="form-control" id="gstin"></div>
-        <div class="col mb-3"><label class="form-label">PAN</label><input class="form-control" id="pan"></div>
+        <div class="col mb-3">
+          <label class="form-label">GSTIN <span class="text-danger">*required</span></label>
+          <input class="form-control" id="gstin" maxlength="15" placeholder="15 characters" required>
+        </div>
+        <div class="col mb-3">
+          <label class="form-label">PAN <span class="text-danger">*required</span></label>
+          <input class="form-control" id="pan" maxlength="10" placeholder="10 characters" required>
+        </div>
       </div>
-      <div class="mb-3"><label class="form-label">Phone Number</label><input class="form-control" id="phone_number" placeholder="+91..."></div>
+      <div class="mb-3"><label class="form-label">Phone Number <span class="text-danger">*required</span></label><input class="form-control" id="phone_number" placeholder="+91..." required></div>
+      <div class="mb-3"><label class="form-label">Business Address <span class="text-danger">*required</span></label><input class="form-control" id="address" required></div>
+
+      <hr>
+      <p class="small text-muted mb-2">Bank details — this is how you'll be paid, and it's also checked against every other vendor on the platform to catch shell-company patterns (two "different" companies quietly sharing one bank account).</p>
+      <div class="row">
+        <div class="col mb-3"><label class="form-label">Bank Account Number <span class="text-danger">*required</span></label><input class="form-control" id="bank_account_number" required></div>
+        <div class="col mb-3"><label class="form-label">IFSC Code <span class="text-danger">*required</span></label><input class="form-control" id="bank_ifsc" required></div>
+      </div>
+
       <div class="mb-3">
         <label class="form-label">Business Registration Proof <span class="text-danger">*required</span></label>
         <input type="file" class="form-control" id="proof" required>
-        <p class="small text-muted mt-1">Platform Admin reviews this before approving your account — without it, there's nothing to verify you against.</p>
+        <p class="small text-muted mt-1">Platform Admin reviews this before approving your account.</p>
+      </div>
+      <div class="mb-3">
+        <label class="form-label">PAN Card Proof <span class="text-danger">*required</span></label>
+        <input type="file" class="form-control" id="panProof" required>
+        <p class="small text-muted mt-1">A copy/photo of your PAN card, checked against the PAN number above.</p>
       </div>
       <button type="submit" class="btn btn-primary w-100">Register</button>
     </form>
@@ -39,16 +59,27 @@ document.getElementById('form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const errorBox = document.getElementById('error');
   errorBox.classList.add('d-none');
-  if (!proof.files[0]) { errorBox.textContent = 'Business registration proof is required.'; errorBox.classList.remove('d-none'); return; }
+  const proofFile = document.getElementById('proof').files[0];
+  const panProofFile = document.getElementById('panProof').files[0];
+  if (!proofFile) { errorBox.textContent = 'Business registration proof is required.'; errorBox.classList.remove('d-none'); return; }
+  if (!panProofFile) { errorBox.textContent = 'PAN card proof is required.'; errorBox.classList.remove('d-none'); return; }
+
+  // NOTE: fields are read via document.getElementById() explicitly. An input with
+  // id="name" would silently collide with the browser's built-in window.name global
+  // and lose its value — that's why the person's-name field is id="personName" here.
   const fd = new FormData();
-  fd.append('name', name.value);
-  fd.append('email', email.value);
-  fd.append('password', password.value);
-  fd.append('company_name', company_name.value);
-  fd.append('gstin', gstin.value);
-  fd.append('pan', pan.value);
-  fd.append('phone_number', phone_number.value);
-  fd.append('business_reg_proof', proof.files[0]);
+  fd.append('name', document.getElementById('personName').value);
+  fd.append('email', document.getElementById('email').value);
+  fd.append('password', document.getElementById('password').value);
+  fd.append('company_name', document.getElementById('company_name').value);
+  fd.append('gstin', document.getElementById('gstin').value);
+  fd.append('pan', document.getElementById('pan').value);
+  fd.append('phone_number', document.getElementById('phone_number').value);
+  fd.append('address', document.getElementById('address').value);
+  fd.append('bank_account_number', document.getElementById('bank_account_number').value);
+  fd.append('bank_ifsc', document.getElementById('bank_ifsc').value);
+  fd.append('business_reg_proof', proofFile);
+  fd.append('pan_proof', panProofFile);
 
   const res = await fetch(`${API_BASE}/api/auth/register/vendor`, { method: 'POST', body: fd });
   const data = await res.json();

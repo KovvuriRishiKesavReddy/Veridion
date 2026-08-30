@@ -2,6 +2,24 @@ require('dotenv').config();
 const express = require('express');
 const amqp = require('amqplib');
 
+// Safety net: tesseract.js's worker (used for image OCR and the scanned-PDF fallback)
+// can, on a network failure fetching its language data, throw in a way that escapes
+// the normal try/catch around it (an internal worker_threads error event with no
+// listener, which Node re-throws via process.nextTick and treats as fatal by default).
+// Confirmed this during testing: a blocked language-data download crashed the entire
+// service, not just that one invoice — meaning every other invoice stops processing
+// until someone manually restarts it. This must never happen for a transient network
+// issue. Logging and continuing here is the correct behavior for a long-running
+// service; the specific invoice that triggered it still falls back to
+// vendor-submitted fields via the try/catch inside runOcrAgent itself.
+process.on('uncaughtException', (err) => {
+  console.error('[FATAL-CAUGHT] Uncaught exception — service continues running:', err.message);
+});
+process.on('unhandledRejection', (err) => {
+  console.error('[FATAL-CAUGHT] Unhandled promise rejection — service continues running:', err?.message || err);
+});
+
+const db = require('./db');
 const { runOcrAgent } = require('./agents/ocr');
 const { runMatchingAgent } = require('./agents/matching');
 const { runComplianceAgent } = require('./agents/compliance');
@@ -108,6 +126,50 @@ async function runFullPipeline(invoiceId) {
   return decision;
 }
 
+// Safety net for the RabbitMQ consumer only (not the direct /agents/run-pipeline route,
+// where a caller wants the real error back to debug against). Previously, if ANYTHING
+// in the pipeline threw for any reason — a malformed PDF pdf-parse couldn't handle, a
+// transient DB hiccup, a future bug in any agent — the consumer caught it, logged one
+// line, and called nack(msg, false, false), which discards the message permanently with
+// no requeue. The invoice then just sat at status='submitted' forever with zero trace
+// anywhere in the UI that anything had gone wrong. Confirmed this directly: a PDF with a
+// broken cross-reference table threw "bad XRef entry" out of pdf-parse and the invoice
+// vanished with only a server console line to show for it.
+//
+// This wrapper guarantees every invoice that reaches the queue ends up in a
+// human-visible state — either a real decision, or a 'flagged' row explaining that
+// processing itself failed (distinct reasoning text from a normal mismatch flag) so
+// Finance sees it in the same review queue they already check, and knows to have it
+// reprocessed rather than mistaking silence for "nothing to review".
+async function runFullPipelineWithSafetyNet(invoiceId) {
+  try {
+    return await runFullPipeline(invoiceId);
+  } catch (err) {
+    console.error(`[pipeline] invoice ${invoiceId}: FAILED — ${err.message}. Writing a flagged fallback decision instead of dropping the invoice silently.`);
+    try {
+      await db.query(
+        `INSERT INTO decisions (invoice_id, agent_inputs, gate_weights, final_score, final_decision, reasoning_text)
+         VALUES ($1, $2, $3, 0, 'flagged', $4)`,
+        [
+          invoiceId,
+          JSON.stringify({ processing_error: err.message }),
+          JSON.stringify({}),
+          `Automated processing could not complete for this invoice (${err.message}). ` +
+            `This is a pipeline/technical failure, not a normal mismatch finding — the ` +
+            `document may be corrupted or in an unsupported format. Please have it ` +
+            `re-uploaded or reprocessed rather than treating this as a business decision.`,
+        ]
+      );
+      await db.query(`UPDATE invoices SET status = 'flagged' WHERE id = $1`, [invoiceId]);
+    } catch (innerErr) {
+      // If even the safety net fails (e.g. DB is genuinely down), there is nothing more
+      // we can do here — log loudly so it's visible, and let the caller's catch handle it.
+      console.error(`[pipeline] invoice ${invoiceId}: safety-net write ALSO failed — ${innerErr.message}`);
+    }
+    throw err; // still propagate — the consumer needs this to decide ack/nack correctly
+  }
+}
+
 app.post('/agents/run-pipeline', async (req, res) => {
   try {
     const result = await runFullPipeline(req.body.invoice_id);
@@ -135,7 +197,7 @@ async function startConsumer() {
       try {
         const { invoice_id } = JSON.parse(msg.content.toString());
         console.log(`[consumer] received invoice.submitted for invoice ${invoice_id}`);
-        await runFullPipeline(invoice_id);
+        await runFullPipelineWithSafetyNet(invoice_id);
         channel.ack(msg);
       } catch (err) {
         console.error('[consumer] pipeline failed for message:', err.message);

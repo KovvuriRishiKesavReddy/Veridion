@@ -3,6 +3,7 @@ const db = require('../db');
 const { requireAuth } = require('../middleware/auth');
 const { requireRole } = require('../middleware/roles');
 const { requireVerifiedVendor } = require('../middleware/vendorVerification');
+const { requireApprovedCompany } = require('../middleware/companyApproval');
 const { generatePoPdf } = require('../utils/pdf');
 const { syncPurchaseOrderNode } = require('../utils/neo4jSync');
 
@@ -41,7 +42,7 @@ router.get('/mine', requireAuth, requireRole('vendor'), requireVerifiedVendor, a
 });
 
 // POST /api/quotations/:id/accept (procurement) — transactional: select quotation, create PO, generate PDF
-router.post('/:id/accept', requireAuth, requireRole('procurement', 'company_admin'), async (req, res) => {
+router.post('/:id/accept', requireAuth, requireRole('procurement'), requireApprovedCompany, async (req, res) => {
   const client = await db.getClient();
   try {
     await client.query('BEGIN');
@@ -118,7 +119,7 @@ router.post('/:id/accept', requireAuth, requireRole('procurement', 'company_admi
 // GET /api/quotations/company (procurement) — every still-open (submitted) quotation
 // across ALL of this company's requirements in one place, so Procurement can see and
 // act on what's waiting without picking a requirement first each time.
-router.get('/company', requireAuth, requireRole('procurement', 'company_admin'), async (req, res) => {
+router.get('/company', requireAuth, requireRole('procurement'), async (req, res) => {
   const result = await db.query(
     `SELECT q.*, r.title as requirement_title, r.category,
             v.company_name as vendor_name, v.verification_status

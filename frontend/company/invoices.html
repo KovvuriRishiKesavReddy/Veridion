@@ -12,21 +12,21 @@
   <h3 class="mb-1">Invoices</h3>
   <p class="text-muted">Every invoice submitted against your purchase orders — vendors can only submit one once a PO is fully delivered, so everything here represents a completed order awaiting payment (or already paid).</p>
   <table class="table bg-white">
-    <thead><tr><th>Invoice #</th><th>Requirement</th><th>Vendor</th><th>Amount</th><th>GST</th><th>Status</th><th>Submitted</th><th>Action</th></tr></thead>
-    <tbody id="rows"><tr><td colspan="8" class="text-muted">Loading...</td></tr></tbody>
+    <thead><tr><th>Invoice #</th><th>Requirement</th><th>Vendor</th><th>Amount</th><th>GST</th><th>Total (incl. GST)</th><th>Status</th><th>Submitted</th><th>Action</th></tr></thead>
+    <tbody id="rows"><tr><td colspan="9" class="text-muted">Loading...</td></tr></tbody>
   </table>
 </div>
 <script src="/shared/api.js"></script>
 <script src="/shared/navbar.js"></script>
 <script>
-const user = requireLogin(['finance', 'company_admin']);
+const user = requireLogin(['finance']);
 
 async function load() {
   const res = await fetchWithAuth('/api/invoices/company');
   if (!res) return;
   const invs = await res.json();
   const rows = document.getElementById('rows');
-  if (!invs.length) { rows.innerHTML = '<tr><td colspan="8" class="text-muted">No invoices submitted yet.</td></tr>'; return; }
+  if (!invs.length) { rows.innerHTML = '<tr><td colspan="9" class="text-muted">No invoices submitted yet.</td></tr>'; return; }
   rows.innerHTML = invs.map(i => `
     <tr>
       <td><a href="/company/invoice-review.html?id=${i.id}">${i.invoice_number || '#' + i.id}</a></td>
@@ -34,6 +34,7 @@ async function load() {
       <td>${i.vendor_name}</td>
       <td>₹${i.invoice_amount}</td>
       <td>₹${i.gst_amount || 0}</td>
+      <td><strong>₹${invoiceTotal(i)}</strong></td>
       <td><span class="badge status-badge ${statusBadgeClass(i.status)}">${i.status}</span></td>
       <td>${new Date(i.submitted_at).toLocaleDateString()}</td>
       <td>

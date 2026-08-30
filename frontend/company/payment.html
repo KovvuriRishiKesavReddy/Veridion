@@ -14,19 +14,19 @@
 
   <h5 class="mt-4">Ready to Pay <span class="badge bg-success">Auto-Approved</span></h5>
   <table class="table bg-white mb-4">
-    <thead><tr><th>Invoice</th><th>Vendor</th><th>Requirement</th><th>Amount</th><th>Confidence Score</th><th>Action</th></tr></thead>
+    <thead><tr><th>Invoice</th><th>Vendor</th><th>Requirement</th><th>Amount to Pay (incl. GST)</th><th>Confidence Score</th><th>Action</th></tr></thead>
     <tbody id="readyRows"><tr><td colspan="6" class="text-muted">Loading...</td></tr></tbody>
   </table>
 
   <h5>Needs Review Before Payment <span class="badge bg-danger">Flagged</span></h5>
   <table class="table bg-white mb-4">
-    <thead><tr><th>Invoice</th><th>Vendor</th><th>Requirement</th><th>Amount</th><th>Why Flagged</th><th>Action</th></tr></thead>
+    <thead><tr><th>Invoice</th><th>Vendor</th><th>Requirement</th><th>Amount to Pay (incl. GST)</th><th>Why Flagged</th><th>Action</th></tr></thead>
     <tbody id="flaggedRows"><tr><td colspan="6" class="text-muted">Loading...</td></tr></tbody>
   </table>
 
   <h5>Already Paid</h5>
   <table class="table bg-white">
-    <thead><tr><th>Invoice</th><th>Vendor</th><th>Requirement</th><th>Amount</th><th>Submitted</th></tr></thead>
+    <thead><tr><th>Invoice</th><th>Vendor</th><th>Requirement</th><th>Amount Paid (incl. GST)</th><th>Submitted</th></tr></thead>
     <tbody id="paidRows"><tr><td colspan="5" class="text-muted">Loading...</td></tr></tbody>
   </table>
 </div>
@@ -50,7 +50,7 @@ async function load() {
       <td><a href="/company/invoice-review.html?id=${i.id}">${i.invoice_number || '#' + i.id}</a></td>
       <td>${i.vendor_name}</td>
       <td>${i.requirement_title}</td>
-      <td>₹${i.invoice_amount}</td>
+      <td>${formatInvoiceTotal(i)}</td>
       <td>${i.final_score != null ? Number(i.final_score).toFixed(2) : '—'}</td>
       <td><button class="btn btn-sm btn-amber" onclick="approvePay(${i.id})">Approve Payment</button></td>
     </tr>`).join('') : '<tr><td colspan="6" class="text-muted">Nothing ready to pay right now.</td></tr>';
@@ -60,7 +60,7 @@ async function load() {
       <td><a href="/company/invoice-review.html?id=${i.id}">${i.invoice_number || '#' + i.id}</a></td>
       <td>${i.vendor_name}</td>
       <td>${i.requirement_title}</td>
-      <td>₹${i.invoice_amount}</td>
+      <td>${formatInvoiceTotal(i)}</td>
       <td class="small">${i.final_decision ? `${i.final_decision} — see review page` : 'AI verification still running'}</td>
       <td><a href="/company/invoice-review.html?id=${i.id}" class="btn btn-sm btn-outline-secondary">Review</a></td>
     </tr>`).join('') : '<tr><td colspan="6" class="text-muted">Nothing needs review right now.</td></tr>';
@@ -70,7 +70,7 @@ async function load() {
       <td><a href="/company/invoice-review.html?id=${i.id}">${i.invoice_number || '#' + i.id}</a></td>
       <td>${i.vendor_name}</td>
       <td>${i.requirement_title}</td>
-      <td>₹${i.invoice_amount}</td>
+      <td>${formatInvoiceTotal(i)}</td>
       <td>${new Date(i.submitted_at).toLocaleDateString()}</td>
     </tr>`).join('') : '<tr><td colspan="5" class="text-muted">No payments made yet.</td></tr>';
 }

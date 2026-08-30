@@ -19,7 +19,7 @@
 <script src="/shared/api.js"></script>
 <script src="/shared/navbar.js"></script>
 <script>
-requireLogin(['company_admin', 'procurement', 'finance', 'warehouse']);
+requireLogin(['procurement', 'finance', 'warehouse']);
 (async () => {
   const res = await fetchWithAuth('/api/grn/company');
   if (!res) return;

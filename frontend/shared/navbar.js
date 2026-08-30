@@ -21,17 +21,13 @@ function renderNavbar() {
       ['/vendor/purchase-orders.html', 'Purchase Orders'],
       ['/vendor/grn-documents.html', 'Deliveries (GRN)'],
       ['/vendor/my-invoices.html', 'My Invoices'],
-      ['/vendor/payments.html', 'Payment Status']
+      ['/vendor/payments.html', 'Payment Status'],
+      ['/vendor/profile.html', 'My Profile']
     ],
     company_admin: [
       ['/company/dashboard.html', 'Dashboard'],
       ['/company/team.html', 'Team'],
-      ['/company/post-requirement.html', 'Post Requirement'],
-      ['/company/quotation-comparison.html', 'Quotations'],
-      ['/company/purchase-orders.html', 'Purchase Orders'],
-      ['/company/grn-entry.html', 'GRN Entry'],
-      ['/company/grn-documents.html', 'GRN Documents'],
-      ['/company/invoices.html', 'Invoices']
+      ['/company/profile.html', 'Company Profile']
     ],
     procurement: [
       ['/company/dashboard.html', 'Dashboard'],
@@ -80,6 +76,7 @@ function renderNavbar() {
 document.addEventListener('DOMContentLoaded', () => {
   renderNavbar();
   enforceVendorVerification();
+  enforceCompanyApproval();
 });
 
 // Backend routes already reject an unverified vendor's API calls (see
@@ -97,5 +94,22 @@ async function enforceVendorVerification() {
   const me = await res.json();
   if (me.vendor_verification_status !== 'verified') {
     window.location.href = '/vendor/awaiting-approval.html';
+  }
+}
+
+// Same pattern, same caveat, for company-scoped roles — see requireApprovedCompany on
+// the backend, which is what actually enforces this regardless of what this does.
+// No-ops for 'vendor' and 'platform_admin', neither of which is scoped to a single
+// company's approval.
+async function enforceCompanyApproval() {
+  const user = getUser();
+  if (!user || !['company_admin', 'procurement', 'finance', 'warehouse'].includes(user.role)) return;
+  if (window.location.pathname.includes('/company/awaiting-approval.html')) return;
+
+  const res = await fetchWithAuth('/api/auth/me');
+  if (!res) return;
+  const me = await res.json();
+  if (me.company_approval_status !== 'approved') {
+    window.location.href = '/company/awaiting-approval.html';
   }
 }

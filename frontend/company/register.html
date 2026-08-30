@@ -13,16 +13,23 @@
     <h4 class="mb-3">Company Registration</h4>
     <div id="error" class="alert alert-danger d-none"></div>
     <form id="form">
-      <div class="mb-3"><label class="form-label">Your Name (becomes Company Admin)</label><input class="form-control" id="name" required></div>
+      <div class="mb-3"><label class="form-label">Your Name (becomes Company Admin)</label><input class="form-control" id="personName" required></div>
       <div class="mb-3"><label class="form-label">Email</label><input type="email" class="form-control" id="email" required></div>
       <div class="mb-3"><label class="form-label">Password</label><input type="password" class="form-control" id="password" required></div>
       <div class="mb-3"><label class="form-label">Company Name</label><input class="form-control" id="company_name" required></div>
-      <div class="mb-3"><label class="form-label">GSTIN</label><input class="form-control" id="gstin"></div>
-      <div class="mb-3"><label class="form-label">Address</label><input class="form-control" id="address"></div>
-      <div class="mb-3"><label class="form-label">Industry Type</label><input class="form-control" id="industry_type"></div>
+      <div class="mb-3">
+        <label class="form-label">GSTIN <span class="text-danger">*required</span></label>
+        <input class="form-control" id="gstin" maxlength="15" placeholder="15 characters" required>
+      </div>
+      <div class="mb-3"><label class="form-label">Address <span class="text-danger">*required</span></label><input class="form-control" id="address" required></div>
+      <div class="mb-3"><label class="form-label">Industry Type <span class="text-danger">*required</span></label><input class="form-control" id="industry_type" required></div>
+      <div class="mb-3">
+        <label class="form-label">Registration Proof <span class="text-danger">*required</span></label>
+        <input type="file" class="form-control" id="proof" required>
+        <p class="small text-muted mt-1">Certificate of incorporation, GST registration certificate, or similar — kept on file for Platform Admin oversight.</p>
+      </div>
       <button type="submit" class="btn btn-primary w-100">Register Company</button>
     </form>
-    <p class="text-muted small mt-3 mb-0 text-center">Already have an account, or logging in as a vendor/platform admin? <a href="/login.html">Log in here</a>.</p>
   </div>
 </div>
 <script src="/shared/api.js"></script>
@@ -32,17 +39,27 @@ document.getElementById('form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const errorBox = document.getElementById('error');
   errorBox.classList.add('d-none');
-  const body = {
-    name: name.value, email: email.value, password: password.value,
-    company_name: company_name.value, gstin: gstin.value, address: address.value, industry_type: industry_type.value
-  };
-  const res = await fetch(`${API_BASE}/api/auth/register/company`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
-  });
+  const proofFile = document.getElementById('proof').files[0];
+  if (!proofFile) { errorBox.textContent = 'Registration proof document is required.'; errorBox.classList.remove('d-none'); return; }
+
+  // NOTE: form fields are read via document.getElementById() explicitly, not bare
+  // global identifiers — an input with id="name" would silently collide with the
+  // browser's built-in window.name, causing the value to be lost. See personName below.
+  const fd = new FormData();
+  fd.append('name', document.getElementById('personName').value);
+  fd.append('email', document.getElementById('email').value);
+  fd.append('password', document.getElementById('password').value);
+  fd.append('company_name', document.getElementById('company_name').value);
+  fd.append('gstin', document.getElementById('gstin').value);
+  fd.append('address', document.getElementById('address').value);
+  fd.append('industry_type', document.getElementById('industry_type').value);
+  fd.append('registration_proof', proofFile);
+
+  const res = await fetch(`${API_BASE}/api/auth/register/company`, { method: 'POST', body: fd });
   const data = await res.json();
   if (!res.ok) { errorBox.textContent = data.error || 'Registration failed'; errorBox.classList.remove('d-none'); return; }
   setSession(data.token, data.user);
-  window.location.href = '/company/dashboard.html';
+  window.location.href = '/company/awaiting-approval.html';
 });
 </script>
 </body>

@@ -1,10 +1,21 @@
 :root {
-  --navy: #0b2545;
-  --navy-light: #13315c;
-  --amber: #e0a72e;
+  --navy: #14532d;        /* emerald — replaces the old navy brand color */
+  --navy-light: #166534;
+  --amber: #e0a72e;       /* gold accent — unchanged, pairs with emerald */
   --amber-dark: #b8860b;
+  --accept-green: #20c997;   /* teal-green — used only for the Accept quotation action */
+  --accept-green-dark: #17a67d;
 }
-body { background-color: #f5f7fa; }
+
+/* Diagonal gradient, dark green (top-left) to light green (bottom-right), once (no repeat/scroll) */
+body {
+  background-color: #d8f3dc;
+  background-image: linear-gradient(135deg, #14532d 0%, #d8f3dc 100%);
+  background-repeat: no-repeat;
+  background-attachment: fixed;
+  min-height: 100vh;
+}
+
 .navbar { background-color: var(--navy) !important; }
 .navbar-brand { color: var(--amber) !important; font-weight: 700; letter-spacing: 0.5px; }
 .nav-link { color: #dbe4f0 !important; }
@@ -13,5 +24,10 @@ body { background-color: #f5f7fa; }
 .btn-primary:hover { background-color: var(--navy-light); border-color: var(--navy-light); }
 .btn-amber { background-color: var(--amber); border-color: var(--amber); color: #1a1a1a; }
 .btn-amber:hover { background-color: var(--amber-dark); border-color: var(--amber-dark); color: #fff; }
-.card { border: none; box-shadow: 0 1px 4px rgba(0,0,0,0.08); border-radius: 10px; }
+
+/* Accept quotation / accept invite actions — teal-green, distinct from the gold accent */
+.btn-accept { background-color: var(--accept-green); border-color: var(--accept-green); color: #04342c; font-weight: 500; }
+.btn-accept:hover { background-color: var(--accept-green-dark); border-color: var(--accept-green-dark); color: #04342c; }
+
+.card { border: none; box-shadow: 0 1px 4px rgba(0,0,0,0.08); border-radius: 10px; background-color: #ffffff; }
 .status-badge { font-size: 0.75rem; text-transform: capitalize; }

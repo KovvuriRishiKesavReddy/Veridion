@@ -29,6 +29,14 @@ router.get('/vendors/:id/proof-document', requireAuth, requireRole('platform_adm
   res.sendFile(path.resolve(vendor.business_reg_proof_path));
 });
 
+// GET /api/admin/vendors/:id/pan-proof-document — the uploaded PAN card document.
+router.get('/vendors/:id/pan-proof-document', requireAuth, requireRole('platform_admin'), async (req, res) => {
+  const result = await db.query(`SELECT pan_proof_path FROM vendors WHERE id = $1`, [req.params.id]);
+  const vendor = result.rows[0];
+  if (!vendor || !vendor.pan_proof_path) return res.status(404).json({ error: 'No PAN proof document on file' });
+  res.sendFile(path.resolve(vendor.pan_proof_path));
+});
+
 // POST /api/admin/vendors/:id/verify — approve or reject a vendor's registration.
 router.post('/vendors/:id/verify', requireAuth, requireRole('platform_admin'), async (req, res) => {
   const { status } = req.body;
@@ -65,6 +73,47 @@ router.get('/fraud-flags', requireAuth, requireRole('platform_admin'), async (re
 router.post('/fraud-flags/:id/resolve', requireAuth, requireRole('platform_admin'), async (req, res) => {
   const result = await db.query(`UPDATE fraud_flags SET resolved = true WHERE id = $1 RETURNING *`, [req.params.id]);
   if (!result.rows[0]) return res.status(404).json({ error: 'Fraud flag not found' });
+  res.json(result.rows[0]);
+});
+
+// GET /api/admin/companies — every company registered on the platform, for approval
+// review — mirrors GET /api/admin/vendors. Companies now go through the same
+// human-gated approval as vendors (see migration 006_comapany_approval.sql): a
+// company_admin gets a valid login the instant they register, but requireApprovedCompany
+// blocks every real action (posting requirements, inviting teammates, accepting
+// quotations, recording GRNs, approving payments) until a Platform Admin approves them
+// here.
+router.get('/companies', requireAuth, requireRole('platform_admin'), async (req, res) => {
+  const result = await db.query(
+    `SELECT c.*, u.name as admin_name, u.email as admin_email
+     FROM companies c LEFT JOIN users u ON u.id = c.created_by
+     ORDER BY c.created_at DESC`
+  );
+  res.json(result.rows);
+});
+
+// GET /api/admin/companies/:id/proof-document — the uploaded company registration proof.
+router.get('/companies/:id/proof-document', requireAuth, requireRole('platform_admin'), async (req, res) => {
+  const result = await db.query(`SELECT registration_proof_path FROM companies WHERE id = $1`, [req.params.id]);
+  const company = result.rows[0];
+  if (!company || !company.registration_proof_path) return res.status(404).json({ error: 'No proof document on file' });
+  res.sendFile(path.resolve(company.registration_proof_path));
+});
+
+// POST /api/admin/companies/:id/approve — approve or reject a company's registration.
+// Mirrors POST /api/admin/vendors/:id/verify exactly. Approving/rejecting without ever
+// viewing the submitted registration_proof_path would make this a rubber stamp — the
+// proof-document route above exists for exactly that reason, same as vendors.
+router.post('/companies/:id/approve', requireAuth, requireRole('platform_admin'), async (req, res) => {
+  const { status } = req.body;
+  if (!['approved', 'rejected'].includes(status)) {
+    return res.status(400).json({ error: "status must be 'approved' or 'rejected'" });
+  }
+  const result = await db.query(
+    `UPDATE companies SET approval_status = $1 WHERE id = $2 RETURNING *`,
+    [status, req.params.id]
+  );
+  if (!result.rows[0]) return res.status(404).json({ error: 'Company not found' });
   res.json(result.rows[0]);
 });
 

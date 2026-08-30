@@ -29,7 +29,7 @@ document.getElementById('form').addEventListener('submit', async (e) => {
   errorBox.classList.add('d-none');
   const res = await fetch(`${API_BASE}/api/auth/accept-invite/${token}`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name: name.value, password: password.value })
+    body: JSON.stringify({ name: document.getElementById('name').value, password: password.value })
   });
   const data = await res.json();
   if (!res.ok) { errorBox.textContent = data.error || 'Could not accept invite'; errorBox.classList.remove('d-none'); return; }

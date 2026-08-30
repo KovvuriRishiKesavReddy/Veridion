@@ -16,8 +16,8 @@
 
   <h6>Current Team</h6>
   <table class="table bg-white mb-4">
-    <thead><tr><th>Name</th><th>Email</th><th>Role</th></tr></thead>
-    <tbody id="teamRows"><tr><td colspan="3" class="text-muted">Loading...</td></tr></tbody>
+    <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>Action</th></tr></thead>
+    <tbody id="teamRows"><tr><td colspan="5" class="text-muted">Loading...</td></tr></tbody>
   </table>
 
   <h6>Pending Invitations</h6>
@@ -52,19 +52,48 @@
 <script src="/shared/navbar.js"></script>
 <script>
 requireLogin(['company_admin']);
+const me = getUser();
 
 async function loadTeam() {
   const res = await fetchWithAuth('/api/company/team');
   if (!res) return;
   const data = await res.json();
-  document.getElementById('teamRows').innerHTML = data.team.map(u =>
-    `<tr><td>${u.name}</td><td>${u.email}</td><td><span class="badge bg-secondary">${u.role}</span></td></tr>`
-  ).join('') || '<tr><td colspan="3" class="text-muted">No team members yet.</td></tr>';
+  document.getElementById('teamRows').innerHTML = data.team.map(u => `
+    <tr>
+      <td>${u.name}</td>
+      <td>${u.email}</td>
+      <td><span class="badge bg-secondary">${u.role}</span></td>
+      <td>${u.is_active ? '<span class="badge bg-success">Active</span>' : '<span class="badge bg-secondary">Removed</span>'}</td>
+      <td>${
+        u.id === me.id ? '<span class="small text-muted">This is you</span>' :
+        u.role === 'company_admin' ? '<span class="small text-muted">Contact platform to change admins</span>' :
+        u.is_active ? `<button class="btn btn-sm btn-outline-danger" onclick="removeMember(${u.id}, '${u.name}')">Remove</button>` :
+        `<button class="btn btn-sm btn-outline-secondary" onclick="reactivateMember(${u.id})">Reactivate</button>`
+      }</td>
+    </tr>`
+  ).join('') || '<tr><td colspan="5" class="text-muted">No team members yet.</td></tr>';
   document.getElementById('inviteRows').innerHTML = data.pending_invitations.map(i =>
     `<tr><td>${i.invited_email}</td><td>${i.invited_role}</td><td><span class="badge bg-warning text-dark">${i.status}</span></td><td>${new Date(i.created_at).toLocaleDateString()}</td></tr>`
   ).join('') || '<tr><td colspan="4" class="text-muted">No pending invitations.</td></tr>';
 }
 loadTeam();
+
+async function removeMember(id, name) {
+  if (!confirm(`Remove ${name} from the team? They will lose access immediately. You can reactivate them later.`)) return;
+  const res = await fetchWithAuth(`/api/company/team/${id}`, { method: 'DELETE' });
+  if (!res) return;
+  const data = await res.json();
+  if (!res.ok) { alert(data.error || 'Failed'); return; }
+  loadTeam();
+}
+
+async function reactivateMember(id) {
+  const res = await fetchWithAuth(`/api/company/team/${id}/reactivate`, { method: 'POST' });
+  if (!res) return;
+  const data = await res.json();
+  if (!res.ok) { alert(data.error || 'Failed'); return; }
+  loadTeam();
+}
 
 async function sendInvite() {
   const body = { invited_email: document.getElementById('invited_email').value, invited_role: document.getElementById('invited_role').value };

@@ -3,6 +3,7 @@ const db = require('../db');
 const { requireAuth } = require('../middleware/auth');
 const { requireRole } = require('../middleware/roles');
 const { requireVerifiedVendor } = require('../middleware/vendorVerification');
+const { requireApprovedCompany } = require('../middleware/companyApproval');
 const upload = require('../utils/upload');
 const { publishInvoiceSubmitted } = require('../utils/queue');
 const { syncInvoiceNode } = require('../utils/neo4jSync');
@@ -91,10 +92,10 @@ router.get('/eligible-pos', requireAuth, requireRole('vendor'), requireVerifiedV
   res.json(result.rows);
 });
 
-// GET /api/invoices/company (finance, company_admin) — every invoice submitted against
+// GET /api/invoices/company (finance) — every invoice submitted against
 // this company's POs. This is the missing piece: previously there was no way for anyone
 // on the company side to even see an invoice existed, let alone act on it.
-router.get('/company', requireAuth, requireRole('finance', 'company_admin'), async (req, res) => {
+router.get('/company', requireAuth, requireRole('finance'), async (req, res) => {
   const result = await db.query(
     `SELECT inv.*, v.company_name as vendor_name, po.agreed_price, po.agreed_quantity, r.title as requirement_title,
             d.final_decision, d.final_score, d.reasoning_text as decision_reasoning
@@ -119,7 +120,7 @@ router.get('/company', requireAuth, requireRole('finance', 'company_admin'), asy
 // "the AI recommends, the company always decides" — Finance still makes the final
 // click, but the system's assessment is a hard gate, not just a suggestion on screen.
 // No payments table exists yet in Flow 1 — this moves the invoice's own status to 'paid'.
-router.post('/:id/mark-paid', requireAuth, requireRole('finance'), async (req, res) => {
+router.post('/:id/mark-paid', requireAuth, requireRole('finance'), requireApprovedCompany, async (req, res) => {
   const invRes = await db.query(
     `SELECT inv.* FROM invoices inv JOIN purchase_orders po ON po.id = inv.po_id WHERE inv.id = $1 AND po.company_id = $2`,
     [req.params.id, req.user.company_id]
@@ -149,11 +150,64 @@ router.post('/:id/mark-paid', requireAuth, requireRole('finance'), async (req, r
   res.json(result.rows[0]);
 });
 
-// GET /api/invoices/:id/review (finance, company_admin) — the invoice plus everything
+// POST /api/invoices/:id/override-and-pay (finance) — the human override path for a
+// flagged/suspicious invoice. The Context Gate's automatic gate on mark-paid is
+// deliberate and stays exactly as strict as before; this is a SEPARATE, explicit
+// action that requires a reason on record — "the AI recommends, the company always
+// decides" (Part 3.6) means Finance can still choose to pay a flagged invoice after
+// reviewing why it was flagged, but that choice is logged, not silent. Every override
+// is written to invoice_overrides for audit — matching the doc's own agent_overrides
+// design (Part 2.3/3.4), which also feeds the monthly gate-tuning review once that's
+// built.
+router.post('/:id/override-and-pay', requireAuth, requireRole('finance'), requireApprovedCompany, async (req, res) => {
+  const { reason } = req.body;
+  if (!reason || !reason.trim()) {
+    return res.status(400).json({ error: 'A reason is required to override a flagged decision — this goes on the audit record.' });
+  }
+
+  const invRes = await db.query(
+    `SELECT inv.* FROM invoices inv JOIN purchase_orders po ON po.id = inv.po_id WHERE inv.id = $1 AND po.company_id = $2`,
+    [req.params.id, req.user.company_id]
+  );
+  const invoice = invRes.rows[0];
+  if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
+  if (invoice.status === 'paid') return res.status(409).json({ error: 'Already marked as paid' });
+
+  const decisionRes = await db.query(`SELECT * FROM decisions WHERE invoice_id = $1 ORDER BY id DESC LIMIT 1`, [req.params.id]);
+  const decision = decisionRes.rows[0];
+  if (!decision) {
+    return res.status(400).json({ error: 'AI verification has not run on this invoice yet.' });
+  }
+  if (decision.final_decision === 'auto_approved') {
+    return res.status(400).json({ error: 'This invoice was already auto-approved — use the normal Approve Payment action, an override is only for flagged/suspicious invoices.' });
+  }
+
+  const client = await db.getClient();
+  try {
+    await client.query('BEGIN');
+    await client.query(`UPDATE invoices SET status='paid' WHERE id=$1`, [req.params.id]);
+    await client.query(
+      `INSERT INTO invoice_overrides (invoice_id, decision_id, overridden_by, reason) VALUES ($1,$2,$3,$4)`,
+      [req.params.id, decision.id, req.user.id, reason.trim()]
+    );
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error(err);
+    return res.status(500).json({ error: 'Could not process override' });
+  } finally {
+    client.release();
+  }
+
+  const updated = await db.query(`SELECT * FROM invoices WHERE id = $1`, [req.params.id]);
+  res.json(updated.rows[0]);
+});
+
+// GET /api/invoices/:id/review (finance) — the invoice plus everything
 // the AI pipeline produced for it: OCR extraction, matching results, compliance check,
 // and the Context Gate's final decision with its reasoning. This is what the Invoice
 // Review page renders.
-router.get('/:id/review', requireAuth, requireRole('finance', 'company_admin'), async (req, res) => {
+router.get('/:id/review', requireAuth, requireRole('finance'), async (req, res) => {
   const invRes = await db.query(
     `SELECT inv.*, v.company_name as vendor_name, po.agreed_price, po.agreed_quantity, r.title as requirement_title
      FROM invoices inv
@@ -166,13 +220,14 @@ router.get('/:id/review', requireAuth, requireRole('finance', 'company_admin'), 
   const invoice = invRes.rows[0];
   if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
 
-  const [extraction, matching, compliance, decision, fraudFlags, vendorRisk] = await Promise.all([
+  const [extraction, matching, compliance, decision, fraudFlags, vendorRisk, overrides] = await Promise.all([
     db.query(`SELECT * FROM document_extractions WHERE invoice_id = $1 ORDER BY id DESC LIMIT 1`, [req.params.id]),
     db.query(`SELECT * FROM matching_results WHERE invoice_id = $1 ORDER BY id DESC LIMIT 1`, [req.params.id]),
     db.query(`SELECT * FROM compliance_checks WHERE invoice_id = $1 ORDER BY id DESC LIMIT 1`, [req.params.id]),
     db.query(`SELECT * FROM decisions WHERE invoice_id = $1 ORDER BY id DESC LIMIT 1`, [req.params.id]),
     db.query(`SELECT * FROM fraud_flags WHERE invoice_id = $1 ORDER BY id DESC`, [req.params.id]),
-    db.query(`SELECT * FROM vendor_risk_scores WHERE company_id = $1 AND vendor_id = $2`, [req.user.company_id, invoice.vendor_id])
+    db.query(`SELECT * FROM vendor_risk_scores WHERE company_id = $1 AND vendor_id = $2`, [req.user.company_id, invoice.vendor_id]),
+    db.query(`SELECT o.*, u.name as overridden_by_name FROM invoice_overrides o JOIN users u ON u.id = o.overridden_by WHERE o.invoice_id = $1 ORDER BY o.id DESC`, [req.params.id])
   ]);
 
   res.json({
@@ -182,7 +237,8 @@ router.get('/:id/review', requireAuth, requireRole('finance', 'company_admin'), 
     compliance_check: compliance.rows[0] || null,
     decision: decision.rows[0] || null,
     fraud_flags: fraudFlags.rows,
-    vendor_risk: vendorRisk.rows[0] || null
+    vendor_risk: vendorRisk.rows[0] || null,
+    overrides: overrides.rows
   });
 });
 

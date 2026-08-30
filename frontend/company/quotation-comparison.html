@@ -30,7 +30,7 @@
 <script src="/shared/api.js"></script>
 <script src="/shared/navbar.js"></script>
 <script>
-requireLogin(['procurement', 'company_admin']);
+requireLogin(['procurement']);
 
 async function loadAll() {
   const res = await fetchWithAuth('/api/quotations/company');
@@ -46,7 +46,7 @@ async function loadAll() {
       <td>₹${q.price}</td>
       <td>${q.delivery_days}</td>
       <td>${new Date(q.submitted_at).toLocaleDateString()}</td>
-      <td><button class="btn btn-sm btn-amber" onclick="acceptFromAll(${q.id})">Accept</button></td>
+      <td><button class="btn btn-sm btn-accept" onclick="acceptFromAll(${q.id})">Accept</button></td>
     </tr>`).join('');
 }
 
@@ -85,7 +85,7 @@ async function loadQuotations() {
       <td>₹${q.price}</td>
       <td>${q.delivery_days}</td>
       <td><span class="badge status-badge ${statusBadgeClass(q.status)}">${q.status}</span></td>
-      <td>${q.status === 'submitted' ? `<button class="btn btn-sm btn-amber" onclick="accept(${q.id})">Accept</button>` : '—'}</td>
+      <td>${q.status === 'submitted' ? `<button class="btn btn-sm btn-accept" onclick="accept(${q.id})">Accept</button>` : '—'}</td>
     </tr>`).join('');
 }
 

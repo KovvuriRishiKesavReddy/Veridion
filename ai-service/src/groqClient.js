@@ -1,51 +1,50 @@
-require('dotenv').config();
+// /ai-service/src/groqClient.js
 
-const GROQ_MODEL = 'llama-3.3-70b-versatile';
+const Groq = require('groq-sdk');
 
-// callGroqStructured: sends a system+user prompt to Groq, requesting strict JSON back.
-// If GROQ_API_KEY isn't set, returns { __stub: true } instead of throwing — every agent
-// that calls this checks for __stub and falls back to a deterministic, honest template
-// response instead of LLM-generated prose. This means the entire pipeline (matching
-// scores, compliance checks, the Context Gate's math, decisions) is fully functional
-// and testable with zero API key; only the natural-language reasoning quality improves
-// once a real key is added to .env.
-async function callGroqStructured(systemPrompt, userPrompt) {
-  const apiKey = process.env.GROQ_API_KEY;
-  if (!apiKey) {
-    return { __stub: true };
-  }
+const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
-  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      model: GROQ_MODEL,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt }
-      ],
-      response_format: { type: 'json_object' },
-      temperature: 0.1
-    })
+// gpt-oss-120b replaces the deprecated llama-3.3-70b-versatile (shut down Aug 16, 2026)
+const MODEL = 'openai/gpt-oss-120b';
+
+/**
+ * Calls Groq asking for strict JSON matching jsonSchema.
+ * Throws on failure instead of swallowing errors and returning {} —
+ * callers are responsible for deciding what a failed extraction means
+ * for their pipeline (previously a silent {} looked identical to a
+ * legitimately empty invoice, which is what caused the all-null bug).
+ */
+async function callGroqStructured(systemPrompt, userPrompt, jsonSchema) {
+  const response = await groq.chat.completions.create({
+    model: MODEL,
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt },
+    ],
+    response_format: { type: 'json_object' },
+    temperature: 0.1,
   });
 
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Groq API error ${res.status}: ${text}`);
+  const raw = response?.choices?.[0]?.message?.content;
+
+  if (!raw || raw.trim().length === 0) {
+    throw new Error('Groq returned an empty response body');
   }
 
-  const data = await res.json();
-  const content = data.choices?.[0]?.message?.content;
-  if (!content) throw new Error('Groq returned no content');
-
+  let parsed;
   try {
-    return JSON.parse(content);
+    parsed = JSON.parse(raw);
   } catch (err) {
-    throw new Error(`Groq returned non-JSON content: ${content}`);
+    // Model sometimes wraps JSON in ```json fences despite json_object mode
+    const cleaned = raw.replace(/```json|```/g, '').trim();
+    try {
+      parsed = JSON.parse(cleaned);
+    } catch (err2) {
+      throw new Error(`Groq response was not valid JSON. Raw output: ${raw.slice(0, 300)}`);
+    }
   }
+
+  return parsed;
 }
 
-module.exports = { callGroqStructured };
+module.exports = { callGroqStructured, MODEL };

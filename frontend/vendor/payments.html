@@ -41,7 +41,7 @@ async function load() {
     <div class="col-md-6">
       <div class="card p-3">
         <h6 class="mb-1">${i.invoice_number || 'Invoice #' + i.id} — ${i.requirement_title}</h6>
-        <p class="small text-muted mb-1">Amount: ₹${i.invoice_amount} · Submitted: ${new Date(i.submitted_at).toLocaleDateString()}</p>
+        <p class="small text-muted mb-1">Amount: ${formatInvoiceTotal(i)} · Submitted: ${new Date(i.submitted_at).toLocaleDateString()}</p>
         <p class="small text-muted mb-2">Payment Due Date: ${i.due_date ? new Date(i.due_date).toLocaleDateString() : 'Not specified'}</p>
         <div class="mb-2">${decisionBadge(i)}</div>
         <div class="mb-2">${paymentBadge(i)}</div>
