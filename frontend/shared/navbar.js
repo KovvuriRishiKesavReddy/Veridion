@@ -21,6 +21,7 @@ function renderNavbar() {
       ['/vendor/purchase-orders.html', 'Purchase Orders'],
       ['/vendor/grn-documents.html', 'Deliveries (GRN)'],
       ['/vendor/my-invoices.html', 'My Invoices'],
+      ['/vendor/disputes.html', 'Disputes'],
       ['/vendor/payments.html', 'Payment Status'],
       ['/vendor/profile.html', 'My Profile']
     ],
@@ -41,6 +42,7 @@ function renderNavbar() {
       ['/company/purchase-orders.html', 'Purchase Orders'],
       ['/company/grn-documents.html', 'GRN Documents'],
       ['/company/invoices.html', 'Invoices'],
+      ['/company/disputes.html', 'Disputes'],
       ['/company/payment.html', 'Payments']
     ],
     warehouse: [

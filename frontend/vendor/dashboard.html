@@ -54,7 +54,7 @@ document.getElementById('vendorName').textContent = user ? user.name : '';
 let quoteModal;
 document.addEventListener('DOMContentLoaded', () => { quoteModal = new bootstrap.Modal(document.getElementById('quoteModal')); });
 
-(async () => {
+async function loadRecentPOs() {
   const res = await fetchWithAuth('/api/purchase-orders/mine');
   if (!res) return;
   const pos = await res.json();
@@ -68,14 +68,15 @@ document.addEventListener('DOMContentLoaded', () => { quoteModal = new bootstrap
       <td><span class="badge status-badge ${statusBadgeClass(po.status)}">${po.status}</span></td>
       <td><span class="badge status-badge ${statusBadgeClass(po.fulfillment_status)}">${po.fulfillment_status}</span></td>
     </tr>`).join('');
-})();
+}
+pollEvery(loadRecentPOs, 1000, () => pollBlockedBy('poRows'));
 
-(async () => {
+async function loadReadyToInvoice() {
   const res = await fetchWithAuth('/api/invoices/eligible-pos');
   if (!res) return;
   const pos = await res.json();
   const section = document.getElementById('readyToInvoiceSection');
-  if (!pos.length) return;
+  if (!pos.length) { section.style.display = 'none'; return; }
   section.style.display = 'block';
   document.getElementById('readyToInvoiceCards').innerHTML = pos.map(po => `
     <div class="col-md-6">
@@ -85,7 +86,8 @@ document.addEventListener('DOMContentLoaded', () => { quoteModal = new bootstrap
         <a href="/vendor/my-invoices.html" class="btn btn-sm btn-amber">Submit Invoice</a>
       </div>
     </div>`).join('');
-})();
+}
+pollEvery(loadReadyToInvoice, 1000, () => pollBlockedBy('readyToInvoiceCards'));
 
 async function loadRequirements() {
   const res = await fetchWithAuth('/api/requirements');
@@ -103,7 +105,10 @@ async function loadRequirements() {
       </div>
     </div>`).join('');
 }
-loadRequirements();
+// Poll every second — new POs, deliveries eligible to invoice, and open requirements
+// from other companies all show up live. None of these touch the quote modal's own
+// inputs, which live in a separate part of the page.
+pollEvery(loadRequirements, 1000, () => pollBlockedBy('reqCards'));
 
 function openQuoteModal(id) {
   document.getElementById('requirement_id').value = id;

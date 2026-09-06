@@ -53,7 +53,9 @@ async function markPaid(id) {
   load();
 }
 
-load();
+// Poll every second so invoice status (submitted -> verified/flagged -> paid) updates
+// live as the AI pipeline runs or Finance approves payment, without a manual refresh.
+pollEvery(load, 1000, () => pollBlockedBy('rows'));
 </script>
 </body>
 </html>

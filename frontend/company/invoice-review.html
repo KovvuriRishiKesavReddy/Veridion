@@ -151,7 +151,11 @@ async function overrideAndPay() {
   load();
 }
 
-load();
+// Poll every second so the decision/status updates live if the AI pipeline finishes
+// processing while this page is open, or if Finance approves payment in another tab.
+// Pauses while the "agent weights" details panel is open or its content is being
+// selected/copied.
+pollEvery(load, 1000, () => pollBlockedBy('content'));
 </script>
 </body>
 </html>

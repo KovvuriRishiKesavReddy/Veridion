@@ -117,8 +117,14 @@ function prefillFromPo() {
 }
 document.getElementById('po_id').addEventListener('change', prefillFromPo);
 
-loadInvoices();
-loadEligiblePos();
+// Poll every second so invoice status (submitted -> verified/flagged -> paid) updates
+// live, without a manual refresh — this is the primary place vendors track that.
+pollEvery(loadInvoices, 1000, () => pollBlockedBy('rows'));
+// Poll the "eligible POs" list too (new deliveries can become invoiceable at any time),
+// but skip a tick while the Upload modal is actually open — refreshing it mid-fill
+// would re-run prefillFromPo() and overwrite whatever amount/quantity the vendor has
+// already typed in.
+pollEvery(loadEligiblePos, 1000, () => document.getElementById('uploadModal').classList.contains('show'));
 
 async function submitInvoice() {
   const file = document.getElementById('invoice_file').files[0];

@@ -28,7 +28,12 @@
 <script>
 requireLogin(['vendor']);
 let poModal;
-document.addEventListener('DOMContentLoaded', () => { poModal = new bootstrap.Modal(document.getElementById('poModal')); load(); });
+document.addEventListener('DOMContentLoaded', () => {
+  poModal = new bootstrap.Modal(document.getElementById('poModal'));
+  // Poll every second so fulfillment status updates live as the buyer's warehouse
+  // records deliveries.
+  pollEvery(load, 1000, () => pollBlockedBy('cards'));
+});
 
 async function load() {
   const res = await fetchWithAuth('/api/purchase-orders/mine');

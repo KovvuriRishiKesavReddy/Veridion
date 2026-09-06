@@ -39,7 +39,13 @@
 <script>
 requireLogin(['vendor']);
 let quoteModal;
-document.addEventListener('DOMContentLoaded', () => { quoteModal = new bootstrap.Modal(document.getElementById('quoteModal')); load(); });
+document.addEventListener('DOMContentLoaded', () => {
+  quoteModal = new bootstrap.Modal(document.getElementById('quoteModal'));
+  // Poll every second so newly posted requirements show up live. Safe alongside the
+  // category filter input and the quote modal's own fields — load() only ever reads
+  // the filter's current value, never overwrites it, and never touches the modal.
+  pollEvery(load, 1000, () => pollBlockedBy('list'));
+});
 
 async function load() {
   const cat = document.getElementById('categoryFilter').value.trim();

@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Disputes — Veridion</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<link href="/shared/style.css" rel="stylesheet">
+</head>
+<body>
+<div id="navbar-root"></div>
+<div class="container">
+  <h3 class="mb-1">Vendor Disputes</h3>
+  <p class="text-muted">AI-drafted dispute messages for flagged invoices — review, edit if needed, then send to the vendor.</p>
+
+  <h6 class="mt-4">Pending — needs your review</h6>
+  <div id="pending"><p class="text-muted">Loading...</p></div>
+
+  <h6 class="mt-5">Sent — awaiting resolution</h6>
+  <div id="sentList"><p class="text-muted">Loading...</p></div>
+
+  <h6 class="mt-5">Resolved</h6>
+  <div id="resolvedList"><p class="text-muted">Loading...</p></div>
+</div>
+<script src="/shared/api.js"></script>
+<script src="/shared/navbar.js"></script>
+<script>
+requireLogin(['finance']);
+
+function card(c, actionsHtml) {
+  return `
+    <div class="card p-3 mb-3">
+      <div class="d-flex justify-content-between align-items-start">
+        <div>
+          <strong>${c.vendor_name}</strong> — Invoice ${c.invoice_number || '#' + c.invoice_id} (₹${c.invoice_amount})
+          <div class="text-muted small">${c.requirement_title} · ${c.mismatch_type || 'other'}</div>
+        </div>
+        <span class="badge status-badge ${statusBadgeClass(c.status)}">${c.status}</span>
+      </div>
+      <div class="mt-2">
+        <label class="form-label small text-muted mb-1">Message</label>
+        <textarea class="form-control" id="msg-${c.id}" rows="3" ${c.status !== 'pending_send' ? 'readonly' : ''}>${c.draft_text}</textarea>
+      </div>
+      ${c.vendor_response ? `<div class="alert alert-secondary mt-2 mb-0 small"><strong>Vendor's response</strong> (${new Date(c.vendor_responded_at).toLocaleString()}):<br>${c.vendor_response}</div>` : ''}
+      ${c.resolved ? `<div class="alert alert-success mt-2 mb-0 small">Resolved on ${new Date(c.resolved_at).toLocaleString()} — took ${Number(c.resolution_time_hours).toFixed(1)} hour(s).</div>` : ''}
+      <div class="mt-2">${actionsHtml}</div>
+    </div>`;
+}
+
+async function saveEdit(id) {
+  const draft_text = document.getElementById(`msg-${id}`).value;
+  const res = await fetchWithAuth(`/api/vendor-communications/${id}`, { method: 'PUT', body: JSON.stringify({ draft_text }) });
+  if (!res) return;
+  const data = await res.json();
+  if (!res.ok) { alert(data.error || 'Failed'); return; }
+  alert('Saved.');
+}
+
+async function sendDispute(id) {
+  if (!confirm('Send this message to the vendor?')) return;
+  await saveEdit(id);
+  const res = await fetchWithAuth(`/api/vendor-communications/${id}/send`, { method: 'POST' });
+  if (!res) return;
+  const data = await res.json();
+  if (!res.ok) { alert(data.error || 'Failed'); return; }
+  loadAll();
+}
+
+async function resolveDispute(id) {
+  if (!confirm('Mark this dispute as resolved? This is recorded and feeds this vendor\'s dispute-rate score.')) return;
+  const res = await fetchWithAuth(`/api/vendor-communications/${id}/resolve`, { method: 'POST' });
+  if (!res) return;
+  const data = await res.json();
+  if (!res.ok) { alert(data.error || 'Failed'); return; }
+  loadAll();
+}
+
+async function loadAll() {
+  const res = await fetchWithAuth('/api/vendor-communications');
+  if (!res) return;
+  const all = await res.json();
+
+  const pending = all.filter(c => c.status === 'pending_send');
+  const sent = all.filter(c => c.status === 'sent' && !c.resolved);
+  const resolved = all.filter(c => c.resolved);
+
+  document.getElementById('pending').innerHTML = pending.length
+    ? pending.map(c => card(c, `
+        <button class="btn btn-sm btn-outline-secondary" onclick="saveEdit(${c.id})">Save Edit</button>
+        <button class="btn btn-sm btn-amber" onclick="sendDispute(${c.id})">Send to Vendor</button>`)).join('')
+    : '<p class="text-muted small">Nothing pending — every flagged invoice has already had its dispute message sent.</p>';
+
+  document.getElementById('sentList').innerHTML = sent.length
+    ? sent.map(c => card(c, `<button class="btn btn-sm btn-amber" onclick="resolveDispute(${c.id})">Mark Resolved</button>`)).join('')
+    : '<p class="text-muted small">No open disputes waiting on the vendor right now.</p>';
+
+  document.getElementById('resolvedList').innerHTML = resolved.length
+    ? resolved.map(c => card(c, '')).join('')
+    : '<p class="text-muted small">No resolved disputes yet.</p>';
+}
+
+// Poll every second so a newly flagged invoice's dispute appears live, and the
+// vendor's response shows up without a manual refresh. Skips a tick while Finance is
+// actively typing in one of the message textareas, so a poll never overwrites an
+// in-progress edit.
+pollEvery(loadAll, 1000, () => pollBlockedBy('pending', 'sentList', 'resolvedList'));
+</script>
+</body>
+</html>

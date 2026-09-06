@@ -21,6 +21,10 @@
         <label class="form-label">Password</label>
         <input type="password" class="form-control" id="password" required>
       </div>
+      <div class="mb-3 form-check">
+        <input type="checkbox" class="form-check-input" id="rememberMe">
+        <label class="form-check-label small" for="rememberMe">Remember me on this device</label>
+      </div>
       <button type="submit" class="btn btn-primary w-100">Log in</button>
     </form>
     <hr>
@@ -60,7 +64,8 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
     });
     const data = await res.json();
     if (!res.ok) { errorBox.textContent = data.error || 'Login failed'; errorBox.classList.remove('d-none'); return; }
-    setSession(data.token, data.user);
+    const remember = document.getElementById('rememberMe').checked;
+    setSession(data.token, data.user, remember);
     const dest = {
       vendor: data.user.vendor_verification_status === 'verified' ? '/vendor/dashboard.html' : '/vendor/awaiting-approval.html',
       company_admin: '/company/dashboard.html',

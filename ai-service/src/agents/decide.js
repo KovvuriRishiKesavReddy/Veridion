@@ -2,6 +2,7 @@ const db = require('../db');
 const { callGroqStructured } = require('../groqClient');
 const { runFraudAgent } = require('./fraud');
 const { onInvoiceDecisionFinalised } = require('./vendorRisk');
+const { runVendorCommunicationAgent } = require('./vendorCommunication');
 
 // runDecisionAgent: Agent 8 — the Context Gate / Decision Engine.
 // Now reads all four suppliers (Matching, Compliance, Fraud, Vendor Risk) — this is
@@ -121,6 +122,26 @@ async function runDecisionAgent(invoiceId) {
 
   // Agent 5 update: feed this decision back into the vendor's running invoice_accuracy_pct.
   await onInvoiceDecisionFinalised(invoiceId, finalDecision);
+
+  // Agent 7: for a 'flagged' (non-fraud) decision, draft a dispute message for
+  // Finance to review and send — Part 4.3/Prompt 4.2's automatic trigger. Never for
+  // 'auto_approved' (nothing to dispute) or 'suspicious' (that already returned
+  // earlier above, routed to Platform Admin instead — a fraud case gets a different
+  // review path entirely, not a polite vendor email). Wrapped defensively so a Groq
+  // hiccup here can never take down the decision that was already committed above —
+  // same graceful-degradation posture as the reasoning-text call itself. Guarded
+  // against duplicates so re-running this agent on the same invoice (e.g. manual
+  // testing via POST /agents/decide) doesn't pile up repeat dispute drafts.
+  if (finalDecision === 'flagged') {
+    try {
+      const existing = await db.query(`SELECT id FROM vendor_communications WHERE invoice_id = $1`, [invoiceId]);
+      if (!existing.rows[0]) {
+        await runVendorCommunicationAgent(invoiceId);
+      }
+    } catch (err) {
+      console.error(`[decide] Agent 7 (vendor communication) failed for invoice ${invoiceId}, decision still stands: ${err.message}`);
+    }
+  }
 
   return result.rows[0];
 }

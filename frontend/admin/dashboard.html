@@ -103,9 +103,14 @@ async function verify(id, status) {
   load();
 }
 
-load();
-loadCompanies();
-loadFraudFlags();
+// Poll all three sections every second so a newly registered vendor/company, or a
+// freshly raised fraud flag, appears live without the admin needing to refresh. Each
+// pauses itself while its expanded detail panel is open or its text is being
+// selected/copied, so reviewing or copying a vendor's PAN/bank details never gets
+// yanked away mid-read.
+pollEvery(load, 1000, () => pollBlockedBy('rows'));
+pollEvery(loadCompanies, 1000, () => pollBlockedBy('companyRows'));
+pollEvery(loadFraudFlags, 1000, () => pollBlockedBy('fraudRows'));
 
 async function loadCompanies() {
   const res = await fetchWithAuth('/api/admin/companies');

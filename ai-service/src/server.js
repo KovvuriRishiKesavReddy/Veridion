@@ -26,6 +26,8 @@ const { runComplianceAgent } = require('./agents/compliance');
 const { runDecisionAgent } = require('./agents/decide');
 const { runFraudAgent } = require('./agents/fraud');
 const { onGrnConfirmed, onDisputeResolved } = require('./agents/vendorRisk');
+const { runRankQuotationsAgent } = require('./agents/rankQuotations');
+const { runVendorCommunicationAgent } = require('./agents/vendorCommunication');
 
 const app = express();
 app.use(express.json());
@@ -97,11 +99,39 @@ app.post('/agents/vendor-risk/on-grn-confirmed', async (req, res) => {
   }
 });
 
-// POST /agents/vendor-risk/on-dispute-resolved — not called by anything yet (the
-// dispute flow is Flow 4), exposed now so Flow 4 can wire it directly.
+// POST /agents/vendor-risk/on-dispute-resolved — wired up in Flow 4: the backend's
+// vendor-communications resolve route calls this the moment Finance marks a dispute
+// resolved.
 app.post('/agents/vendor-risk/on-dispute-resolved', async (req, res) => {
   try {
     const result = await onDisputeResolved(req.body.company_id, req.body.vendor_id, req.body.was_disputed);
+    res.json(result);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /agents/rank-quotations — Agent 6. Body: { requirement_id }. Ranks every
+// quotation on that requirement via the Context Gate (Price + Delivery + Past
+// Performance) and writes ai_rank_score/ai_rank_reasoning back onto each quotations
+// row. Called by the backend's GET /api/requirements/:id/quotations route.
+app.post('/agents/rank-quotations', async (req, res) => {
+  try {
+    const result = await runRankQuotationsAgent(req.body.requirement_id);
+    res.json(result);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /agents/draft-dispute — Agent 7, exposed directly for manual/testing use.
+// In normal operation this is called automatically from inside Agent 8 (decide.js)
+// whenever a decision comes back 'flagged'.
+app.post('/agents/draft-dispute', async (req, res) => {
+  try {
+    const result = await runVendorCommunicationAgent(req.body.invoice_id);
     res.json(result);
   } catch (err) {
     console.error(err);

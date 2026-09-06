@@ -33,7 +33,7 @@ document.getElementById('form').addEventListener('submit', async (e) => {
   });
   const data = await res.json();
   if (!res.ok) { errorBox.textContent = data.error || 'Could not accept invite'; errorBox.classList.remove('d-none'); return; }
-  setSession(data.token, data.user);
+  setSession(data.token, data.user, true); // persist: just registered/accepted an invite, keep them signed in
   window.location.href = '/company/dashboard.html';
 });
 </script>

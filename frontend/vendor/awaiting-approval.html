@@ -49,10 +49,11 @@ async function checkStatus() {
   card.innerHTML = `
     <h4 class="text-warning">Awaiting Approval</h4>
     <p class="text-muted">Thanks for registering, ${me.name}. A Platform Admin needs to verify your business details before you can access the dashboard, browse requirements, or submit quotations.</p>
-    <p class="small text-muted">This page will not update automatically — click Refresh Status after you've been notified, or check back later.</p>`;
+    <p class="small text-muted">This page checks automatically every second — you'll be moved to your dashboard the moment you're approved, no need to refresh.</p>`;
 }
 
-checkStatus();
+// Poll every second so approval is picked up live, without a manual refresh.
+pollEvery(checkStatus);
 </script>
 </body>
 </html>

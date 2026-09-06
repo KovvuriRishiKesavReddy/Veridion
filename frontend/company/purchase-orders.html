@@ -28,7 +28,12 @@
 <script>
 const user = requireLogin(['procurement', 'finance', 'warehouse']);
 let poModal;
-document.addEventListener('DOMContentLoaded', () => { poModal = new bootstrap.Modal(document.getElementById('poModal')); load(); });
+document.addEventListener('DOMContentLoaded', () => {
+  poModal = new bootstrap.Modal(document.getElementById('poModal'));
+  // Poll every second so fulfillment status updates live as GRNs are recorded.
+  // Pauses while any PO detail is being selected/copied.
+  pollEvery(load, 1000, () => pollBlockedBy('cards'));
+});
 
 async function load() {
   const res = await fetchWithAuth('/api/purchase-orders/mine');

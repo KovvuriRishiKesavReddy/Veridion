@@ -20,7 +20,8 @@
 <script src="/shared/navbar.js"></script>
 <script>
 requireLogin(['procurement', 'finance', 'warehouse']);
-(async () => {
+
+async function load() {
   const res = await fetchWithAuth('/api/grn/company');
   if (!res) return;
   const grns = await res.json();
@@ -36,7 +37,9 @@ requireLogin(['procurement', 'finance', 'warehouse']);
       <td>${g.recorded_by_name}</td>
       <td>${g.expected_next_delivery_date || '—'}${g.next_delivery_notes ? `<br><span class="small text-muted">${g.next_delivery_notes}</span>` : ''}</td>
     </tr>`).join('');
-})();
+}
+// Poll every second so a new GRN recorded by Warehouse shows up live.
+pollEvery(load, 1000, () => pollBlockedBy('rows'));
 </script>
 </body>
 </html>

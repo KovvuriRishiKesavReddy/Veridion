@@ -58,7 +58,7 @@ document.getElementById('form').addEventListener('submit', async (e) => {
   const res = await fetch(`${API_BASE}/api/auth/register/company`, { method: 'POST', body: fd });
   const data = await res.json();
   if (!res.ok) { errorBox.textContent = data.error || 'Registration failed'; errorBox.classList.remove('d-none'); return; }
-  setSession(data.token, data.user);
+  setSession(data.token, data.user, true); // persist: just registered/accepted an invite, keep them signed in
   window.location.href = '/company/awaiting-approval.html';
 });
 </script>

@@ -84,7 +84,9 @@ async function approvePay(id) {
   load();
 }
 
-load();
+// Poll every second so an invoice moving between "ready to pay" and "flagged" (or a
+// payment made in another tab) is reflected live.
+pollEvery(load, 1000, () => pollBlockedBy('readyRows', 'flaggedRows', 'paidRows'));
 </script>
 </body>
 </html>

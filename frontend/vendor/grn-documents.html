@@ -20,7 +20,7 @@
 <script src="/shared/navbar.js"></script>
 <script>
 requireLogin(['vendor']);
-(async () => {
+async function load() {
   const res = await fetchWithAuth('/api/grn/vendor');
   if (!res) return;
   const grns = await res.json();
@@ -35,7 +35,9 @@ requireLogin(['vendor']);
       <td><span class="badge status-badge ${statusBadgeClass(g.fulfillment_status)}">${g.fulfillment_status}</span></td>
       <td>${g.expected_next_delivery_date || '—'}</td>
     </tr>`).join('');
-})();
+}
+// Poll every second so a new delivery recorded by the buyer's warehouse shows up live.
+pollEvery(load, 1000, () => pollBlockedBy('rows'));
 </script>
 </body>
 </html>

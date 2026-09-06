@@ -22,10 +22,10 @@
     <select class="form-select" id="reqSelect" style="max-width:420px" onchange="loadQuotations()"></select>
   </div>
   <table class="table bg-white">
-    <thead><tr><th>Vendor</th><th>Verification</th><th>Price</th><th>Delivery (days)</th><th>Status</th><th>Action</th></tr></thead>
-    <tbody id="rows"><tr><td colspan="6" class="text-muted">Select a requirement above.</td></tr></tbody>
+    <thead><tr><th>Rank</th><th>Vendor</th><th>Verification</th><th>Price</th><th>Delivery (days)</th><th>AI Score</th><th>Status</th><th>Action</th></tr></thead>
+    <tbody id="rows"><tr><td colspan="8" class="text-muted">Select a requirement above.</td></tr></tbody>
   </table>
-  <p class="small text-muted">Sorted by price for now — AI ranking with plain-English reasoning is added in Flow 4.</p>
+  <p class="small text-muted">Ranked by the Context Gate (Agent 6) — a confidence-weighted blend of price, delivery fit, and each vendor's past performance with your company. Click a row's reasoning to see why. You can still accept any vendor, not just the top-ranked one.</p>
 </div>
 <script src="/shared/api.js"></script>
 <script src="/shared/navbar.js"></script>
@@ -63,30 +63,46 @@ async function acceptFromAll(quotationId) {
 }
 
 async function loadRequirements() {
+  const select = document.getElementById('reqSelect');
+  const previousValue = select.value; // preserve selection across the 1-second poll
   const res = await fetchWithAuth('/api/requirements/mine');
   if (!res) return;
   const reqs = await res.json();
-  document.getElementById('reqSelect').innerHTML = '<option value="">— choose —</option>' +
+  select.innerHTML = '<option value="">— choose —</option>' +
     reqs.map(r => `<option value="${r.id}">${r.title} (${r.status})</option>`).join('');
+  if (previousValue && reqs.some(r => String(r.id) === previousValue)) select.value = previousValue;
 }
 
-async function loadQuotations() {
+async function loadQuotations(rerank = true) {
   const id = document.getElementById('reqSelect').value;
   const rows = document.getElementById('rows');
-  if (!id) { rows.innerHTML = '<tr><td colspan="6" class="text-muted">Select a requirement above.</td></tr>'; return; }
-  const res = await fetchWithAuth(`/api/requirements/${id}/quotations`);
+  if (!id) { rows.innerHTML = '<tr><td colspan="8" class="text-muted">Select a requirement above.</td></tr>'; return; }
+  if (rerank) rows.innerHTML = '<tr><td colspan="8" class="text-muted">Ranking quotations...</td></tr>';
+  const res = await fetchWithAuth(`/api/requirements/${id}/quotations${rerank ? '' : '?rerank=false'}`);
   if (!res) return;
   const qs = await res.json();
-  if (!qs.length) { rows.innerHTML = '<tr><td colspan="6" class="text-muted">No quotations yet for this requirement.</td></tr>'; return; }
-  rows.innerHTML = qs.map(q => `
+  if (!qs.length) { rows.innerHTML = '<tr><td colspan="8" class="text-muted">No quotations yet for this requirement.</td></tr>'; return; }
+  rows.innerHTML = qs.map((q, i) => `
     <tr>
+      <td>${q.ai_rank_score != null ? '#' + (i + 1) : '—'}</td>
       <td>${q.vendor_name}</td>
       <td><span class="badge status-badge ${statusBadgeClass(q.verification_status)}">${q.verification_status}</span></td>
       <td>₹${q.price}</td>
       <td>${q.delivery_days}</td>
+      <td>${q.ai_rank_score != null ? Number(q.ai_rank_score).toFixed(2) : '—'}</td>
       <td><span class="badge status-badge ${statusBadgeClass(q.status)}">${q.status}</span></td>
       <td>${q.status === 'submitted' ? `<button class="btn btn-sm btn-accept" onclick="accept(${q.id})">Accept</button>` : '—'}</td>
-    </tr>`).join('');
+    </tr>
+    ${q.ai_rank_reasoning ? `
+    <tr class="table-light">
+      <td></td>
+      <td colspan="7">
+        <details class="small">
+          <summary class="text-muted">AI ranking reasoning</summary>
+          <p class="mb-0 mt-1">${q.ai_rank_reasoning}</p>
+        </details>
+      </td>
+    </tr>` : ''}`).join('');
 }
 
 async function accept(quotationId) {
@@ -100,8 +116,20 @@ async function accept(quotationId) {
   loadAll();
 }
 
-loadAll();
-loadRequirements();
+// The top "All Open Quotations" table and the requirement dropdown are cheap DB reads
+// — poll every second freely. The per-requirement ranked table is different in two
+// ways: viewing it runs the Context Gate (Agent 6), which calls out to Groq —
+// expensive to redo every second, so it force-reranks once when a requirement is first
+// selected, then the 1-second poll only re-reads what's already stored (rerank=false).
+// It also renders an "AI ranking reasoning" <details> per vendor — re-rendering that
+// container while one is open would slam it shut every second (and clear any copied
+// text), so the poll pauses entirely while a reasoning panel is expanded or its text
+// is being selected.
+pollEvery(loadAll, 1000, () => pollBlockedBy('allRows'));
+pollEvery(loadRequirements);
+setInterval(() => {
+  if (document.getElementById('reqSelect').value && !pollBlockedBy('rows')) loadQuotations(false);
+}, 1000);
 </script>
 </body>
 </html>

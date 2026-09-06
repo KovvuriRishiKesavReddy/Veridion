@@ -160,8 +160,10 @@ async function loadMine() {
   ).join('') : '<tr><td colspan="4" class="text-muted">No submissions yet.</td></tr>';
 }
 
-loadAvailable();
-loadMine();
+// Poll every second so the available-POs list and recent-submissions list stay
+// current; both only touch #cards/#rows, never the open entry form itself.
+pollEvery(loadAvailable, 1000, () => pollBlockedBy('cards'));
+pollEvery(loadMine, 1000, () => pollBlockedBy('rows'));
 </script>
 </body>
 </html>

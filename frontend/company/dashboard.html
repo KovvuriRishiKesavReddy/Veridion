@@ -62,7 +62,7 @@ if (user) {
 // Warehouse territory only, with Company Admin scoped to team + company profile).
 if (user && !['warehouse', 'platform_admin', 'company_admin'].includes(user.role)) {
   document.getElementById('requirementsSection').style.display = 'block';
-  (async () => {
+  const loadRequirements = async () => {
     const res = await fetchWithAuth('/api/requirements/mine');
     if (!res) return;
     const reqs = await res.json();
@@ -74,18 +74,20 @@ if (user && !['warehouse', 'platform_admin', 'company_admin'].includes(user.role
         <td><span class="badge status-badge ${statusBadgeClass(r.status)}">${r.status}</span></td>
         <td>${new Date(r.created_at).toLocaleDateString()}</td>
       </tr>`).join('');
-  })();
+  };
+  pollEvery(loadRequirements, 1000, () => pollBlockedBy('reqRows'));
 }
 
 // Invoices awaiting payment — Finance only now (Company Admin no longer has API
 // access to /api/invoices/company; see invoices.js).
 if (user && user.role === 'finance') {
-  (async () => {
+  const loadPayments = async () => {
     const res = await fetchWithAuth('/api/invoices/company');
     if (!res) return;
     const invs = (await res.json()).filter(i => i.status !== 'paid');
-    if (!invs.length) return;
-    document.getElementById('paymentsSection').style.display = 'block';
+    const section = document.getElementById('paymentsSection');
+    if (!invs.length) { section.style.display = 'none'; return; }
+    section.style.display = 'block';
     document.getElementById('paymentRows').innerHTML = invs.map(i => `
       <tr>
         <td>${i.invoice_number || '—'}</td>
@@ -98,7 +100,8 @@ if (user && user.role === 'finance') {
           `<a href="/company/invoice-review.html?id=${i.id}" class="small">Needs review &rarr;</a>`
         }</td>
       </tr>`).join('');
-  })();
+  };
+  pollEvery(loadPayments, 1000, () => pollBlockedBy('paymentRows'));
 }
 
 async function markPaid(id) {
@@ -113,12 +116,13 @@ async function markPaid(id) {
 // Warehouse gets a direct preview of what's awaiting delivery, instead of an empty
 // dashboard with only link cards.
 if (user && user.role === 'warehouse') {
-  (async () => {
+  const loadDeliveries = async () => {
     const res = await fetchWithAuth('/api/purchase-orders/mine');
     if (!res) return;
     const pending = (await res.json()).filter(po => po.fulfillment_status !== 'fulfilled');
-    if (!pending.length) return;
-    document.getElementById('deliverySection').style.display = 'block';
+    const section = document.getElementById('deliverySection');
+    if (!pending.length) { section.style.display = 'none'; return; }
+    section.style.display = 'block';
     document.getElementById('deliveryCards').innerHTML = pending.slice(0, 4).map(po => `
       <div class="col-md-6">
         <div class="card p-3">
@@ -127,7 +131,10 @@ if (user && user.role === 'warehouse') {
           <span class="badge status-badge ${statusBadgeClass(po.fulfillment_status)}">${po.fulfillment_status}</span>
         </div>
       </div>`).join('');
-  })();
+  };
+  // Poll every second so a delivery just recorded (in this tab or another) drops off
+  // this "awaiting delivery" list live.
+  pollEvery(loadDeliveries, 1000, () => pollBlockedBy('deliveryCards'));
 }
 </script>
 </body>

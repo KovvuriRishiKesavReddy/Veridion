@@ -61,7 +61,8 @@ async function withdrawInvoice(id) {
   load();
 }
 
-load();
+// Poll every second so verification/payment status updates live, without a refresh.
+pollEvery(load, 1000, () => pollBlockedBy('cards'));
 </script>
 </body>
 </html>
