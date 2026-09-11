@@ -11,6 +11,7 @@
 <div class="container">
   <h3 class="mb-1">Payments</h3>
   <p class="text-muted">Payment can only be approved once the AI verification pipeline has auto-approved an invoice — that's a hard rule, not just a suggestion. Anything flagged needs review first.</p>
+  <div id="sortToolbar"></div>
 
   <h5 class="mt-4">Ready to Pay <span class="badge bg-success">Auto-Approved</span></h5>
   <table class="table bg-white mb-4">
@@ -34,11 +35,13 @@
 <script src="/shared/navbar.js"></script>
 <script>
 const user = requireLogin(['finance']);
+let getSortState = () => ({ sortBy: 'newest' });
 
 async function load() {
   const res = await fetchWithAuth('/api/invoices/company');
   if (!res) return;
-  const invs = await res.json();
+  let invs = await res.json();
+  invs = sortAndFilterItems(invs, getSortState(), { dateField: 'submitted_at', numberField: 'id' });
 
   const unpaid = invs.filter(i => i.status !== 'paid');
   const ready = unpaid.filter(i => i.final_decision === 'auto_approved');
@@ -84,6 +87,7 @@ async function approvePay(id) {
   load();
 }
 
+getSortState = renderSortToolbar('sortToolbar', load);
 // Poll every second so an invoice moving between "ready to pay" and "flagged" (or a
 // payment made in another tab) is reflected live.
 pollEvery(load, 1000, () => pollBlockedBy('readyRows', 'flaggedRows', 'paidRows'));

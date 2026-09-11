@@ -7,7 +7,15 @@ const db = require('../db');
 // exactly 1 regardless of good/bad, since it tracks how much evidence exists, not how
 // good the vendor is. Scoped to (company_id, vendor_id) — one company's experience with
 // a vendor never affects what another company sees (Part 5.7.1's isolation principle).
-async function updateVendorMetric(companyId, vendorId, metricName, eventValue) {
+//
+// exactCounters (optional): { countColumn, successColumn } — when given, ALSO
+// increments these two columns atomically in the same update: countColumn always by
+// 1, successColumn by 1 only when eventValue is a "good" (100) outcome. This exists
+// purely so quotation ranking can read an EXACT per-metric event/success count
+// (grn_count/grn_on_time_count, invoice_decision_count/invoice_decision_success_count)
+// instead of reconstructing an estimate from the shared data_volume above — it has no
+// effect on data_volume or the metric average itself, which remain exactly as spec'd.
+async function updateVendorMetric(companyId, vendorId, metricName, eventValue, exactCounters = null) {
   const client = await db.pool.connect();
   try {
     await client.query('BEGIN');
@@ -37,9 +45,15 @@ async function updateVendorMetric(companyId, vendorId, metricName, eventValue) {
       : (oldValue * oldDataVolume + eventValue) / (oldDataVolume + 1);
     const newDataVolume = oldDataVolume + 1;
 
+    // Column names here come only from the fixed whitelist callers below pass in
+    // (never from request input), so building this fragment is safe.
+    const exactCounterSet = exactCounters
+      ? `, ${exactCounters.countColumn} = ${exactCounters.countColumn} + 1, ${exactCounters.successColumn} = ${exactCounters.successColumn} + ${eventValue === 100 ? 1 : 0}`
+      : '';
+
     const updateRes = await client.query(
       `UPDATE vendor_risk_scores
-       SET ${metricName} = $1, data_volume = $2, platform_verified_event_count = platform_verified_event_count + 1, last_updated = now()
+       SET ${metricName} = $1, data_volume = $2, platform_verified_event_count = platform_verified_event_count + 1, last_updated = now()${exactCounterSet}
        WHERE company_id = $3 AND vendor_id = $4 RETURNING *`,
       [newValue, newDataVolume, companyId, vendorId]
     );
@@ -66,11 +80,13 @@ async function onGrnConfirmed(poId, grnId) {
   if (!grn) throw new Error(`GRN ${grnId} not found`);
 
   const onTime = !po.agreed_delivery_date || grn.received_date <= po.agreed_delivery_date;
-  return updateVendorMetric(po.company_id, po.vendor_id, 'on_time_delivery_pct', onTime ? 100 : 0);
+  return updateVendorMetric(po.company_id, po.vendor_id, 'on_time_delivery_pct', onTime ? 100 : 0, { countColumn: 'grn_count', successColumn: 'grn_on_time_count' });
 }
 
-// onInvoiceDecisionFinalised: fires from Agent 8 after every decision. accuracy is
-// "good" whenever the Context Gate did NOT flag/reject the invoice.
+// onInvoiceDecisionFinalised: fires from Agent 8 after every decision (and again from
+// the backend's override-and-pay route, with finalDecision effectively forced to
+// 'auto_approved', as a corrective event when Finance overturns a flagged decision).
+// accuracy is "good" whenever the Context Gate did NOT flag/reject the invoice.
 async function onInvoiceDecisionFinalised(invoiceId, finalDecision) {
   const invRes = await db.query(
     `SELECT inv.*, po.company_id FROM invoices inv JOIN purchase_orders po ON po.id = inv.po_id WHERE inv.id = $1`,
@@ -80,7 +96,7 @@ async function onInvoiceDecisionFinalised(invoiceId, finalDecision) {
   if (!invoice) throw new Error(`Invoice ${invoiceId} not found`);
 
   const wasAccurate = finalDecision === 'auto_approved';
-  return updateVendorMetric(invoice.company_id, invoice.vendor_id, 'invoice_accuracy_pct', wasAccurate ? 100 : 0);
+  return updateVendorMetric(invoice.company_id, invoice.vendor_id, 'invoice_accuracy_pct', wasAccurate ? 100 : 0, { countColumn: 'invoice_decision_count', successColumn: 'invoice_decision_success_count' });
 }
 
 // onDisputeResolved: not wired to anything yet — the dispute/vendor_communications

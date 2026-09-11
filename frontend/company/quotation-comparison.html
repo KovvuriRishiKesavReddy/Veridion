@@ -11,6 +11,7 @@
 <div class="container">
   <h3 class="mb-1">All Open Quotations</h3>
   <p class="text-muted">Every quotation across every requirement that's still waiting on a decision — no need to pick a requirement first.</p>
+  <div id="allSortToolbar"></div>
   <table class="table bg-white mb-5">
     <thead><tr><th>Requirement</th><th>Vendor</th><th>Verification</th><th>Price</th><th>Delivery (days)</th><th>Submitted</th><th>Action</th></tr></thead>
     <tbody id="allRows"><tr><td colspan="7" class="text-muted">Loading...</td></tr></tbody>
@@ -31,11 +32,13 @@
 <script src="/shared/navbar.js"></script>
 <script>
 requireLogin(['procurement']);
+let getAllSortState = () => ({ sortBy: 'newest' });
 
 async function loadAll() {
   const res = await fetchWithAuth('/api/quotations/company');
   if (!res) return;
-  const qs = await res.json();
+  let qs = await res.json();
+  qs = sortAndFilterItems(qs, getAllSortState(), { dateField: 'submitted_at', numberField: 'id' });
   const rows = document.getElementById('allRows');
   if (!qs.length) { rows.innerHTML = '<tr><td colspan="7" class="text-muted">No open quotations right now.</td></tr>'; return; }
   rows.innerHTML = qs.map(q => `
@@ -125,6 +128,7 @@ async function accept(quotationId) {
 // container while one is open would slam it shut every second (and clear any copied
 // text), so the poll pauses entirely while a reasoning panel is expanded or its text
 // is being selected.
+getAllSortState = renderSortToolbar('allSortToolbar', loadAll);
 pollEvery(loadAll, 1000, () => pollBlockedBy('allRows'));
 pollEvery(loadRequirements);
 setInterval(() => {

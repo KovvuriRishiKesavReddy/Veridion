@@ -7,6 +7,7 @@ const { requireApprovedCompany } = require('../middleware/companyApproval');
 const upload = require('../utils/upload');
 const { publishInvoiceSubmitted } = require('../utils/queue');
 const { syncInvoiceNode } = require('../utils/neo4jSync');
+const { callAiService } = require('../utils/aiService');
 
 const router = express.Router();
 
@@ -200,6 +201,33 @@ router.post('/:id/override-and-pay', requireAuth, requireRole('finance'), requir
   }
 
   const updated = await db.query(`SELECT * FROM invoices WHERE id = $1`, [req.params.id]);
+
+  // Correct the vendor's risk score to reflect this override: Finance just
+  // affirmatively confirmed this invoice was actually fine, so it should count FOR the
+  // vendor going forward, not remain a permanent black mark from before anyone looked
+  // at it. Fire this after the transaction above has already committed — a failure
+  // here must never undo the override/payment that already succeeded, same
+  // graceful-degradation posture as every other backend->ai-service call.
+  //
+  // Skipped when the decision itself already flagged this as
+  // counted_as_positive_despite_flag (decide.js's own reputation-only-flag
+  // correction — see that file's comment): that invoice was ALREADY recorded as a
+  // success at decision time, before anyone ever reviewed it. Without this check,
+  // Finance overriding it too (a natural thing to do — it's still sitting in their
+  // flagged queue) would apply a SECOND positive correction for the same invoice,
+  // double-counting it in both invoice_decision_success_count and data_volume. This
+  // is what actually keeps the correction applying only once per invoice — the
+  // invoice.status==='paid' check above only guards against calling override twice,
+  // it doesn't know a different code path may have already corrected the score once.
+  const alreadyCorrected = decision.agent_inputs?.vendor_risk?.counted_as_positive_despite_flag === true;
+  if (!alreadyCorrected) {
+    try {
+      await callAiService('/agents/vendor-risk/on-decision-overridden', { invoice_id: Number(req.params.id) });
+    } catch (err) {
+      console.error(`Could not correct vendor risk score after overriding invoice ${req.params.id}:`, err.message);
+    }
+  }
+
   res.json(updated.rows[0]);
 });
 

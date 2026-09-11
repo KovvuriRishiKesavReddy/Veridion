@@ -10,6 +10,7 @@
 <div id="navbar-root"></div>
 <div class="container">
   <h3 class="mb-4">Purchase Orders</h3>
+  <div id="sortToolbar"></div>
   <div id="cards" class="row g-3"></div>
 </div>
 
@@ -28,8 +29,10 @@
 <script>
 const user = requireLogin(['procurement', 'finance', 'warehouse']);
 let poModal;
+let getSortState = () => ({ sortBy: 'newest' });
 document.addEventListener('DOMContentLoaded', () => {
   poModal = new bootstrap.Modal(document.getElementById('poModal'));
+  getSortState = renderSortToolbar('sortToolbar', load);
   // Poll every second so fulfillment status updates live as GRNs are recorded.
   // Pauses while any PO detail is being selected/copied.
   pollEvery(load, 1000, () => pollBlockedBy('cards'));
@@ -38,7 +41,8 @@ document.addEventListener('DOMContentLoaded', () => {
 async function load() {
   const res = await fetchWithAuth('/api/purchase-orders/mine');
   if (!res) return;
-  const pos = await res.json();
+  let pos = await res.json();
+  pos = sortAndFilterItems(pos, getSortState(), { dateField: 'created_at', numberField: 'id' });
   const cards = document.getElementById('cards');
   if (!pos.length) { cards.innerHTML = '<p class="text-muted">No purchase orders yet.</p>'; return; }
 

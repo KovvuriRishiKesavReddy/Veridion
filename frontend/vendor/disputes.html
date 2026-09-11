@@ -5,62 +5,101 @@
 <title>Disputes — Veridion</title>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
 <link href="/shared/style.css" rel="stylesheet">
+<style>
+  .dispute-thread { max-height: 260px; overflow-y: auto; padding-right: 4px; }
+</style>
 </head>
 <body>
 <div id="navbar-root"></div>
 <div class="container">
   <h3 class="mb-1">Invoice Disputes</h3>
   <p class="text-muted">Invoices the buyer's automated review flagged, with their explanation. You can respond directly below.</p>
+  <div id="sortToolbar"></div>
   <div id="list"><p class="text-muted">Loading...</p></div>
 </div>
 <script src="/shared/api.js"></script>
 <script src="/shared/navbar.js"></script>
 <script>
 requireLogin(['vendor']);
+let getSortState = () => ({ sortBy: 'newest' });
+
+let isHoveringThread = false;
+document.addEventListener('mouseover', e => { if (e.target.closest('.dispute-thread')) isHoveringThread = true; });
+document.addEventListener('mouseout', e => { if (e.target.closest('.dispute-thread') && !e.relatedTarget?.closest('.dispute-thread')) isHoveringThread = false; });
 
 function card(c) {
   const canRespond = c.status === 'sent' && !c.resolved;
+  const thread = [
+    ...(c.vendor_response ? [{ created_at: c.vendor_responded_at, message: c.vendor_response, sender_role: 'vendor', sender_name: 'You' }] : []),
+    ...(c.messages || [])
+  ];
   return `
     <div class="card p-3 mb-3">
       <div class="d-flex justify-content-between align-items-start">
         <div>
-          <strong>${c.company_name}</strong> — Invoice ${c.invoice_number || '#' + c.invoice_id} (₹${c.invoice_amount})
-          <div class="text-muted small">${c.requirement_title}</div>
+          <strong>${c.company_name}</strong> — Invoice ${c.invoice_number || '#' + c.invoice_id} (₹${c.invoice_amount ?? '—'})
+          <div class="text-muted small">${c.requirement_title || ''}${c.invoice_withdrawn ? ' <span class="badge bg-secondary ms-1">Invoice Withdrawn</span>' : ''}</div>
         </div>
         ${c.resolved ? '<span class="badge bg-success">Resolved</span>' : (c.status === 'sent' ? '<span class="badge bg-warning text-dark">Awaiting your response</span>' : '<span class="badge bg-secondary">Being reviewed internally</span>')}
       </div>
       ${c.status === 'sent' || c.resolved ? `<div class="alert alert-secondary mt-2 mb-0 small">${c.draft_text}</div>` : '<p class="small text-muted mt-2 mb-0">This invoice has been flagged and is being reviewed — you\'ll see the details here once it\'s sent to you.</p>'}
-      ${c.vendor_response ? `<div class="mt-2 small"><strong>Your response</strong> (${new Date(c.vendor_responded_at).toLocaleString()}):<br>${c.vendor_response}</div>` : ''}
+      ${thread.length ? `
+      <div class="mt-2">
+        <label class="form-label small text-muted mb-1">Conversation</label>
+        <div class="dispute-thread">
+          ${thread.map(m => chatBubble(m, m.sender_role === 'vendor')).join('')}
+        </div>
+      </div>` : ''}
       ${canRespond ? `
       <div class="mt-2">
-        <textarea class="form-control" id="resp-${c.id}" rows="2" placeholder="Explain or clarify...">${c.vendor_response || ''}</textarea>
-        <button class="btn btn-sm btn-amber mt-2" onclick="respond(${c.id})">${c.vendor_response ? 'Update Response' : 'Send Response'}</button>
+        <textarea class="form-control" id="resp-${c.id}" rows="2" placeholder="Send a message..."></textarea>
+        <button class="btn btn-sm btn-amber mt-2" onclick="respond(${c.id})">Send Message</button>
       </div>` : ''}
     </div>`;
 }
 
+// chatBubble: sender's name and timestamp at the top of each message. From the
+// vendor's own point of view, THEIR messages align right (as "You"); the buyer's
+// Finance team's messages align left — the mirror image of how the same conversation
+// renders on the company side.
+function chatBubble(m, isMe) {
+  return `
+    <div class="d-flex ${isMe ? 'justify-content-end' : 'justify-content-start'} mt-1">
+      <div class="p-2 rounded ${isMe ? 'bg-amber text-dark' : 'bg-light border'}" style="max-width: 85%;">
+        <div class="small fw-bold">${m.sender_name || (isMe ? 'You' : 'Finance')} <span class="fw-normal text-muted">· ${new Date(m.created_at).toLocaleString()}</span></div>
+        <div class="small">${m.message}</div>
+      </div>
+    </div>`;
+}
+
 async function respond(id) {
-  const response = document.getElementById(`resp-${id}`).value;
-  if (!response || !response.trim()) { alert('Please enter a response first.'); return; }
+  const textarea = document.getElementById(`resp-${id}`);
+  const response = textarea.value;
+  if (!response || !response.trim()) { alert('Please enter a message first.'); return; }
   const res = await fetchWithAuth(`/api/vendor-communications/${id}/respond`, { method: 'POST', body: JSON.stringify({ response }) });
   if (!res) return;
   const data = await res.json();
   if (!res.ok) { alert(data.error || 'Failed'); return; }
+  textarea.value = ''; // each send is a new, separate message -- never left pre-filled
   load();
 }
 
 async function load() {
   const res = await fetchWithAuth('/api/vendor-communications/mine');
   if (!res) return;
-  const all = await res.json();
+  let all = await res.json();
+  all = sortAndFilterItems(all, getSortState(), { dateField: 'created_at', numberField: 'id' });
   const list = document.getElementById('list');
   list.innerHTML = all.length ? all.map(card).join('') : '<p class="text-muted">No disputes — nothing flagged on your invoices.</p>';
+  document.querySelectorAll('.dispute-thread').forEach(el => { el.scrollTop = el.scrollHeight; });
 }
 
+getSortState = renderSortToolbar('sortToolbar', load);
 // Poll every second so a new dispute, or Finance's side of the conversation, shows up
-// live. Skips a tick while you're actively typing a response, so a poll never
-// overwrites it.
-pollEvery(load, 1000, () => pollBlockedBy('list'));
+// live. Skips a tick while you're actively typing a response, or reading back through
+// a conversation, so a poll never overwrites in-progress text or yanks your scroll
+// position back to the bottom.
+pollEvery(load, 1000, () => isHoveringThread || pollBlockedBy('list'));
 </script>
 </body>
 </html>

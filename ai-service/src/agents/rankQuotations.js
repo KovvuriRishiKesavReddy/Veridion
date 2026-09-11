@@ -85,8 +85,24 @@ async function runRankQuotationsAgent(requirementId) {
       const metrics = [risk.on_time_delivery_pct, risk.invoice_accuracy_pct].filter(m => m != null).map(Number);
       pastPerformanceScore = metrics.length > 0 ? (metrics.reduce((a, b) => a + b, 0) / metrics.length) / 100 : 0.5;
     }
-    const pastPerformanceDataVolume = hasHistory ? Number(risk.data_volume) : 0;
-    const pastPerformanceConfidence = hasHistory ? 0.85 : 0;
+    // data_volume counts every recorded event with this vendor regardless of outcome
+    // (per Part 5.2 — that's the correct meaning for the Context Gate's "how much
+    // evidence exists" framing, and Agent 5 must keep counting it that way, untouched).
+    // But for RANKING specifically, the question is different: "how many times has
+    // this vendor actually proven themselves," not "how many times have we observed
+    // them at all." A vendor with data_volume=14 and 13.77% accuracy has really only
+    // demonstrated success roughly twice — ranking should size its trust in their
+    // track record to that, not to all 14 observations, most of which were failures.
+    // grn_on_time_count / invoice_decision_success_count are EXACT counters tracked
+    // separately alongside the shared data_volume (see the migration's own comment for
+    // why this couldn't just be reconstructed from data_volume — a single shared
+    // counter across GRN/invoice/dispute events can't be un-mixed after the fact).
+    // Pre-existing vendors (from before these counters existed) start at 0 here and
+    // build up exact history from this point forward — see that migration for why
+    // backfilling this specific number would have been dishonest guesswork.
+    const successfulDeals = (Number(risk?.grn_on_time_count) || 0) + (Number(risk?.invoice_decision_success_count) || 0);
+    const pastPerformanceDataVolume = successfulDeals;
+    const pastPerformanceConfidence = pastPerformanceDataVolume > 0 ? 0.85 : 0;
 
     const signals = [
       { name: 'price', confidence: 1.0, data_volume: 1, score: priceScore },
@@ -121,12 +137,12 @@ async function runRankQuotationsAgent(requirementId) {
     final_score: r.finalScore.toFixed(2),
     weights: { price: r.gateWeights.price.toFixed(2), delivery: r.gateWeights.delivery.toFixed(2), past_performance: r.gateWeights.past_performance.toFixed(2) },
     has_history: r.hasHistory,
-    data_volume: r.dataVolume
+    successful_deals: r.dataVolume
   }));
 
   let reasoningByVendor = {};
   try {
-    const systemPrompt = `You write a one-to-two sentence plain-English ranking explanation for EACH vendor quotation in a JSON array, addressed to a non-technical Procurement reviewer. Explicitly mention when a vendor's ranking leaned heavily on Price or Delivery because it has little or no track record yet. Respond ONLY with a JSON object: {"reasonings": [{"vendor_name": "...", "reasoning": "..."}, ...]}, one entry per input vendor, in the same order.`;
+    const systemPrompt = `You write a one-to-two sentence plain-English ranking explanation for EACH vendor quotation in a JSON array, addressed to a non-technical Procurement reviewer. Explicitly mention when a vendor's ranking leaned heavily on Price or Delivery because it has few or no successful deals with this company yet (not because it lacks activity — a vendor can have plenty of history and still have few successes in it). Respond ONLY with a JSON object: {"reasonings": [{"vendor_name": "...", "reasoning": "..."}, ...]}, one entry per input vendor, in the same order.`;
     const groqResult = await callGroqStructured(systemPrompt, JSON.stringify(reasoningInput));
     if (Array.isArray(groqResult?.reasonings)) {
       groqResult.reasonings.forEach(r => { reasoningByVendor[r.vendor_name] = r.reasoning; });
@@ -137,9 +153,9 @@ async function runRankQuotationsAgent(requirementId) {
 
   const results = [];
   for (const r of ranked) {
-    const fallbackReasoning = r.hasHistory
-      ? `Ranked with a final score of ${r.finalScore.toFixed(2)} — Price ${(r.gateWeights.price * 100).toFixed(0)}%, Delivery ${(r.gateWeights.delivery * 100).toFixed(0)}%, Past Performance ${(r.gateWeights.past_performance * 100).toFixed(0)}% weighted (${r.dataVolume} prior event(s) with this company).`
-      : `Ranked with a final score of ${r.finalScore.toFixed(2)}, leaning almost entirely on Price (${(r.gateWeights.price * 100).toFixed(0)}%) and Delivery (${(r.gateWeights.delivery * 100).toFixed(0)}%) — this vendor has no track record with your company yet, so Past Performance carried no weight.`;
+    const fallbackReasoning = r.dataVolume > 0
+      ? `Ranked with a final score of ${r.finalScore.toFixed(2)} — Price ${(r.gateWeights.price * 100).toFixed(0)}%, Delivery ${(r.gateWeights.delivery * 100).toFixed(0)}%, Past Performance ${(r.gateWeights.past_performance * 100).toFixed(0)}% weighted (${r.dataVolume} successful deal(s) with this company).`
+      : `Ranked with a final score of ${r.finalScore.toFixed(2)}, leaning almost entirely on Price (${(r.gateWeights.price * 100).toFixed(0)}%) and Delivery (${(r.gateWeights.delivery * 100).toFixed(0)}%) — this vendor has ${r.hasHistory ? 'a track record with too few successes yet to trust' : 'no track record with your company yet'}, so Past Performance carried no real weight.`;
     const reasoning = reasoningByVendor[r.quotation.vendor_name] || fallbackReasoning;
 
     await db.query(

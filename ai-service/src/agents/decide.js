@@ -56,6 +56,25 @@ async function runDecisionAgent(invoiceId) {
     );
     await db.query(`UPDATE invoices SET status = 'suspicious' WHERE id = $1`, [invoiceId]);
     if (invoice) await onInvoiceDecisionFinalised(invoiceId, 'suspicious');
+
+    // Also create a dispute record for Finance's own Disputes queue — ALONGSIDE the
+    // Platform Admin fraud review above, not instead of it. A suspicious invoice is
+    // still a dispute from Finance's point of view (payment is on hold and something
+    // needs to be resolved with the vendor), so it belongs in that list too. The
+    // drafted message is deliberately generic ("please provide supporting
+    // documentation") and never names the specific fraud signal — see
+    // vendorCommunication.js's own comment on why. Guarded against duplicates and
+    // wrapped defensively, same posture as the flagged path below: a Groq hiccup or
+    // any failure here must never undo the suspicious decision already committed above.
+    try {
+      const existing = await db.query(`SELECT id FROM vendor_communications WHERE invoice_id = $1`, [invoiceId]);
+      if (!existing.rows[0]) {
+        await runVendorCommunicationAgent(invoiceId, fraud.flags);
+      }
+    } catch (err) {
+      console.error(`[decide] Agent 7 (vendor communication) failed for suspicious invoice ${invoiceId}, decision still stands: ${err.message}`);
+    }
+
     return result.rows[0];
   }
 
@@ -104,13 +123,45 @@ async function runDecisionAgent(invoiceId) {
     finalDecision = finalDecision === 'auto_approved' ? 'flagged' : finalDecision;
   }
 
+  // flaggedSolelyByReputation: Matching, Compliance, and Fraud all came back
+  // completely clean on THIS invoice, and the ONLY reason it's flagged is the
+  // vendor's own historical track record pulling the weighted score down. This
+  // matters because of a real negative feedback loop it otherwise creates: a vendor
+  // with a poor history gets flagged more often BECAUSE of that history — and every
+  // one of those flags, even for an invoice that was actually perfectly correct,
+  // would previously register as ANOTHER bad event in onInvoiceDecisionFinalised
+  // below, dragging invoice_accuracy_pct down further and making the NEXT invoice
+  // even more likely to flag too. A vendor who has genuinely reformed could never
+  // recover — their own improvement would keep getting recorded as more failure.
+  // Still flags the invoice for a human to review (the low-trust vendor still
+  // deserves that scrutiny) — but the risk score itself is corrected to reflect what
+  // actually happened on this specific invoice: it was objectively fine.
+  //
+  // FIXED: this originally also required matchingVerdictScore === 1, but that's
+  // matching.grn_match_score — a CONTINUOUS score (1 - proportional quantity delta),
+  // not a boolean — which lands slightly under 1 (e.g. 0.998) for the ordinary case
+  // of a tiny non-exact delta that Matching itself still correctly treats as a clean
+  // match (overall_match stays true). That extra check made this condition false
+  // almost every time in practice, silently defeating the whole fix: Finance could
+  // still see an auto-drafted "please clarify a discrepancy" dispute for an invoice
+  // that had no actual discrepancy. matching.overall_match — Matching's own, actual
+  // determination of whether this invoice is clean — is the correct and sufficient
+  // signal on its own.
+  const flaggedSolelyByReputation =
+    finalDecision === 'flagged' &&
+    matching.overall_match &&
+    complianceVerdictScore === 1 &&
+    fraud.flags_found === 0 &&
+    riskVerdictScore < 1;
+
   const agentInputs = agents.reduce((obj, a) => {
     obj[a.name] = { confidence: a.confidence, data_volume: a.data_volume, verdict_score: a.verdict_score };
     return obj;
   }, {});
   agentInputs.fraud.flags_found = fraud.flags_found;
+  if (flaggedSolelyByReputation) agentInputs.vendor_risk.counted_as_positive_despite_flag = true;
 
-  const reasoningText = await buildReasoningText(matching, compliance, fraud, risk, gateWeights, finalScore, finalDecision);
+  const reasoningText = await buildReasoningText(matching, compliance, fraud, risk, gateWeights, finalScore, finalDecision, flaggedSolelyByReputation);
 
   const result = await db.query(
     `INSERT INTO decisions (invoice_id, agent_inputs, gate_weights, final_score, final_decision, reasoning_text)
@@ -121,18 +172,27 @@ async function runDecisionAgent(invoiceId) {
   await db.query(`UPDATE invoices SET status = $1 WHERE id = $2`, [finalDecision === 'auto_approved' ? 'verified' : 'flagged', invoiceId]);
 
   // Agent 5 update: feed this decision back into the vendor's running invoice_accuracy_pct.
-  await onInvoiceDecisionFinalised(invoiceId, finalDecision);
+  // A reputation-only flag (see above) is recorded as a GOOD event, not a bad one —
+  // the invoice itself was correct, only the DECISION was cautious. Same running-average
+  // update either way (Part 5.2's formula, untouched); only which outcome it records differs.
+  await onInvoiceDecisionFinalised(invoiceId, flaggedSolelyByReputation ? 'auto_approved' : finalDecision);
 
   // Agent 7: for a 'flagged' (non-fraud) decision, draft a dispute message for
   // Finance to review and send — Part 4.3/Prompt 4.2's automatic trigger. Never for
   // 'auto_approved' (nothing to dispute) or 'suspicious' (that already returned
   // earlier above, routed to Platform Admin instead — a fraud case gets a different
-  // review path entirely, not a polite vendor email). Wrapped defensively so a Groq
+  // review path entirely, not a polite vendor email). Also skipped for a
+  // reputation-only flag: there is no actual mismatch or issue to explain to the
+  // vendor here — messaging them "please clarify a discrepancy" when nothing on
+  // their invoice was wrong would be both inaccurate and needlessly alarming. Finance
+  // still sees this invoice through the normal flagged-invoice queues and can reach
+  // out manually if they choose to; the system just doesn't auto-draft a message
+  // that would misrepresent what actually happened. Wrapped defensively so a Groq
   // hiccup here can never take down the decision that was already committed above —
   // same graceful-degradation posture as the reasoning-text call itself. Guarded
   // against duplicates so re-running this agent on the same invoice (e.g. manual
   // testing via POST /agents/decide) doesn't pile up repeat dispute drafts.
-  if (finalDecision === 'flagged') {
+  if (finalDecision === 'flagged' && !flaggedSolelyByReputation) {
     try {
       const existing = await db.query(`SELECT id FROM vendor_communications WHERE invoice_id = $1`, [invoiceId]);
       if (!existing.rows[0]) {
@@ -146,13 +206,17 @@ async function runDecisionAgent(invoiceId) {
   return result.rows[0];
 }
 
-async function buildReasoningText(matching, compliance, fraud, risk, gateWeights, finalScore, finalDecision) {
+async function buildReasoningText(matching, compliance, fraud, risk, gateWeights, finalScore, finalDecision, flaggedSolelyByReputation) {
   const dominant = Object.entries(gateWeights).sort((a, b) => b[1] - a[1])[0]?.[0] || 'matching';
 
-  const systemPrompt = `You write a short, plain-English paragraph (2-4 sentences) explaining an invoice verification decision to a Finance reviewer who is not technical. Name which signal (matching, compliance, fraud, or vendor_risk) drove the decision and why, referencing the specific numbers given. Respond ONLY with a JSON object: {"reasoning": "..."}`;
+  const reputationNote = flaggedSolelyByReputation
+    ? ` IMPORTANT: Matching, Compliance, and Fraud all came back completely clean on this specific invoice — the only reason it's flagged is the vendor's historical track record. Because this invoice was objectively correct, it will be recorded as a GOOD event in the vendor's accuracy score (not a bad one) even though the overall decision is still "flagged" for your review — a vendor genuinely improving should see that reflected, not be punished again for a caution flag driven by their own past.`
+    : '';
+  const systemPrompt = `You write a short, plain-English paragraph (2-4 sentences) explaining an invoice verification decision to a Finance reviewer who is not technical. Name which signal (matching, compliance, fraud, or vendor_risk) drove the decision and why, referencing the specific numbers given.${flaggedSolelyByReputation ? ' This invoice is flagged SOLELY due to vendor_risk (reputation) even though Matching/Compliance/Fraud are all clean — explicitly say so, and mention it will still count as a positive event toward the vendor\'s accuracy score.' : ''} Respond ONLY with a JSON object: {"reasoning": "..."}`;
   const userPrompt = JSON.stringify({
     final_decision: finalDecision,
     final_score: finalScore.toFixed(2),
+    flagged_solely_by_reputation: flaggedSolelyByReputation,
     matching: { overall_match: matching.overall_match, issue_type: matching.issue_type, weight: gateWeights.matching?.toFixed(2) },
     compliance: { gst_valid: compliance.gst_valid, issues_found: compliance.issues_found, weight: gateWeights.compliance?.toFixed(2) },
     fraud: { flags_found: fraud.flags_found, weight: gateWeights.fraud?.toFixed(2) },
@@ -180,7 +244,7 @@ async function buildReasoningText(matching, compliance, fraud, risk, gateWeights
   const complianceNote = compliance.gst_valid && compliance.issues_found.length === 0 ? 'GST checks passed' : `compliance issues found: ${compliance.issues_found.join('; ')}`;
   const fraudNote = fraud.flags_found > 0 ? `${fraud.flags_found} fraud flag(s) present` : 'no fraud signals';
   const riskNote = risk ? `vendor's track record is ${risk.invoice_accuracy_pct != null ? Number(risk.invoice_accuracy_pct).toFixed(0) + '% accurate' : 'not yet established'} (${risk.data_volume} prior events)` : 'no prior history with this vendor yet, so this carried little weight';
-  return `This invoice was ${decisionWord} with a final score of ${finalScore.toFixed(2)}. The ${dominant} signal carried the most weight (${(gateWeights[dominant] * 100).toFixed(0)}%). Matching: ${matchNote}. Compliance: ${complianceNote}. Fraud: ${fraudNote}. Vendor risk: ${riskNote}. (Generated without a Groq API key — set GROQ_API_KEY in ai-service/.env for more natural-language reasoning.)`;
+  return `This invoice was ${decisionWord} with a final score of ${finalScore.toFixed(2)}. The ${dominant} signal carried the most weight (${(gateWeights[dominant] * 100).toFixed(0)}%). Matching: ${matchNote}. Compliance: ${complianceNote}. Fraud: ${fraudNote}. Vendor risk: ${riskNote}.${reputationNote} (Generated without a Groq API key — set GROQ_API_KEY in ai-service/.env for more natural-language reasoning.)`;
 }
 
 module.exports = { runDecisionAgent };

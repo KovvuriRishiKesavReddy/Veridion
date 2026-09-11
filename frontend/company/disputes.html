@@ -5,12 +5,19 @@
 <title>Disputes — Veridion</title>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
 <link href="/shared/style.css" rel="stylesheet">
+<style>
+  /* A scrollable, chat-style conversation box instead of an ever-growing stack of
+     alerts — caps the height so a long back-and-forth doesn't make the page
+     unmanageable, and lets you scroll within just that conversation. */
+  .dispute-thread { max-height: 260px; overflow-y: auto; padding-right: 4px; }
+</style>
 </head>
 <body>
 <div id="navbar-root"></div>
 <div class="container">
   <h3 class="mb-1">Vendor Disputes</h3>
-  <p class="text-muted">AI-drafted dispute messages for flagged invoices — review, edit if needed, then send to the vendor.</p>
+  <p class="text-muted">AI-drafted dispute messages for flagged invoices, and verification requests for invoices under fraud review — review, edit if needed, then send to the vendor.</p>
+  <div id="sortToolbar"></div>
 
   <h6 class="mt-4">Pending — needs your review</h6>
   <div id="pending"><p class="text-muted">Loading...</p></div>
@@ -25,14 +32,40 @@
 <script src="/shared/navbar.js"></script>
 <script>
 requireLogin(['finance']);
+let getSortState = () => ({ sortBy: 'newest' });
+// Tracks the message count we've already seen per dispute, so we only toast on a
+// GENUINELY new vendor message, not on every poll tick that happens to re-fetch the
+// same messages again.
+let seenMessageCounts = {};
+let firstLoad = true;
+
+// Pausing the poll only for an active text selection isn't quite enough for a
+// scrollable conversation box: without this, simply scrolling UP to re-read an older
+// message would get yanked back to the bottom on the very next poll tick, a second
+// later. Tracking hover over any .dispute-thread and pausing while it's true lets
+// someone actually read back through a conversation without fighting the live-refresh.
+let isHoveringThread = false;
+document.addEventListener('mouseover', e => { if (e.target.closest('.dispute-thread')) isHoveringThread = true; });
+document.addEventListener('mouseout', e => { if (e.target.closest('.dispute-thread') && !e.relatedTarget?.closest('.dispute-thread')) isHoveringThread = false; });
 
 function card(c, actionsHtml) {
+  const isFraudReview = c.final_decision === 'suspicious';
+  // Combine the old single-field response (from before the message-thread change) with
+  // the new individual messages, in one chronological, scrollable conversation — this
+  // is deliberately the SAME layout for a flagged mismatch and a fraud-review dispute,
+  // so both look and behave identically to Finance; only the "Fraud Review" badge
+  // above differs.
+  const thread = [
+    ...(c.vendor_response ? [{ created_at: c.vendor_responded_at, message: c.vendor_response, sender_role: 'vendor', sender_name: c.vendor_name }] : []),
+    ...(c.messages || [])
+  ];
+  const canMessage = c.status === 'sent' && !c.resolved;
   return `
     <div class="card p-3 mb-3">
       <div class="d-flex justify-content-between align-items-start">
         <div>
-          <strong>${c.vendor_name}</strong> — Invoice ${c.invoice_number || '#' + c.invoice_id} (₹${c.invoice_amount})
-          <div class="text-muted small">${c.requirement_title} · ${c.mismatch_type || 'other'}</div>
+          <strong>${c.vendor_name}</strong> — Invoice ${c.invoice_number || '#' + c.invoice_id} (₹${c.invoice_amount ?? '—'})
+          <div class="text-muted small">${c.requirement_title || ''}${c.requirement_title ? ' · ' : ''}${c.mismatch_type || 'other'}${isFraudReview ? ' <span class="badge bg-danger ms-1">Fraud Review</span>' : ''}${c.invoice_withdrawn ? ' <span class="badge bg-secondary ms-1">Invoice Withdrawn</span>' : ''}</div>
         </div>
         <span class="badge status-badge ${statusBadgeClass(c.status)}">${c.status}</span>
       </div>
@@ -40,10 +73,68 @@ function card(c, actionsHtml) {
         <label class="form-label small text-muted mb-1">Message</label>
         <textarea class="form-control" id="msg-${c.id}" rows="3" ${c.status !== 'pending_send' ? 'readonly' : ''}>${c.draft_text}</textarea>
       </div>
-      ${c.vendor_response ? `<div class="alert alert-secondary mt-2 mb-0 small"><strong>Vendor's response</strong> (${new Date(c.vendor_responded_at).toLocaleString()}):<br>${c.vendor_response}</div>` : ''}
+      ${thread.length ? `
+      <div class="mt-2">
+        <label class="form-label small text-muted mb-1">Conversation</label>
+        <div class="dispute-thread">
+          ${thread.map(m => chatBubble(m, m.sender_role === 'finance')).join('')}
+        </div>
+      </div>` : ''}
+      ${canMessage ? `
+      <div class="mt-2">
+        <textarea class="form-control" id="fmsg-${c.id}" rows="2" placeholder="Message the vendor..."></textarea>
+        <button class="btn btn-sm btn-amber mt-2" onclick="sendMessage(${c.id})">Send Message</button>
+      </div>` : ''}
       ${c.resolved ? `<div class="alert alert-success mt-2 mb-0 small">Resolved on ${new Date(c.resolved_at).toLocaleString()} — took ${Number(c.resolution_time_hours).toFixed(1)} hour(s).</div>` : ''}
       <div class="mt-2">${actionsHtml}</div>
     </div>`;
+}
+
+// chatBubble: one message in the conversation, sender's name and timestamp at the top
+// so it reads like an actual conversation being worked through, not an undifferentiated
+// stack of quotes. Finance's own messages align right in the accent color; the
+// vendor's align left — the same visual language on every dispute, flagged or
+// fraud-review alike.
+function chatBubble(m, isFinance) {
+  return `
+    <div class="d-flex ${isFinance ? 'justify-content-end' : 'justify-content-start'} mt-1">
+      <div class="p-2 rounded ${isFinance ? 'bg-amber text-dark' : 'bg-light border'}" style="max-width: 85%;">
+        <div class="small fw-bold">${m.sender_name || (isFinance ? 'Finance' : 'Vendor')} <span class="fw-normal text-muted">· ${new Date(m.created_at).toLocaleString()}</span></div>
+        <div class="small">${m.message}</div>
+      </div>
+    </div>`;
+}
+
+// resolvedCard: a deliberately compact summary for the Resolved list — just enough to
+// confirm "yes, this was dealt with," per request: vendor name, invoice number, and
+// when it was resolved. Uses invoice_number/vendor_name's snapshot fallback, so this
+// keeps working even after the vendor withdraws the invoice to resubmit a corrected
+// one (which used to wipe the dispute record out entirely — it no longer does).
+function resolvedCard(c) {
+  const isFraudReview = c.final_decision === 'suspicious';
+  return `
+    <div class="card p-2 px-3 mb-2">
+      <div class="d-flex justify-content-between align-items-center flex-wrap">
+        <div class="small">
+          <strong>${c.vendor_name}</strong> — Invoice ${c.invoice_number || '#' + c.invoice_id}
+          ${isFraudReview ? '<span class="badge bg-danger ms-1">Fraud Review</span>' : ''}
+          ${c.invoice_withdrawn ? '<span class="badge bg-secondary ms-1">Invoice Withdrawn</span>' : ''}
+        </div>
+        <div class="small text-muted">Resolved ${new Date(c.resolved_at).toLocaleString()}</div>
+      </div>
+    </div>`;
+}
+
+async function sendMessage(id) {
+  const textarea = document.getElementById(`fmsg-${id}`);
+  const message = textarea.value;
+  if (!message || !message.trim()) { alert('Please enter a message first.'); return; }
+  const res = await fetchWithAuth(`/api/vendor-communications/${id}/message`, { method: 'POST', body: JSON.stringify({ message }) });
+  if (!res) return;
+  const data = await res.json();
+  if (!res.ok) { alert(data.error || 'Failed'); return; }
+  textarea.value = '';
+  loadAll();
 }
 
 async function saveEdit(id) {
@@ -77,7 +168,23 @@ async function resolveDispute(id) {
 async function loadAll() {
   const res = await fetchWithAuth('/api/vendor-communications');
   if (!res) return;
-  const all = await res.json();
+  let all = await res.json();
+  all = sortAndFilterItems(all, getSortState(), { dateField: 'created_at', numberField: 'id' });
+
+  // New-vendor-message notification: compare this poll's message counts per dispute
+  // against what we last saw. Skipped on the very first load (nothing to compare
+  // against yet — that would toast for the vendor's entire message history).
+  if (!firstLoad) {
+    all.forEach(c => {
+      const vendorMessageCount = (c.messages || []).filter(m => m.sender_role === 'vendor').length;
+      const prevCount = seenMessageCounts[c.id] || 0;
+      if (vendorMessageCount > prevCount) {
+        showToast(`New message from ${c.vendor_name} on Invoice ${c.invoice_number || '#' + c.invoice_id}`);
+      }
+    });
+  }
+  all.forEach(c => { seenMessageCounts[c.id] = (c.messages || []).filter(m => m.sender_role === 'vendor').length; });
+  firstLoad = false;
 
   const pending = all.filter(c => c.status === 'pending_send');
   const sent = all.filter(c => c.status === 'sent' && !c.resolved);
@@ -94,15 +201,20 @@ async function loadAll() {
     : '<p class="text-muted small">No open disputes waiting on the vendor right now.</p>';
 
   document.getElementById('resolvedList').innerHTML = resolved.length
-    ? resolved.map(c => card(c, '')).join('')
+    ? resolved.map(c => resolvedCard(c)).join('')
     : '<p class="text-muted small">No resolved disputes yet.</p>';
+
+  // Auto-scroll each conversation to its latest message, so a new reply is
+  // immediately visible without the user having to scroll down inside the box.
+  document.querySelectorAll('.dispute-thread').forEach(el => { el.scrollTop = el.scrollHeight; });
 }
 
+getSortState = renderSortToolbar('sortToolbar', loadAll);
 // Poll every second so a newly flagged invoice's dispute appears live, and the
 // vendor's response shows up without a manual refresh. Skips a tick while Finance is
 // actively typing in one of the message textareas, so a poll never overwrites an
 // in-progress edit.
-pollEvery(loadAll, 1000, () => pollBlockedBy('pending', 'sentList', 'resolvedList'));
+pollEvery(loadAll, 1000, () => isHoveringThread || pollBlockedBy('pending', 'sentList', 'resolvedList'));
 </script>
 </body>
 </html>

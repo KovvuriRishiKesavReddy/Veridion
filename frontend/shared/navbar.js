@@ -7,7 +7,7 @@ function renderNavbar() {
     root.innerHTML = `
       <nav class="navbar navbar-expand-lg navbar-dark mb-4">
         <div class="container">
-          <a class="navbar-brand" href="/login.html">VERIDION</a>
+          <span class="navbar-brand">VERIDION</span>
         </div>
       </nav>`;
     return;
@@ -63,7 +63,7 @@ function renderNavbar() {
   root.innerHTML = `
     <nav class="navbar navbar-expand-lg navbar-dark mb-4">
       <div class="container">
-        <a class="navbar-brand" href="/login.html">VERIDION</a>
+        <span class="navbar-brand">VERIDION</span>
         <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navContent">
           <span class="navbar-toggler-icon"></span>
         </button>
@@ -79,7 +79,51 @@ document.addEventListener('DOMContentLoaded', () => {
   renderNavbar();
   enforceVendorVerification();
   enforceCompanyApproval();
+  startDisputeNotifications();
 });
+
+// startDisputeNotifications: runs on EVERY page (not just disputes.html), so a vendor
+// finds out a dispute has been raised against them right away no matter what page
+// they're on — a toast only on disputes.html itself would mean they'd have to already
+// be looking at that specific page to ever see it. Vendor-only; a no-op for every
+// other role. Checks every 5 seconds (lighter than the 1-second live-refresh used on
+// content pages — this is a background check, not the page's main data).
+//
+// "New" means the count of this vendor's SENT disputes (status='sent' — the point at
+// which a dispute actually becomes visible to them; a still-drafting 'pending_send'
+// dispute isn't something they'd ever see) has gone up since the last check. The
+// first check after login only records the current count as a baseline and never
+// toasts — otherwise every pre-existing dispute from before this session would
+// incorrectly announce itself as "new" the moment the vendor logs in.
+function startDisputeNotifications() {
+  const user = getUser();
+  if (!user || user.role !== 'vendor') return;
+  const SEEN_KEY = 'veridion_seen_sent_dispute_count';
+
+  async function check() {
+    try {
+      const res = await fetchWithAuth('/api/vendor-communications/mine');
+      if (!res || !res.ok) return;
+      const all = await res.json();
+      const sent = all.filter(d => d.status === 'sent');
+      const seenRaw = sessionStorage.getItem(SEEN_KEY);
+      if (seenRaw !== null) {
+        const seen = Number(seenRaw);
+        if (sent.length > seen) {
+          const newest = sent.slice().sort((a, b) => new Date(b.sent_at) - new Date(a.sent_at))[0];
+          const label = newest ? (newest.invoice_number || `#${newest.invoice_id}`) : '';
+          showToast(`A new dispute was raised on Invoice ${label} — <a href="/vendor/disputes.html">view it</a>.`);
+        }
+      }
+      sessionStorage.setItem(SEEN_KEY, String(sent.length));
+    } catch (err) {
+      // Silent and non-critical — a missed notification check is never worth
+      // surfacing an error over; the next check five seconds later will catch up.
+    }
+  }
+  check();
+  setInterval(check, 5000);
+}
 
 // Backend routes already reject an unverified vendor's API calls (see
 // requireVerifiedVendor middleware) — this is just the frontend half, so a

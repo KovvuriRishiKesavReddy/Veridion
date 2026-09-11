@@ -10,6 +10,7 @@
 <div id="navbar-root"></div>
 <div class="container">
   <h3 class="mb-4">My Quotations</h3>
+  <div id="sortToolbar"></div>
   <table class="table bg-white">
     <thead><tr><th>Requirement</th><th>Price</th><th>Delivery (days)</th><th>Status</th><th>Submitted</th></tr></thead>
     <tbody id="rows"><tr><td colspan="5" class="text-muted">Loading...</td></tr></tbody>
@@ -19,10 +20,12 @@
 <script src="/shared/navbar.js"></script>
 <script>
 requireLogin(['vendor']);
+let getSortState = () => ({ sortBy: 'newest' });
 async function load() {
   const res = await fetchWithAuth('/api/quotations/mine');
   if (!res) return;
-  const qs = await res.json();
+  let qs = await res.json();
+  qs = sortAndFilterItems(qs, getSortState(), { dateField: 'submitted_at', numberField: 'id' });
   const rows = document.getElementById('rows');
   if (!qs.length) { rows.innerHTML = '<tr><td colspan="5" class="text-muted">No quotations yet.</td></tr>'; return; }
   rows.innerHTML = qs.map(q => `
@@ -34,6 +37,7 @@ async function load() {
       <td>${new Date(q.submitted_at).toLocaleDateString()}</td>
     </tr>`).join('');
 }
+getSortState = renderSortToolbar('sortToolbar', load);
 // Poll every second so a quotation moving to accepted/rejected shows up live.
 pollEvery(load, 1000, () => pollBlockedBy('rows'));
 </script>

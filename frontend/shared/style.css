@@ -24,6 +24,7 @@ body {
 .btn-primary:hover { background-color: var(--navy-light); border-color: var(--navy-light); }
 .btn-amber { background-color: var(--amber); border-color: var(--amber); color: #1a1a1a; }
 .btn-amber:hover { background-color: var(--amber-dark); border-color: var(--amber-dark); color: #fff; }
+.bg-amber { background-color: var(--amber); color: #1a1a1a; }
 
 /* Accept quotation / accept invite actions — teal-green, distinct from the gold accent */
 .btn-accept { background-color: var(--accept-green); border-color: var(--accept-green); color: #04342c; font-weight: 500; }
@@ -31,3 +32,8 @@ body {
 
 .card { border: none; box-shadow: 0 1px 4px rgba(0,0,0,0.08); border-radius: 10px; background-color: #ffffff; }
 .status-badge { font-size: 0.75rem; text-transform: capitalize; }
+
+@keyframes veridion-toast-in {
+  from { opacity: 0; transform: translateX(24px); }
+  to { opacity: 1; transform: translateX(0); }
+}

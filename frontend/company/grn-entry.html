@@ -44,6 +44,7 @@
   </div>
 
   <h6>My Recent Submissions</h6>
+  <div id="mineSortToolbar"></div>
   <table class="table table-sm bg-white">
     <thead><tr><th>PO</th><th>This Delivery</th><th>Date</th><th>Running Total</th></tr></thead>
     <tbody id="rows"><tr><td colspan="4" class="text-muted">Loading...</td></tr></tbody>
@@ -54,6 +55,7 @@
 <script>
 requireLogin(['warehouse']);
 let remainingQty = null; // remaining BEFORE this delivery, from the server
+let getMineSortState = () => ({ sortBy: 'newest' });
 
 async function loadAvailable() {
   const res = await fetchWithAuth('/api/purchase-orders/mine');
@@ -153,13 +155,15 @@ document.getElementById('form').addEventListener('submit', async (e) => {
 async function loadMine() {
   const res = await fetchWithAuth('/api/grn/mine');
   if (!res) return;
-  const grns = await res.json();
+  let grns = await res.json();
+  grns = sortAndFilterItems(grns, getMineSortState(), { dateField: 'received_date', numberField: 'id' });
   const rows = document.getElementById('rows');
   rows.innerHTML = grns.length ? grns.map(g =>
     `<tr><td>#${g.po_id}</td><td>${g.received_quantity}</td><td>${g.received_date}</td><td>towards ${g.agreed_quantity} agreed</td></tr>`
   ).join('') : '<tr><td colspan="4" class="text-muted">No submissions yet.</td></tr>';
 }
 
+getMineSortState = renderSortToolbar('mineSortToolbar', loadMine);
 // Poll every second so the available-POs list and recent-submissions list stay
 // current; both only touch #cards/#rows, never the open entry form itself.
 pollEvery(loadAvailable, 1000, () => pollBlockedBy('cards'));

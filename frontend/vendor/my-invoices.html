@@ -14,6 +14,7 @@
     <button class="btn btn-amber" id="uploadBtn" data-bs-toggle="modal" data-bs-target="#uploadModal">Upload Invoice</button>
   </div>
   <p class="text-muted small">You can only invoice a PO once it's fully delivered and confirmed by the buyer's warehouse — that keeps an invoice meaning "this order is complete."</p>
+  <div id="sortToolbar"></div>
   <table class="table bg-white">
     <thead><tr><th>Invoice #</th><th>PO</th><th>Amount</th><th>GST</th><th>Total (incl. GST)</th><th>Status</th><th>Submitted</th><th>Action</th></tr></thead>
     <tbody id="rows"><tr><td colspan="8" class="text-muted">Loading...</td></tr></tbody>
@@ -56,11 +57,13 @@
 <script src="/shared/navbar.js"></script>
 <script>
 requireLogin(['vendor']);
+let getSortState = () => ({ sortBy: 'newest' });
 
 async function loadInvoices() {
   const res = await fetchWithAuth('/api/invoices/mine');
   if (!res) return;
-  const invs = await res.json();
+  let invs = await res.json();
+  invs = sortAndFilterItems(invs, getSortState(), { dateField: 'submitted_at', numberField: 'id' });
   const rows = document.getElementById('rows');
   if (!invs.length) { rows.innerHTML = '<tr><td colspan="8" class="text-muted">No invoices yet.</td></tr>'; return; }
   rows.innerHTML = invs.map(i => `
@@ -117,6 +120,7 @@ function prefillFromPo() {
 }
 document.getElementById('po_id').addEventListener('change', prefillFromPo);
 
+getSortState = renderSortToolbar('sortToolbar', loadInvoices);
 // Poll every second so invoice status (submitted -> verified/flagged -> paid) updates
 // live, without a manual refresh — this is the primary place vendors track that.
 pollEvery(loadInvoices, 1000, () => pollBlockedBy('rows'));

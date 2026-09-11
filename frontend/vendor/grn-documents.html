@@ -11,6 +11,7 @@
 <div class="container">
   <h3 class="mb-1">Delivery Records (GRNs)</h3>
   <p class="text-muted">Every confirmed goods receipt against your purchase orders — this is how much of each order has actually been received so far, as recorded by the buyer's warehouse.</p>
+  <div id="sortToolbar"></div>
   <table class="table bg-white">
     <thead><tr><th>PO</th><th>Company</th><th>Received Qty / Agreed Qty</th><th>Received Date</th><th>Fulfillment</th><th>Next Expected</th></tr></thead>
     <tbody id="rows"><tr><td colspan="6" class="text-muted">Loading...</td></tr></tbody>
@@ -20,10 +21,12 @@
 <script src="/shared/navbar.js"></script>
 <script>
 requireLogin(['vendor']);
+let getSortState = () => ({ sortBy: 'newest' });
 async function load() {
   const res = await fetchWithAuth('/api/grn/vendor');
   if (!res) return;
-  const grns = await res.json();
+  let grns = await res.json();
+  grns = sortAndFilterItems(grns, getSortState(), { dateField: 'received_date', numberField: 'id' });
   const rows = document.getElementById('rows');
   if (!grns.length) { rows.innerHTML = '<tr><td colspan="6" class="text-muted">No deliveries recorded yet.</td></tr>'; return; }
   rows.innerHTML = grns.map(g => `
@@ -36,6 +39,7 @@ async function load() {
       <td>${g.expected_next_delivery_date || '—'}</td>
     </tr>`).join('');
 }
+getSortState = renderSortToolbar('sortToolbar', load);
 // Poll every second so a new delivery recorded by the buyer's warehouse shows up live.
 pollEvery(load, 1000, () => pollBlockedBy('rows'));
 </script>

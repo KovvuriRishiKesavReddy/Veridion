@@ -53,6 +53,12 @@ function clearSession() {
 function isEditingWithin(containerId) {
   const el = document.activeElement;
   if (!el || (el.tagName !== 'TEXTAREA' && el.tagName !== 'INPUT')) return false;
+  // A readonly or disabled field can still receive focus (e.g. clicking into a
+  // read-only draft message to select/copy text from it), but there is nothing being
+  // "edited" there — blocking a poll on that basis was a real bug: it silently
+  // stopped a whole dispute list from refreshing for as long as focus sat in a
+  // read-only textarea, which is exactly what made new messages seem to stop arriving.
+  if (el.readOnly || el.disabled) return false;
   const container = document.getElementById(containerId);
   return !!(container && container.contains(el));
 }
@@ -187,4 +193,106 @@ function formatInvoiceTotal(invoice) {
   const gst = Number(invoice.gst_amount) || 0;
   if (!gst) return `₹${total}`;
   return `₹${total} <span class="text-muted small">(₹${Number(invoice.invoice_amount) || 0} + ₹${gst} GST)</span>`;
+}
+
+// ---------------------------------------------------------------------------
+// Sort/filter toolbar — used on every page listing POs, invoices, GRNs,
+// quotations, payments, or disputes, so a growing list of numbered documents
+// doesn't get confusing for the vendor, company, or admin looking at it: sort by
+// recency, by document number, or narrow to a date range, consistently, everywhere.
+// ---------------------------------------------------------------------------
+
+// sortAndFilterItems(items, state, config): pure function, no DOM — filters by the
+// state's date range (inclusive) against config.dateField, then sorts by state.sortBy
+// against config.dateField (newest/oldest) or config.numberField (number_asc/desc).
+// Never mutates the input array.
+function sortAndFilterItems(items, state, config) {
+  let result = items.slice();
+  if (state.dateFrom) {
+    const from = new Date(state.dateFrom);
+    result = result.filter(i => i[config.dateField] && new Date(i[config.dateField]) >= from);
+  }
+  if (state.dateTo) {
+    // Treat "To" as inclusive of the whole day.
+    const to = new Date(state.dateTo);
+    to.setHours(23, 59, 59, 999);
+    result = result.filter(i => i[config.dateField] && new Date(i[config.dateField]) <= to);
+  }
+  const byDate = (a, b) => new Date(a[config.dateField] || 0) - new Date(b[config.dateField] || 0);
+  const byNumber = (a, b) => (Number(a[config.numberField]) || 0) - (Number(b[config.numberField]) || 0);
+  switch (state.sortBy) {
+    case 'oldest': result.sort(byDate); break;
+    case 'number_asc': result.sort(byNumber); break;
+    case 'number_desc': result.sort((a, b) => byNumber(b, a)); break;
+    case 'newest': default: result.sort((a, b) => byDate(b, a)); break;
+  }
+  return result;
+}
+
+// renderSortToolbar(containerId, onChange): renders the toolbar ONCE into
+// containerId and wires its controls to call onChange(state) whenever any of them
+// change. Deliberately NOT re-rendered by the page's poll loop (only the results list
+// below it is) — re-rendering this every second would reset the dropdown/date inputs
+// back to their defaults while someone has them set, exactly the bug already fixed
+// once for the requirement dropdown on quotation-comparison.html. Call this once at
+// page load; call the returned getState() from inside your load()/render function
+// each time you need the current sort/filter to apply.
+function renderSortToolbar(containerId, onChange) {
+  const container = document.getElementById(containerId);
+  if (!container) return () => ({ sortBy: 'newest', dateFrom: '', dateTo: '' });
+  container.innerHTML = `
+    <div class="d-flex gap-2 align-items-center flex-wrap small mb-2">
+      <label class="mb-0 text-muted">Sort:</label>
+      <select class="form-select form-select-sm" id="${containerId}-sort" style="width:auto;">
+        <option value="newest">Newest first</option>
+        <option value="oldest">Oldest first</option>
+        <option value="number_asc">Number: low to high</option>
+        <option value="number_desc">Number: high to low</option>
+      </select>
+      <label class="mb-0 text-muted ms-2">From:</label>
+      <input type="date" class="form-control form-control-sm" id="${containerId}-from" style="width:auto;">
+      <label class="mb-0 text-muted">To:</label>
+      <input type="date" class="form-control form-control-sm" id="${containerId}-to" style="width:auto;">
+      <button type="button" class="btn btn-sm btn-outline-secondary" id="${containerId}-clear">Clear</button>
+    </div>`;
+
+  const sortEl = document.getElementById(`${containerId}-sort`);
+  const fromEl = document.getElementById(`${containerId}-from`);
+  const toEl = document.getElementById(`${containerId}-to`);
+  const clearBtn = document.getElementById(`${containerId}-clear`);
+  const getState = () => ({ sortBy: sortEl.value, dateFrom: fromEl.value, dateTo: toEl.value });
+
+  [sortEl, fromEl, toEl].forEach(el => el.addEventListener('change', () => onChange(getState())));
+  clearBtn.addEventListener('click', () => {
+    sortEl.value = 'newest'; fromEl.value = ''; toEl.value = '';
+    onChange(getState());
+  });
+
+  return getState;
+}
+
+// ---------------------------------------------------------------------------
+// New-item toast notifications — used on pages where something appearing while
+// you're not looking at it is worth an active nudge (a new dispute raised against
+// you), not just a live-updating list you'd have to notice yourself.
+// ---------------------------------------------------------------------------
+
+// showToast(message): a small dismissible notification in the corner of the screen,
+// auto-hides after 6 seconds. Stacks if called more than once. No dependency beyond
+// Bootstrap (already loaded on every page).
+function showToast(message) {
+  let stack = document.getElementById('veridion-toast-stack');
+  if (!stack) {
+    stack = document.createElement('div');
+    stack.id = 'veridion-toast-stack';
+    stack.style.cssText = 'position:fixed; top:80px; right:16px; z-index:1080; display:flex; flex-direction:column; gap:8px; max-width:320px;';
+    document.body.appendChild(stack);
+  }
+  const toast = document.createElement('div');
+  toast.className = 'alert alert-warning shadow-sm mb-0 py-2 px-3 small';
+  toast.style.cssText = 'animation: veridion-toast-in 0.2s ease-out;';
+  toast.innerHTML = `<button type="button" class="btn-close btn-close-sm float-end" style="font-size:0.65rem;" aria-label="Close"></button>${message}`;
+  toast.querySelector('.btn-close').addEventListener('click', () => toast.remove());
+  stack.appendChild(toast);
+  setTimeout(() => toast.remove(), 6000);
 }

@@ -11,12 +11,14 @@
 <div class="container">
   <h3 class="mb-1">Payment Status</h3>
   <p class="text-muted">Where each of your invoices stands — what our verification system decided, and whether payment has gone through.</p>
+  <div id="sortToolbar"></div>
   <div id="cards" class="row g-3"></div>
 </div>
 <script src="/shared/api.js"></script>
 <script src="/shared/navbar.js"></script>
 <script>
 requireLogin(['vendor']);
+let getSortState = () => ({ sortBy: 'newest' });
 
 function decisionBadge(inv) {
   if (!inv.final_decision) return '<span class="badge bg-secondary">Verification pending</span>';
@@ -33,7 +35,8 @@ function paymentBadge(inv) {
 async function load() {
   const res = await fetchWithAuth('/api/invoices/mine');
   if (!res) return;
-  const invs = await res.json();
+  let invs = await res.json();
+  invs = sortAndFilterItems(invs, getSortState(), { dateField: 'submitted_at', numberField: 'id' });
   const cards = document.getElementById('cards');
   if (!invs.length) { cards.innerHTML = '<p class="text-muted">No invoices submitted yet.</p>'; return; }
 
@@ -61,6 +64,7 @@ async function withdrawInvoice(id) {
   load();
 }
 
+getSortState = renderSortToolbar('sortToolbar', load);
 // Poll every second so verification/payment status updates live, without a refresh.
 pollEvery(load, 1000, () => pollBlockedBy('cards'));
 </script>

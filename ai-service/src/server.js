@@ -25,7 +25,7 @@ const { runMatchingAgent } = require('./agents/matching');
 const { runComplianceAgent } = require('./agents/compliance');
 const { runDecisionAgent } = require('./agents/decide');
 const { runFraudAgent } = require('./agents/fraud');
-const { onGrnConfirmed, onDisputeResolved } = require('./agents/vendorRisk');
+const { onGrnConfirmed, onDisputeResolved, onInvoiceDecisionFinalised } = require('./agents/vendorRisk');
 const { runRankQuotationsAgent } = require('./agents/rankQuotations');
 const { runVendorCommunicationAgent } = require('./agents/vendorCommunication');
 
@@ -105,6 +105,36 @@ app.post('/agents/vendor-risk/on-grn-confirmed', async (req, res) => {
 app.post('/agents/vendor-risk/on-dispute-resolved', async (req, res) => {
   try {
     const result = await onDisputeResolved(req.body.company_id, req.body.vendor_id, req.body.was_disputed);
+    res.json(result);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /agents/vendor-risk/on-decision-overridden — wired up from the backend's
+// override-and-pay route. Closes a real gap: a flagged invoice's decision registers as
+// a "bad" (0) event in the vendor's running invoice_accuracy_pct the moment Agent 8
+// decides -- BEFORE any human ever reviews it. If Finance later determines the flag
+// was wrong and overrides to pay it, that permanent black mark used to stand forever,
+// even though a human explicitly confirmed the invoice was actually fine -- making it
+// structurally harder for a vendor to ever recover from an early run of (possibly
+// unwarranted) flags, since every corrected invoice still counted against them.
+//
+// This reuses the EXACT SAME running-average update (onInvoiceDecisionFinalised) Agent
+// 5 already uses for a real decision -- called with 'auto_approved', since an override
+// is Finance affirmatively saying "this was fine." It does not retroactively edit the
+// original bad event (the running average only stores an aggregate, not individual
+// event history, so there's nothing to edit) -- it registers ONE NEW corrective event
+// instead. The honest trade-off: this invoice ends up counted twice in data_volume
+// (once flagged, once corrected) rather than once -- but leaving a corrected invoice
+// permanently dragging the score down forever is clearly the worse trade-off. The
+// backend's override-and-pay route can only ever call this once per invoice (its own
+// idempotency guard is that overriding an already-paid invoice is rejected outright),
+// so this never repeats for the same invoice.
+app.post('/agents/vendor-risk/on-decision-overridden', async (req, res) => {
+  try {
+    const result = await onInvoiceDecisionFinalised(req.body.invoice_id, 'auto_approved');
     res.json(result);
   } catch (err) {
     console.error(err);

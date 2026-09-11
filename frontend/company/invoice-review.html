@@ -99,10 +99,14 @@ async function load() {
       <div class="col-md-6">
         <div class="card p-3 h-100">
           <h6>Vendor Risk (this company's history with this vendor)</h6>
+          ${decision && decision.agent_inputs?.vendor_risk ? `
+            <p class="mb-1 small"><strong>At the time of this decision:</strong> data volume ${decision.agent_inputs.vendor_risk.data_volume} event(s), invoice accuracy ${(decision.agent_inputs.vendor_risk.verdict_score * 100).toFixed(2)}% — this is exactly what the reasoning above and the gate weights are based on.</p>
+          ` : ''}
           ${vendor_risk ? `
-            <p class="mb-1 small">Data volume: ${vendor_risk.data_volume} event(s)${vendor_risk.data_source === 'self_reported' ? ' <span class="badge bg-secondary">includes self-reported legacy data</span>' : ''}</p>
+            <p class="mb-1 small"><strong>Current status:</strong> data volume ${vendor_risk.data_volume} event(s)${vendor_risk.data_source === 'self_reported' ? ' <span class="badge bg-secondary">includes self-reported legacy data</span>' : ''}</p>
             <p class="mb-1 small">On-time delivery: ${vendor_risk.on_time_delivery_pct != null ? Number(vendor_risk.on_time_delivery_pct).toFixed(0) + '%' : 'N/A'}</p>
-            <p class="mb-0 small">Invoice accuracy: ${vendor_risk.invoice_accuracy_pct != null ? Number(vendor_risk.invoice_accuracy_pct).toFixed(0) + '%' : 'N/A'}</p>
+            <p class="mb-0 small">Invoice accuracy: ${vendor_risk.invoice_accuracy_pct != null ? Number(vendor_risk.invoice_accuracy_pct).toFixed(2) + '%' : 'N/A'}</p>
+            ${decision && decision.agent_inputs?.vendor_risk && Number(vendor_risk.data_volume) !== decision.agent_inputs.vendor_risk.data_volume ? `<p class="mb-0 small text-muted">(Current numbers differ from the decision above because at least one more event — a delivery, another invoice decision, or a resolved dispute — has been recorded for this vendor since.)</p>` : ''}
           ` : '<p class="small text-muted mb-0">No history yet with this vendor — cold start, carries little weight in the decision until real events accumulate.</p>'}
         </div>
       </div>
