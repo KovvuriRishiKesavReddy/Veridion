@@ -15,7 +15,7 @@
   </div>
   <p class="text-muted small">You can only invoice a PO once it's fully delivered and confirmed by the buyer's warehouse — that keeps an invoice meaning "this order is complete."</p>
   <div id="sortToolbar"></div>
-  <table class="table bg-white">
+  <table class="table table-centered bg-white">
     <thead><tr><th>Invoice #</th><th>PO</th><th>Amount</th><th>GST</th><th>Total (incl. GST)</th><th>Status</th><th>Submitted</th><th>Action</th></tr></thead>
     <tbody id="rows"><tr><td colspan="8" class="text-muted">Loading...</td></tr></tbody>
   </table>
@@ -63,10 +63,16 @@ async function loadInvoices() {
   const res = await fetchWithAuth('/api/invoices/mine');
   if (!res) return;
   let invs = await res.json();
-  invs = sortAndFilterItems(invs, getSortState(), { dateField: 'submitted_at', numberField: 'id' });
+  invs = sortAndFilterItems(invs, getSortState(), { dateField: 'submitted_at', numberField: 'id', searchFields: ['invoice_number', 'po_id'] });
   const rows = document.getElementById('rows');
   if (!invs.length) { rows.innerHTML = '<tr><td colspan="8" class="text-muted">No invoices yet.</td></tr>'; return; }
-  rows.innerHTML = invs.map(i => `
+  rows.innerHTML = invs.map(i => {
+    const isReputationOnly = i.decision_agent_inputs?.vendor_risk?.counted_as_positive_despite_flag === true;
+    const canWithdraw = ['flagged', 'suspicious'].includes(i.status) && !isReputationOnly;
+    const action = canWithdraw
+      ? `<span class="hbg hbg-danger d-inline-block"><button class="hbg-core" style="padding:5px 12px;font-size:0.8rem;" onclick="withButtonState(this, () => withdrawInvoice(${i.id}))">Withdraw &amp; Resubmit</button></span>`
+      : (isReputationOnly ? `<span class="small text-muted" title="This invoice is correct — it's under review based on account history, not anything on this document.">Under review — no action needed</span>` : '—');
+    return `
     <tr>
       <td>${i.invoice_number || '—'}</td>
       <td>#${i.po_id}</td>
@@ -75,17 +81,23 @@ async function loadInvoices() {
       <td><strong>₹${invoiceTotal(i)}</strong></td>
       <td><span class="badge status-badge ${statusBadgeClass(i.status)}">${i.status}</span></td>
       <td>${new Date(i.submitted_at).toLocaleDateString()}</td>
-      <td>${['flagged', 'suspicious'].includes(i.status) ? `<button class="btn btn-sm btn-outline-danger" onclick="withdrawInvoice(${i.id})">Withdraw &amp; Resubmit</button>` : '—'}</td>
-    </tr>`).join('');
+      <td>${action}</td>
+    </tr>`;
+  }).join('');
 }
 
 async function withdrawInvoice(id) {
-  if (!confirm('Withdraw this invoice? You will need to fix the issue and resubmit — this cannot be undone.')) return;
+  const ok = await confirmDialog({
+    title: 'Withdraw this invoice?',
+    message: 'You will need to fix the issue and resubmit a corrected invoice — this cannot be undone.',
+    confirmText: 'Withdraw',
+    danger: true
+  });
+  if (!ok) return null;
   const res = await fetchWithAuth(`/api/invoices/${id}`, { method: 'DELETE' });
-  if (!res) return;
+  if (!res) return false;
   const data = await res.json();
-  if (!res.ok) { alert(data.error || 'Failed'); return; }
-  alert('Invoice withdrawn. It now appears again under "Ready to Invoice" so you can resubmit a corrected version.');
+  if (!res.ok) { alert(data.error || 'Failed'); return false; }
   loadInvoices();
   loadEligiblePos();
 }
@@ -120,7 +132,12 @@ function prefillFromPo() {
 }
 document.getElementById('po_id').addEventListener('change', prefillFromPo);
 
-getSortState = renderSortToolbar('sortToolbar', loadInvoices);
+getSortState = renderSortToolbar('sortToolbar', loadInvoices, {
+  searchPlaceholder: 'Search by invoice or PO number...',
+  sortOptions: [
+    { value: 'text:invoice_number', label: 'Invoice Number: A → Z' }
+  ]
+});
 // Poll every second so invoice status (submitted -> verified/flagged -> paid) updates
 // live, without a manual refresh — this is the primary place vendors track that.
 pollEvery(loadInvoices, 1000, () => pollBlockedBy('rows'));

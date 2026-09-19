@@ -36,11 +36,20 @@ async function load() {
   const res = await fetchWithAuth('/api/invoices/mine');
   if (!res) return;
   let invs = await res.json();
-  invs = sortAndFilterItems(invs, getSortState(), { dateField: 'submitted_at', numberField: 'id' });
+  invs = sortAndFilterItems(invs, getSortState(), { dateField: 'submitted_at', numberField: 'id', searchFields: ['invoice_number', 'requirement_title'] });
   const cards = document.getElementById('cards');
   if (!invs.length) { cards.innerHTML = '<p class="text-muted">No invoices submitted yet.</p>'; return; }
 
-  cards.innerHTML = invs.map(i => `
+  cards.innerHTML = invs.map(i => {
+    // A flag driven solely by the vendor's own track record — Matching, Compliance
+    // and Fraud all came back clean on this exact invoice (decide.js's
+    // flaggedSolelyByReputation) — has nothing wrong on the document itself to
+    // correct. Showing "Withdraw & Resubmit" here would suggest something needs
+    // fixing when it doesn't, so it's left out entirely for this case; a short
+    // note explains what's actually happening instead.
+    const isReputationOnly = i.decision_agent_inputs?.vendor_risk?.counted_as_positive_despite_flag === true;
+    const canWithdraw = ['flagged', 'suspicious'].includes(i.final_decision) && i.status !== 'paid' && !isReputationOnly;
+    return `
     <div class="col-md-6">
       <div class="card p-3">
         <h6 class="mb-1">${i.invoice_number || 'Invoice #' + i.id} — ${i.requirement_title}</h6>
@@ -49,22 +58,34 @@ async function load() {
         <div class="mb-2">${decisionBadge(i)}</div>
         <div class="mb-2">${paymentBadge(i)}</div>
         ${i.decision_reasoning ? `<details class="small text-muted"><summary>Why this decision?</summary><p class="mt-1">${i.decision_reasoning}</p></details>` : ''}
-        ${['flagged', 'suspicious'].includes(i.final_decision) && i.status !== 'paid' ? `<button class="btn btn-sm btn-outline-danger mt-2" onclick="withdrawInvoice(${i.id})">Withdraw &amp; Resubmit Corrected Invoice</button>` : ''}
+        ${isReputationOnly ? `<p class="small text-muted mt-2 mb-0">This invoice itself is correct — it's under review based on account history, not anything on this document. No action is needed from you; your buyer's Finance team will review it.</p>` : ''}
+        ${canWithdraw ? `<span class="hbg hbg-danger d-inline-block mt-2"><button class="hbg-core" style="padding:6px 14px;font-size:0.85rem;" onclick="withButtonState(this, () => withdrawInvoice(${i.id}))">Withdraw &amp; Resubmit Corrected Invoice</button></span>` : ''}
       </div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 }
 
 async function withdrawInvoice(id) {
-  if (!confirm('Withdraw this invoice? You will need to fix the issue and resubmit — this cannot be undone.')) return;
+  const ok = await confirmDialog({
+    title: 'Withdraw this invoice?',
+    message: 'You will need to fix the issue and resubmit a corrected invoice — this cannot be undone.',
+    confirmText: 'Withdraw',
+    danger: true
+  });
+  if (!ok) return null;
   const res = await fetchWithAuth(`/api/invoices/${id}`, { method: 'DELETE' });
-  if (!res) return;
+  if (!res) return false;
   const data = await res.json();
-  if (!res.ok) { alert(data.error || 'Failed'); return; }
-  alert('Invoice withdrawn — go to My Invoices to resubmit a corrected version.');
+  if (!res.ok) { alert(data.error || 'Failed'); return false; }
   load();
 }
 
-getSortState = renderSortToolbar('sortToolbar', load);
+getSortState = renderSortToolbar('sortToolbar', load, {
+  searchPlaceholder: 'Search by invoice or requirement...',
+  sortOptions: [
+    { value: 'text:requirement_title', label: 'Requirement: A → Z' }
+  ]
+});
 // Poll every second so verification/payment status updates live, without a refresh.
 pollEvery(load, 1000, () => pollBlockedBy('cards'));
 </script>

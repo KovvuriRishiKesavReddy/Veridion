@@ -12,7 +12,7 @@
   <h3 class="mb-1">GRN Documents</h3>
   <p class="text-muted">Every goods receipt note recorded across the company, with how much of each order has been fulfilled so far. No pricing appears here — this view is quantity-only, by design.</p>
   <div id="sortToolbar"></div>
-  <table class="table bg-white">
+  <table class="table table-centered bg-white">
     <thead><tr><th>PO</th><th>Vendor</th><th>Received Qty / Agreed Qty</th><th>Received Date</th><th>Fulfillment</th><th>Recorded By</th><th>Next Expected</th></tr></thead>
     <tbody id="rows"><tr><td colspan="7" class="text-muted">Loading...</td></tr></tbody>
   </table>
@@ -27,7 +27,7 @@ async function load() {
   const res = await fetchWithAuth('/api/grn/company');
   if (!res) return;
   let grns = await res.json();
-  grns = sortAndFilterItems(grns, getSortState(), { dateField: 'received_date', numberField: 'id' });
+  grns = sortAndFilterItems(grns, getSortState(), { dateField: 'received_date', numberField: 'id', searchFields: ['requirement_title', 'vendor_name', 'recorded_by_name'] });
   const rows = document.getElementById('rows');
   if (!grns.length) { rows.innerHTML = '<tr><td colspan="7" class="text-muted">No GRNs recorded yet.</td></tr>'; return; }
   rows.innerHTML = grns.map(g => `
@@ -41,7 +41,13 @@ async function load() {
       <td>${g.expected_next_delivery_date || '—'}${g.next_delivery_notes ? `<br><span class="small text-muted">${g.next_delivery_notes}</span>` : ''}</td>
     </tr>`).join('');
 }
-getSortState = renderSortToolbar('sortToolbar', load);
+getSortState = renderSortToolbar('sortToolbar', load, {
+  searchPlaceholder: 'Search by PO, vendor, or recorded by...',
+  sortOptions: [
+    { value: 'text:requirement_title', label: 'Requirement: A → Z' },
+    { value: 'text:vendor_name', label: 'Vendor: A → Z' }
+  ]
+});
 // Poll every second so a new GRN recorded by Warehouse shows up live.
 pollEvery(load, 1000, () => pollBlockedBy('rows'));
 </script>

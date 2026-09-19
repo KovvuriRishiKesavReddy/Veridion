@@ -1,0 +1,346 @@
+/* ============================================================================
+   Veridion — Dock Navbar, Hover-Border-Gradient buttons, Stateful buttons
+   Vanilla CSS, no build step. Shades of green throughout, matching the
+   existing --navy (deep emerald) / --amber (gold accent) palette in style.css
+   rather than introducing a new, unrelated color system.
+   ============================================================================ */
+
+:root {
+  --dock-bg-1: rgba(10, 40, 24, 0.82);
+  --dock-bg-2: rgba(20, 83, 45, 0.55);
+  --dock-border: rgba(180, 255, 210, 0.14);
+  --dock-highlight: rgba(255, 255, 255, 0.08);
+  --dock-glow: rgba(74, 222, 128, 0.18);
+  --mint: #6ee7b7;
+  --mint-soft: #a7f3d0;
+  --emerald-deep: #0a2818;
+}
+
+/* ---------------------------------------------------------------------------
+   Floating dock navbar
+   --------------------------------------------------------------------------- */
+.dock-wrap {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1050;
+  max-width: 96vw;
+  transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.35s ease;
+}
+/* Floating Navbar behavior: hides on scroll down, reveals on scroll up — so it
+   never sits in the way of reading a long page, but is always one upward
+   swipe/scroll away. */
+.dock-wrap.dock-hidden {
+  transform: translateX(-50%) translateY(-140%);
+  opacity: 0;
+}
+
+.dock-panel {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 16px 10px;
+  border-radius: 26px;
+  background: linear-gradient(135deg, var(--dock-bg-1), var(--dock-bg-2));
+  backdrop-filter: blur(20px) saturate(160%);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  border: 1px solid var(--dock-border);
+  box-shadow:
+    0 20px 45px -12px rgba(0, 0, 0, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.25),
+    0 0 32px var(--dock-glow);
+  position: relative;
+  /* NOT overflow: hidden — that was clipping both the magnified icons (they
+     scale past the panel's own edge) and the hover tooltip below each icon,
+     which is why names never showed and icons looked like they were
+     colliding. The corner-gradient overlay below is clipped to the same
+     rounded corners via its own border-radius instead. */
+  min-width: 480px;
+}
+.dock-panel::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  overflow: hidden;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent 55%);
+  pointer-events: none;
+}
+
+.dock-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px 0 6px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  color: var(--mint-soft);
+  font-size: 0.95rem;
+  white-space: nowrap;
+  cursor: default;
+  user-select: none;
+}
+.dock-brand .dock-mark {
+  width: 26px; height: 26px;
+  display: grid; place-items: center;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #22c55e, #14532d);
+  color: #eafff2;
+  font-size: 0.85rem;
+  box-shadow: 0 0 14px rgba(74, 222, 128, 0.35);
+}
+
+.dock-items {
+  display: flex;
+  align-items: flex-end;
+  gap: 16px;
+  /* Deliberately not overflow-x:auto: on this narrow a pill, giving it a
+     scroll axis also forces the vertical axis to clip (a CSS overflow-x/-y
+     quirk), which is what was cutting off and overlapping the icons the
+     moment they magnified. The dock just sizes to its content instead — the
+     breakpoints below shrink it enough to still fit narrower screens. */
+  overflow: visible;
+  max-width: 66vw;
+  padding: 4px 6px;
+}
+
+.dock-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  color: #d7f5e3;
+  text-decoration: none;
+  font-size: 1.1rem;
+  background: rgba(255, 255, 255, 0.03);
+  will-change: transform;
+  /* Grow upward from the base of the icon (not outward from its center) so a
+     magnified icon doesn't visually collide with its neighbours on either
+     side — this is what the reference dock's overlap-free spacing relies on. */
+  transform-origin: center bottom;
+  /* A "back" easing curve (slight overshoot past the target scale before
+     settling) instead of a flat ease-out — this is what gives the magnify
+     pop an actual spring feel, like the icon has a little weight to it,
+     rather than just smoothly growing and stopping. */
+  transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1), background 0.35s ease, color 0.3s ease, box-shadow 0.35s ease;
+}
+.dock-item:hover, .dock-item:focus-visible {
+  background: rgba(110, 231, 183, 0.2);
+  color: #eafff2;
+  box-shadow: 0 14px 28px rgba(0, 0, 0, 0.4), 0 0 26px rgba(110, 231, 183, 0.5);
+  outline: none;
+}
+.dock-item.active {
+  background: rgba(110, 231, 183, 0.22);
+  color: #eafff2;
+  box-shadow: 0 0 0 1.5px rgba(110, 231, 183, 0.55), 0 0 16px rgba(110, 231, 183, 0.3);
+}
+
+/* Tooltip is now a single JS-positioned element appended to <body> (see
+   initDockTooltip in navbar.js) rather than a per-icon ::after — that keeps
+   it completely outside any scroll/overflow context so it can never get
+   clipped by a parent again, regardless of how the row itself is sized. */
+.dock-tooltip {
+  position: fixed;
+  transform: translate(-50%, -8px) scale(0.85);
+  transform-origin: top center;
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: rgba(8, 26, 17, 0.95);
+  border: 1px solid rgba(180, 255, 210, 0.25);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.45), 0 0 12px rgba(110, 231, 183, 0.2);
+  color: #eafff2;
+  font-size: 0.76rem;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 2000;
+  transition: opacity 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.dock-tooltip::before {
+  content: '';
+  position: absolute;
+  top: -8px;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 5px solid transparent;
+  border-bottom-color: rgba(8, 26, 17, 0.95);
+}
+.dock-tooltip.visible { opacity: 1; transform: translate(-50%, 0) scale(1); }
+
+.dock-divider { width: 1px; align-self: stretch; margin: 4px 4px; background: rgba(255, 255, 255, 0.12); flex: 0 0 auto; }
+
+.dock-user {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 4px 0 6px;
+  flex: 0 0 auto;
+}
+.dock-user-name {
+  color: #c7e9d6;
+  font-size: 0.76rem;
+  white-space: nowrap;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dock-user-role {
+  color: var(--mint);
+  font-weight: 600;
+}
+.dock-logout {
+  width: 38px; height: 38px;
+  border-radius: 50%;
+  border: none;
+  display: grid; place-items: center;
+  color: #d7f5e3;
+  background: rgba(255, 255, 255, 0.04);
+  cursor: pointer;
+  position: relative;
+  transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1), background 0.2s ease, color 0.2s ease;
+}
+.dock-logout:hover {
+  transform: translateY(-6px) scale(1.18);
+  background: rgba(239, 68, 68, 0.18);
+  color: #fecaca;
+}
+
+/* Notification dot — reused for the "new dispute" indicator */
+.dock-item .dock-dot {
+  position: absolute;
+  top: 4px; right: 4px;
+  width: 9px; height: 9px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 30% 30%, #fca5a5, #ef4444);
+  box-shadow: 0 0 6px rgba(239, 68, 68, 0.7);
+  animation: dock-pulse 1.6s ease-in-out infinite;
+}
+@keyframes dock-pulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.35); opacity: 0.6; }
+}
+
+/* Body padding so page content never sits under the floating dock */
+body.has-dock-nav { padding-top: 84px; }
+
+@media (max-width: 640px) {
+  .dock-wrap { top: 10px; }
+  .dock-panel { padding: 6px 8px; gap: 3px; }
+  .dock-item, .dock-logout { width: 36px; height: 36px; font-size: 0.92rem; }
+  .dock-brand span.dock-label { display: none; }
+  .dock-user-name { display: none; }
+  .dock-items { max-width: 48vw; }
+  body.has-dock-nav { padding-top: 72px; }
+}
+
+/* ---------------------------------------------------------------------------
+   Hover Border Gradient — used instead of a noise border. An animated
+   gradient ring that only shows on hover, expanding to trace the whole
+   container. Green shades throughout so it reads as "Veridion", not a
+   generic effects demo. Apply the class to any button/container.
+   --------------------------------------------------------------------------- */
+.hbg {
+  position: relative;
+  isolation: isolate;
+  border-radius: 12px;
+  padding: 2px;
+  background: transparent;
+  overflow: hidden;
+  transition: transform 0.2s ease;
+}
+.hbg::before {
+  content: '';
+  position: absolute;
+  inset: -60%;
+  z-index: -1;
+  background: conic-gradient(from 0deg, #14532d, #22c55e, #6ee7b7, #14532d);
+  opacity: 0;
+  transition: opacity 0.35s ease;
+  animation: hbg-spin 4s linear infinite paused;
+}
+.hbg:hover::before, .hbg:focus-within::before {
+  opacity: 1;
+  animation-play-state: running;
+}
+@keyframes hbg-spin { to { transform: rotate(360deg); } }
+.hbg .hbg-core {
+  position: relative;
+  z-index: 1;
+  display: block;
+  border-radius: 10px;
+  background: #14532d;
+  color: #eafff2;
+  border: none;
+  width: 100%;
+  height: 100%;
+  padding: 8px 16px;
+  font-weight: 600;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: background 0.25s ease, transform 0.15s ease;
+}
+.hbg:hover .hbg-core { background: #1a6b3a; }
+.hbg:active .hbg-core { transform: scale(0.97); }
+.hbg .hbg-core:disabled { opacity: 0.7; cursor: not-allowed; }
+
+/* Outline variant — for secondary actions, e.g. "Save Edit" */
+.hbg.hbg-outline .hbg-core { background: rgba(20, 83, 45, 0.06); color: #14532d; }
+.hbg.hbg-outline:hover .hbg-core { background: rgba(20, 83, 45, 0.12); }
+
+/* Danger variant — for destructive/withdraw actions, red-shifted ring */
+.hbg.hbg-danger::before { background: conic-gradient(from 0deg, #7f1d1d, #ef4444, #fca5a5, #7f1d1d); }
+.hbg.hbg-danger .hbg-core { background: #7f1d1d; }
+.hbg.hbg-danger:hover .hbg-core { background: #991b1b; }
+
+/* ---------------------------------------------------------------------------
+   Stateful buttons — idle / loading / success / error, driven by
+   withButtonState() in api.js. Pure CSS swap based on a data-state attribute.
+   --------------------------------------------------------------------------- */
+.hbg .hbg-core .btn-state-label { display: inline-flex; align-items: center; gap: 6px; }
+.hbg .hbg-core .btn-spinner {
+  display: none;
+  width: 13px; height: 13px;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: btn-spin 0.7s linear infinite;
+}
+@keyframes btn-spin { to { transform: rotate(360deg); } }
+.hbg .hbg-core[data-state="loading"] { cursor: wait; }
+.hbg .hbg-core[data-state="loading"] .btn-spinner { display: inline-block; }
+.hbg .hbg-core[data-state="loading"] .btn-state-text { opacity: 0.85; }
+.hbg .hbg-core[data-state="success"] { background: #17a67d; }
+.hbg .hbg-core[data-state="error"] { background: #b91c1c; }
+
+/* ---------------------------------------------------------------------------
+   Alert Dialog — styling for confirmDialog()/promptDialog() in api.js
+   --------------------------------------------------------------------------- */
+.veridion-alert-modal .modal-content {
+  border-radius: 16px;
+  border: 1px solid rgba(20, 83, 45, 0.15);
+  box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.35);
+}
+.alert-dialog-icon {
+  width: 42px; height: 42px; border-radius: 50%; flex: 0 0 auto;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(20, 83, 45, 0.12); color: #14532d; font-size: 1.2rem;
+}
+.alert-dialog-icon-danger { background: rgba(220, 53, 69, 0.12); color: #dc3545; }
+.veridion-alert-modal .hbg-core { padding: 8px 18px; font-size: 0.86rem; }
+
+/* Sidebar-with-hover: deliberately NOT included as a global pattern. The dock
+   navbar above already covers every page's navigation, and adding a second,
+   parallel nav surface (an edge sidebar) would duplicate that without a clear
+   benefit — see the delivery notes for why this was left out rather than
+   built speculatively.
+   --------------------------------------------------------------------------- */

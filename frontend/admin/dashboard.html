@@ -11,21 +11,21 @@
 <div class="container">
   <h3 class="mb-1">Vendor Verification</h3>
   <p class="text-muted">Every vendor that has registered on the platform. A vendor can't act on the platform (quote, invoice, etc.) until approved here — this is the human-gated step described in the onboarding flow. Expand a row to see everything they submitted before deciding.</p>
-  <table class="table bg-white">
+  <table class="table table-centered bg-white">
     <thead><tr><th></th><th>Company</th><th>Contact</th><th>Phone</th><th>Email</th><th>GSTIN</th><th>Status</th><th>Registered</th><th>Action</th></tr></thead>
     <tbody id="rows"><tr><td colspan="9" class="text-muted">Loading...</td></tr></tbody>
   </table>
 
   <h3 class="mb-1 mt-5">Company Verification</h3>
   <p class="text-muted">Every company that has registered on the platform. A company_admin gets a valid login immediately, but nobody on their team can post requirements, invite teammates, accept quotations, record deliveries, or approve payments until the company is approved here.</p>
-  <table class="table bg-white">
+  <table class="table table-centered bg-white">
     <thead><tr><th>Company</th><th>Admin</th><th>GSTIN</th><th>Address</th><th>Industry</th><th>Status</th><th>Registered</th><th>Proof</th><th>Action</th></tr></thead>
     <tbody id="companyRows"><tr><td colspan="9" class="text-muted">Loading...</td></tr></tbody>
   </table>
 
   <h3 class="mb-1 mt-5">Fraud Review Queue</h3>
   <p class="text-muted">Invoices marked 'suspicious' by the Context Gate — a high-severity fraud signal (shell company, split billing) bypasses the normal weighted decision entirely and lands here for cross-company review.</p>
-  <table class="table bg-white">
+  <table class="table table-centered bg-white">
     <thead><tr><th>Vendor</th><th>Invoice</th><th>Flag Type</th><th>Severity</th><th>Status</th><th>Action</th></tr></thead>
     <tbody id="fraudRows"><tr><td colspan="6" class="text-muted">Loading...</td></tr></tbody>
   </table>
@@ -44,7 +44,7 @@ async function load() {
   if (!vendors.length) { rows.innerHTML = '<tr><td colspan="9" class="text-muted">No vendors registered yet.</td></tr>'; return; }
   rows.innerHTML = vendors.map(v => `
     <tr>
-      <td><button class="btn btn-sm btn-outline-secondary" onclick="toggleDetail(${v.id})">${expandedId === v.id ? '▾' : '▸'}</button></td>
+      <td><button class="btn btn-sm btn-outline-secondary btn-icon" onclick="toggleDetail(${v.id})">${expandedId === v.id ? '▾' : '▸'}</button></td>
       <td>${v.company_name}</td>
       <td>${v.contact_name}</td>
       <td>${v.phone_number || '—'}</td>
@@ -54,8 +54,10 @@ async function load() {
       <td>${new Date(v.created_at).toLocaleDateString()}</td>
       <td>
         ${v.verification_status === 'pending' ? `
-          <button class="btn btn-sm btn-amber me-1" onclick="verify(${v.id}, 'verified')">Approve</button>
-          <button class="btn btn-sm btn-outline-danger" onclick="verify(${v.id}, 'rejected')">Reject</button>
+          <div class="d-inline-flex flex-wrap justify-content-center gap-2">
+            <button class="btn btn-sm btn-outline-secondary" onclick="verify(${v.id}, 'verified')">Approve</button>
+            <button class="btn btn-sm btn-outline-danger" onclick="verify(${v.id}, 'rejected')">Reject</button>
+          </div>
         ` : v.verification_status === 'verified' ? `
           <button class="btn btn-sm btn-outline-danger" onclick="verify(${v.id}, 'rejected')">Revoke</button>
         ` : `
@@ -64,7 +66,7 @@ async function load() {
       </td>
     </tr>
     ${expandedId === v.id ? `
-    <tr><td colspan="9" class="bg-light">
+    <tr><td colspan="9" class="bg-light text-start">
       <div class="p-2">
         <p class="mb-1 small"><strong>PAN:</strong> ${v.pan || '—'} &nbsp; <strong>Address:</strong> ${v.address || '—'}</p>
         <p class="mb-1 small"><strong>Bank Account:</strong> ${v.bank_account_number || '—'} &nbsp; <strong>IFSC:</strong> ${v.bank_ifsc || '—'}</p>
@@ -130,8 +132,10 @@ async function loadCompanies() {
       <td>${c.registration_proof_path ? `<button class="btn btn-sm btn-outline-secondary" onclick="viewCompanyProof(${c.id})">View Proof</button>` : '<span class="small text-muted">None</span>'}</td>
       <td>
         ${c.approval_status === 'pending' ? `
-          <button class="btn btn-sm btn-amber me-1" onclick="approveCompany(${c.id}, 'approved')">Approve</button>
-          <button class="btn btn-sm btn-outline-danger" onclick="approveCompany(${c.id}, 'rejected')">Reject</button>
+          <div class="d-inline-flex flex-wrap justify-content-center gap-2">
+            <button class="btn btn-sm btn-outline-secondary" onclick="approveCompany(${c.id}, 'approved')">Approve</button>
+            <button class="btn btn-sm btn-outline-danger" onclick="approveCompany(${c.id}, 'rejected')">Reject</button>
+          </div>
         ` : c.approval_status === 'approved' ? `
           <button class="btn btn-sm btn-outline-danger" onclick="approveCompany(${c.id}, 'rejected')">Revoke</button>
         ` : `

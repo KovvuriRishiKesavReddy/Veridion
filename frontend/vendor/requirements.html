@@ -10,10 +10,27 @@
 <div id="navbar-root"></div>
 <div class="container">
   <h3 class="mb-4">Open Requirements</h3>
-  <div class="mb-3 d-flex gap-2">
-    <input class="form-control" style="max-width:250px" id="categoryFilter" placeholder="Filter by category">
-    <button class="btn btn-primary" onclick="load()">Filter</button>
+
+  <div class="filter-toolbar mb-3">
+    <div class="d-flex flex-wrap gap-3 align-items-end">
+      <div class="flex-grow-1" style="min-width:220px;">
+        <label class="form-label small text-muted mb-1">Search</label>
+        <input class="form-control form-control-sm" id="searchFilter" placeholder="Search by title, category, or company...">
+      </div>
+      <div style="min-width:180px;">
+        <label class="form-label small text-muted mb-1">Sort by</label>
+        <select class="form-select form-select-sm" id="sortBy">
+          <option value="newest">Newest first</option>
+          <option value="oldest">Oldest first</option>
+          <option value="deadline">Deadline: soonest</option>
+          <option value="title_asc">Title: A &rarr; Z</option>
+          <option value="company_asc">Company: A &rarr; Z</option>
+        </select>
+      </div>
+      <button type="button" class="btn btn-sm btn-outline-secondary" id="clearFilters">Clear</button>
+    </div>
   </div>
+
   <div id="list" class="row g-3"></div>
 </div>
 
@@ -39,22 +56,69 @@
 <script>
 requireLogin(['vendor']);
 let quoteModal;
+
+// Full unfiltered list from the server, kept as-is; every filter/sort control below
+// operates on this in memory so combining "cement" + "BrightBuild" + a title search
+// all narrow the same list together, instead of each control fighting over a
+// server-side query param (which is how this used to silently only support one
+// category filter, case-sensitive, with no company/title search and no sort at all).
+let allReqs = [];
+
 document.addEventListener('DOMContentLoaded', () => {
   quoteModal = new bootstrap.Modal(document.getElementById('quoteModal'));
+
+  const searchEl = document.getElementById('searchFilter');
+  const sortEl = document.getElementById('sortBy');
+  const clearBtn = document.getElementById('clearFilters');
+
+  searchEl.addEventListener('input', render);
+  sortEl.addEventListener('change', render);
+  clearBtn.addEventListener('click', () => {
+    searchEl.value = ''; sortEl.value = 'newest';
+    render();
+  });
+
   // Poll every second so newly posted requirements show up live. Safe alongside the
-  // category filter input and the quote modal's own fields — load() only ever reads
-  // the filter's current value, never overwrites it, and never touches the modal.
+  // filter/sort controls — load() only refreshes the underlying data, render() (which
+  // reads the controls' current values) does the actual filtering/sorting/drawing, so
+  // nothing here resets what the vendor has typed or selected.
   pollEvery(load, 1000, () => pollBlockedBy('list'));
 });
 
 async function load() {
-  const cat = document.getElementById('categoryFilter').value.trim();
-  const qs = cat ? `?category=${encodeURIComponent(cat)}` : '';
-  const res = await fetchWithAuth(`/api/requirements${qs}`);
+  const res = await fetchWithAuth('/api/requirements');
   if (!res) return;
-  const reqs = await res.json();
+  allReqs = await res.json();
+  render();
+}
+
+function render() {
+  const search = document.getElementById('searchFilter').value.trim().toLowerCase();
+  const sortBy = document.getElementById('sortBy').value;
+
+  let reqs = allReqs.filter(r => {
+    if (!search) return true;
+    return (r.title || '').toLowerCase().includes(search)
+      || (r.category || '').toLowerCase().includes(search)
+      || (r.company_name || '').toLowerCase().includes(search);
+  });
+
+  reqs = reqs.slice().sort((a, b) => {
+    switch (sortBy) {
+      case 'oldest': return new Date(a.created_at || 0) - new Date(b.created_at || 0);
+      case 'deadline': return new Date(a.deadline || '9999-12-31') - new Date(b.deadline || '9999-12-31');
+      case 'title_asc': return (a.title || '').localeCompare(b.title || '');
+      case 'company_asc': return (a.company_name || '').localeCompare(b.company_name || '');
+      case 'newest': default: return new Date(b.created_at || 0) - new Date(a.created_at || 0);
+    }
+  });
+
   const list = document.getElementById('list');
-  if (!reqs.length) { list.innerHTML = '<p class="text-muted">No open requirements.</p>'; return; }
+
+  if (!reqs.length) {
+    list.innerHTML = `<p class="text-muted">${allReqs.length ? 'No requirements match your filters.' : 'No open requirements.'}</p>`;
+    return;
+  }
   list.innerHTML = reqs.map(r => `
     <div class="col-md-6">
       <div class="card p-3">

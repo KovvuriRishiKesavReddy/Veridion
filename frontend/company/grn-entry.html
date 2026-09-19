@@ -45,7 +45,7 @@
 
   <h6>My Recent Submissions</h6>
   <div id="mineSortToolbar"></div>
-  <table class="table table-sm bg-white">
+  <table class="table table-centered table-sm bg-white">
     <thead><tr><th>PO</th><th>This Delivery</th><th>Date</th><th>Running Total</th></tr></thead>
     <tbody id="rows"><tr><td colspan="4" class="text-muted">Loading...</td></tr></tbody>
   </table>
@@ -156,14 +156,14 @@ async function loadMine() {
   const res = await fetchWithAuth('/api/grn/mine');
   if (!res) return;
   let grns = await res.json();
-  grns = sortAndFilterItems(grns, getMineSortState(), { dateField: 'received_date', numberField: 'id' });
+  grns = sortAndFilterItems(grns, getMineSortState(), { dateField: 'received_date', numberField: 'id', searchFields: ['po_id', 'warehouse_notes'] });
   const rows = document.getElementById('rows');
   rows.innerHTML = grns.length ? grns.map(g =>
     `<tr><td>#${g.po_id}</td><td>${g.received_quantity}</td><td>${g.received_date}</td><td>towards ${g.agreed_quantity} agreed</td></tr>`
   ).join('') : '<tr><td colspan="4" class="text-muted">No submissions yet.</td></tr>';
 }
 
-getMineSortState = renderSortToolbar('mineSortToolbar', loadMine);
+getMineSortState = renderSortToolbar('mineSortToolbar', loadMine, { searchPlaceholder: 'Search by PO or notes...' });
 // Poll every second so the available-POs list and recent-submissions list stay
 // current; both only touch #cards/#rows, never the open entry form itself.
 pollEvery(loadAvailable, 1000, () => pollBlockedBy('cards'));

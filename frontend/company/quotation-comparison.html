@@ -12,7 +12,7 @@
   <h3 class="mb-1">All Open Quotations</h3>
   <p class="text-muted">Every quotation across every requirement that's still waiting on a decision — no need to pick a requirement first.</p>
   <div id="allSortToolbar"></div>
-  <table class="table bg-white mb-5">
+  <table class="table table-centered bg-white mb-5">
     <thead><tr><th>Requirement</th><th>Vendor</th><th>Verification</th><th>Price</th><th>Delivery (days)</th><th>Submitted</th><th>Action</th></tr></thead>
     <tbody id="allRows"><tr><td colspan="7" class="text-muted">Loading...</td></tr></tbody>
   </table>
@@ -22,7 +22,7 @@
     <label class="form-label">Requirement</label>
     <select class="form-select" id="reqSelect" style="max-width:420px" onchange="loadQuotations()"></select>
   </div>
-  <table class="table bg-white">
+  <table class="table table-centered bg-white">
     <thead><tr><th>Rank</th><th>Vendor</th><th>Verification</th><th>Price</th><th>Delivery (days)</th><th>AI Score</th><th>Status</th><th>Action</th></tr></thead>
     <tbody id="rows"><tr><td colspan="8" class="text-muted">Select a requirement above.</td></tr></tbody>
   </table>
@@ -38,7 +38,7 @@ async function loadAll() {
   const res = await fetchWithAuth('/api/quotations/company');
   if (!res) return;
   let qs = await res.json();
-  qs = sortAndFilterItems(qs, getAllSortState(), { dateField: 'submitted_at', numberField: 'id' });
+  qs = sortAndFilterItems(qs, getAllSortState(), { dateField: 'submitted_at', numberField: 'id', searchFields: ['requirement_title', 'vendor_name', 'verification_status'] });
   const rows = document.getElementById('allRows');
   if (!qs.length) { rows.innerHTML = '<tr><td colspan="7" class="text-muted">No open quotations right now.</td></tr>'; return; }
   rows.innerHTML = qs.map(q => `
@@ -49,16 +49,21 @@ async function loadAll() {
       <td>₹${q.price}</td>
       <td>${q.delivery_days}</td>
       <td>${new Date(q.submitted_at).toLocaleDateString()}</td>
-      <td><button class="btn btn-sm btn-accept" onclick="acceptFromAll(${q.id})">Accept</button></td>
+      <td><span class="hbg d-inline-block"><button class="hbg-core" style="padding:6px 14px;font-size:0.85rem;" onclick="withButtonState(this, () => acceptFromAll(${q.id}))">Accept</button></span></td>
     </tr>`).join('');
 }
 
 async function acceptFromAll(quotationId) {
-  if (!confirm('Accept this quotation? This generates a Purchase Order and closes the requirement.')) return;
+  const ok = await confirmDialog({
+    title: 'Accept this quotation?',
+    message: 'This generates a Purchase Order and closes the requirement to further quotes — the vendor is notified immediately.',
+    confirmText: 'Accept & Generate PO'
+  });
+  if (!ok) return null;
   const res = await fetchWithAuth(`/api/quotations/${quotationId}/accept`, { method: 'POST' });
-  if (!res) return;
+  if (!res) return false;
   const data = await res.json();
-  if (!res.ok) { alert(data.error || 'Failed'); return; }
+  if (!res.ok) { alert(data.error || 'Failed'); return false; }
   alert(`PO #${data.id} created.`);
   loadAll();
   loadRequirements();
@@ -94,7 +99,7 @@ async function loadQuotations(rerank = true) {
       <td>${q.delivery_days}</td>
       <td>${q.ai_rank_score != null ? Number(q.ai_rank_score).toFixed(2) : '—'}</td>
       <td><span class="badge status-badge ${statusBadgeClass(q.status)}">${q.status}</span></td>
-      <td>${q.status === 'submitted' ? `<button class="btn btn-sm btn-accept" onclick="accept(${q.id})">Accept</button>` : '—'}</td>
+      <td>${q.status === 'submitted' ? `<span class="hbg d-inline-block"><button class="hbg-core" style="padding:6px 14px;font-size:0.85rem;" onclick="withButtonState(this, () => accept(${q.id}))">Accept</button></span>` : '—'}</td>
     </tr>
     ${q.ai_rank_reasoning ? `
     <tr class="table-light">
@@ -109,11 +114,16 @@ async function loadQuotations(rerank = true) {
 }
 
 async function accept(quotationId) {
-  if (!confirm('Accept this quotation? This generates a Purchase Order.')) return;
+  const ok = await confirmDialog({
+    title: 'Accept this quotation?',
+    message: 'This generates a Purchase Order — the vendor is notified immediately.',
+    confirmText: 'Accept & Generate PO'
+  });
+  if (!ok) return null;
   const res = await fetchWithAuth(`/api/quotations/${quotationId}/accept`, { method: 'POST' });
-  if (!res) return;
+  if (!res) return false;
   const data = await res.json();
-  if (!res.ok) { alert(data.error || 'Failed'); return; }
+  if (!res.ok) { alert(data.error || 'Failed'); return false; }
   alert(`PO #${data.id} created.`);
   loadQuotations();
   loadAll();
@@ -128,7 +138,13 @@ async function accept(quotationId) {
 // container while one is open would slam it shut every second (and clear any copied
 // text), so the poll pauses entirely while a reasoning panel is expanded or its text
 // is being selected.
-getAllSortState = renderSortToolbar('allSortToolbar', loadAll);
+getAllSortState = renderSortToolbar('allSortToolbar', loadAll, {
+  searchPlaceholder: 'Search by requirement or vendor...',
+  sortOptions: [
+    { value: 'text:requirement_title', label: 'Requirement: A → Z' },
+    { value: 'text:vendor_name', label: 'Vendor: A → Z' }
+  ]
+});
 pollEvery(loadAll, 1000, () => pollBlockedBy('allRows'));
 pollEvery(loadRequirements);
 setInterval(() => {

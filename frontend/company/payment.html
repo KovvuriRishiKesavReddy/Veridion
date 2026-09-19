@@ -14,19 +14,19 @@
   <div id="sortToolbar"></div>
 
   <h5 class="mt-4">Ready to Pay <span class="badge bg-success">Auto-Approved</span></h5>
-  <table class="table bg-white mb-4">
+  <table class="table table-centered bg-white mb-4">
     <thead><tr><th>Invoice</th><th>Vendor</th><th>Requirement</th><th>Amount to Pay (incl. GST)</th><th>Confidence Score</th><th>Action</th></tr></thead>
     <tbody id="readyRows"><tr><td colspan="6" class="text-muted">Loading...</td></tr></tbody>
   </table>
 
   <h5>Needs Review Before Payment <span class="badge bg-danger">Flagged</span></h5>
-  <table class="table bg-white mb-4">
+  <table class="table table-centered bg-white mb-4">
     <thead><tr><th>Invoice</th><th>Vendor</th><th>Requirement</th><th>Amount to Pay (incl. GST)</th><th>Why Flagged</th><th>Action</th></tr></thead>
     <tbody id="flaggedRows"><tr><td colspan="6" class="text-muted">Loading...</td></tr></tbody>
   </table>
 
   <h5>Already Paid</h5>
-  <table class="table bg-white">
+  <table class="table table-centered bg-white">
     <thead><tr><th>Invoice</th><th>Vendor</th><th>Requirement</th><th>Amount Paid (incl. GST)</th><th>Submitted</th></tr></thead>
     <tbody id="paidRows"><tr><td colspan="5" class="text-muted">Loading...</td></tr></tbody>
   </table>
@@ -41,7 +41,7 @@ async function load() {
   const res = await fetchWithAuth('/api/invoices/company');
   if (!res) return;
   let invs = await res.json();
-  invs = sortAndFilterItems(invs, getSortState(), { dateField: 'submitted_at', numberField: 'id' });
+  invs = sortAndFilterItems(invs, getSortState(), { dateField: 'submitted_at', numberField: 'id', searchFields: ['invoice_number', 'vendor_name', 'requirement_title'] });
 
   const unpaid = invs.filter(i => i.status !== 'paid');
   const ready = unpaid.filter(i => i.final_decision === 'auto_approved');
@@ -87,7 +87,13 @@ async function approvePay(id) {
   load();
 }
 
-getSortState = renderSortToolbar('sortToolbar', load);
+getSortState = renderSortToolbar('sortToolbar', load, {
+  searchPlaceholder: 'Search by invoice, vendor, or requirement...',
+  sortOptions: [
+    { value: 'text:vendor_name', label: 'Vendor: A → Z' },
+    { value: 'text:requirement_title', label: 'Requirement: A → Z' }
+  ]
+});
 // Poll every second so an invoice moving between "ready to pay" and "flagged" (or a
 // payment made in another tab) is reflected live.
 pollEvery(load, 1000, () => pollBlockedBy('readyRows', 'flaggedRows', 'paidRows'));

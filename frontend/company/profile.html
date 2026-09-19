@@ -8,9 +8,10 @@
 </head>
 <body>
 <div id="navbar-root"></div>
-<div class="container">
-  <h3 class="mb-4">Company Profile</h3>
-  <div class="card bg-white p-4" style="max-width: 500px;">
+<div class="container" style="max-width:520px;">
+  <div class="card p-4">
+    <h4 class="mb-1">Company Profile</h4>
+    <p class="text-muted small">Company name and address can be updated any time. GSTIN was verified by Platform Admin against your registration proof and can't be self-edited here.</p>
     <div class="mb-3"><label class="form-label">Company Name</label><input type="text" class="form-control" id="profile_name"></div>
     <div class="mb-3">
       <label class="form-label">GSTIN</label>
@@ -23,7 +24,7 @@
       <label class="form-label">Approval Status</label><br>
       <span class="badge status-badge" id="profile_approval_status"></span>
     </div>
-    <button class="btn btn-amber" onclick="saveProfile()">Save Changes</button>
+    <button class="btn btn-amber w-100" onclick="saveProfile()">Save Changes</button>
     <div id="profileSavedMsg" class="text-success small mt-2 d-none">Saved.</div>
   </div>
 </div>

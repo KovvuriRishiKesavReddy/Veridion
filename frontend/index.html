@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Veridion — Enterprise Agentic AI for Vendor &amp; Procurement Management</title>
+<meta name="description" content="Veridion fuses OCR, semantic matching, compliance, fraud detection and vendor risk into one confidence-weighted Context Gate — procurement decisions your finance team can actually trust.">
+<style>
+/* ==========================================================================
+   Design tokens — shades of green throughout (matches the app's own
+   --navy: #14532d / --amber: #e0a72e palette), never the reference deck's
+   blue/purple. Aurora + spotlight background, no template chrome.
+   ========================================================================== */
+:root {
+  --void: #020806;
+  --deep: #04140c;
+  --panel: #06200f;
+  --emerald: #14532d;
+  --emerald-light: #1a6b3a;
+  --mint: #6ee7b7;
+  --mint-soft: #a7f3d0;
+  --teal: #0d9488;
+  --amber: #e0a72e;
+  --ink: #eafff2;
+  --ink-dim: #9fc7ac;
+  --line: rgba(180, 255, 210, 0.12);
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  font-family: 'Segoe UI', system-ui, -apple-system, Arial, sans-serif;
+  background: var(--void);
+  color: var(--ink);
+  overflow-x: hidden;
+}
+::selection { background: rgba(110, 231, 183, 0.3); }
+
+/* ---------------------------------------------------------------------------
+   Aurora + spotlight backdrop — fixed behind everything, drifting slowly.
+   --------------------------------------------------------------------------- */
+.aurora-bg {
+  position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  background:
+    radial-gradient(ellipse 900px 600px at 18% -8%, rgba(20, 83, 45, 0.55), transparent 60%),
+    radial-gradient(ellipse 700px 500px at 82% 8%, rgba(13, 148, 136, 0.35), transparent 55%),
+    radial-gradient(ellipse 1000px 700px at 50% 100%, rgba(20, 83, 45, 0.4), transparent 60%),
+    linear-gradient(180deg, #020806 0%, #03150c 40%, #020806 100%);
+}
+.aurora-veil {
+  position: fixed; inset: 0; z-index: 0; pointer-events: none; opacity: 0.55;
+  background: radial-gradient(1200px 500px at 50% 0%, rgba(110, 231, 183, 0.12), transparent 65%);
+  animation: aurora-drift 16s ease-in-out infinite alternate;
+}
+@keyframes aurora-drift {
+  from { transform: translateX(-4%) translateY(0); }
+  to   { transform: translateX(4%) translateY(2%); }
+}
+/* Spotlight that follows the cursor across the hero only */
+.spotlight {
+  position: fixed; inset: 0; z-index: 1; pointer-events: none;
+  background: radial-gradient(560px circle at var(--sx, 50%) var(--sy, 40%), rgba(110, 231, 183, 0.09), transparent 60%);
+  transition: background 0.15s ease;
+}
+
+/* Starfield (outside shooting stars live here) */
+#starfield { position: fixed; inset: 0; z-index: 1; pointer-events: none; }
+.star {
+  position: absolute; width: 2px; height: 2px; border-radius: 50%;
+  background: #d7f5e3; opacity: 0.7;
+}
+.shooting-star {
+  position: absolute; width: 2px; height: 2px; border-radius: 50%;
+  background: #eafff2;
+  box-shadow: 0 0 6px 1px rgba(167, 243, 208, 0.9);
+}
+.shooting-star::before {
+  content: '';
+  position: absolute; top: 50%; right: 0; height: 1px; width: 140px;
+  background: linear-gradient(90deg, transparent, rgba(167, 243, 208, 0.85));
+  transform: translateY(-50%);
+}
+
+/* ---------------------------------------------------------------------------
+   Floating dock navbar (unauthenticated landing-page variant)
+   --------------------------------------------------------------------------- */
+.dock-wrap { position: fixed; top: 18px; left: 50%; transform: translateX(-50%); z-index: 50; width: min(980px, 94vw);
+  transition: transform 0.4s cubic-bezier(0.22,1,0.36,1), opacity 0.4s ease; }
+.dock-wrap.dock-hidden { transform: translateX(-50%) translateY(-140%); opacity: 0; }
+.dock-panel {
+  display: flex; align-items: center; justify-content: space-between; gap: 14px;
+  padding: 10px 16px; border-radius: 22px;
+  background: linear-gradient(135deg, rgba(6, 32, 15, 0.85), rgba(20, 83, 45, 0.5));
+  backdrop-filter: blur(20px) saturate(160%); -webkit-backdrop-filter: blur(20px) saturate(160%);
+  border: 1px solid var(--line);
+  box-shadow: 0 20px 45px -12px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.08), 0 0 32px rgba(74,222,128,0.14);
+  position: relative; overflow: hidden;
+}
+.dock-panel::before { content:''; position:absolute; inset:0; background: linear-gradient(180deg, rgba(255,255,255,0.07), transparent 55%); pointer-events:none; }
+.dock-brand { display:flex; align-items:center; gap:9px; font-weight:800; letter-spacing:0.5px; white-space:nowrap; z-index:1; }
+.dock-brand .mark { width:28px; height:28px; display:grid; place-items:center; border-radius:8px; background:linear-gradient(135deg,#22c55e,#14532d); box-shadow:0 0 14px rgba(74,222,128,0.4); font-size:0.85rem; }
+.dock-links { display:flex; align-items:center; gap:2px; z-index:1; }
+.dock-links a { color:#d7f5e3; text-decoration:none; font-size:0.85rem; padding:9px 14px; border-radius:12px; transition:background .2s ease, color .2s ease; }
+.dock-links a:hover { background: rgba(110,231,183,0.14); color:#eafff2; }
+.dock-actions { display:flex; align-items:center; gap:8px; z-index:1; }
+.dock-actions a.login-link { color:#d7f5e3; text-decoration:none; font-size:0.85rem; padding:8px 14px; }
+@media (max-width: 820px) { .dock-links { display:none; } }
+
+/* ---------------------------------------------------------------------------
+   Hover Border Gradient buttons — green ring, expands on hover
+   --------------------------------------------------------------------------- */
+.hbg { position:relative; isolation:isolate; border-radius:14px; padding:2px; overflow:hidden; display:inline-block; }
+.hbg::before { content:''; position:absolute; inset:-60%; z-index:-1; background: conic-gradient(from 0deg, #14532d, #22c55e, #6ee7b7, #14532d); opacity:0; transition:opacity .35s ease; animation: hbg-spin 4s linear infinite paused; }
+.hbg:hover::before, .hbg:focus-within::before { opacity:1; animation-play-state running; }
+@keyframes hbg-spin { to { transform:rotate(360deg); } }
+.hbg .hbg-core { position:relative; z-index:1; display:inline-block; border-radius:12px; background:#14532d; color:#eafff2; border:none; padding:13px 26px; font-weight:700; font-size:0.95rem; cursor:pointer; text-decoration:none; transition:background .25s ease, transform .15s ease; }
+.hbg:hover .hbg-core { background:#1a6b3a; }
+.hbg:active .hbg-core { transform:scale(0.97); }
+.hbg.hbg-ghost .hbg-core { background: rgba(255,255,255,0.04); color:#eafff2; }
+.hbg.hbg-ghost:hover .hbg-core { background: rgba(255,255,255,0.08); }
+.hbg.hbg-amber .hbg-core { background: var(--amber); color:#1a1a1a; }
+.hbg.hbg-amber:hover .hbg-core { background:#c9941f; }
+.hbg.hbg-amber::before { background: conic-gradient(from 0deg, #b8860b, #e0a72e, #ffe08a, #b8860b); }
+
+/* ---------------------------------------------------------------------------
+   Layout shell
+   --------------------------------------------------------------------------- */
+.wrap { position: relative; z-index: 2; }
+section { padding: 120px 7% 40px; max-width: 1280px; margin: 0 auto; position: relative; }
+.eyebrow { display:inline-block; padding:7px 13px; border:1px solid var(--line); border-radius:999px; background:rgba(255,255,255,0.03); color: var(--mint-soft); font-size:0.78rem; margin-bottom:22px; }
+h2.section-title { font-size: clamp(28px, 3.4vw, 42px); letter-spacing:-1px; margin: 0 0 14px; line-height:1.1; }
+p.section-lead { color: var(--ink-dim); font-size: 16px; line-height:1.7; max-width: 640px; margin: 0 0 48px; }
+
+/* ---------------------------------------------------------------------------
+   Hero
+   --------------------------------------------------------------------------- */
+#globe { position: fixed; inset: 0; z-index: 1; }
+.hero { min-height: 100vh; display:flex; align-items:center; padding-top: 90px; }
+.hero-inner { width: min(600px, 46%); }
+.hero h1 { font-size: clamp(42px, 5vw, 68px); line-height: 1.02; letter-spacing:-2.5px; margin: 0 0 22px;
+  background: linear-gradient(105deg, #eafff2 10%, #a7f3d0 55%, #6ee7b7 90%); -webkit-background-clip:text; background-clip:text; color:transparent; }
+.hero p.sub { color: var(--ink-dim); font-size: 17.5px; line-height: 1.75; max-width: 520px; margin: 0 0 34px; }
+.hero .cta-row { display:flex; gap: 14px; flex-wrap: wrap; }
+.hero .stats { display:flex; gap: 34px; margin-top: 56px; }
+.hero .stats div b { display:block; font-size: 1.5rem; color:#eafff2; }
+.hero .stats div span { font-size: 0.78rem; color: var(--ink-dim); }
+@media (max-width: 900px) {
+  .hero-inner { width: 92%; }
+  .hero { padding-top: 130px; align-items: flex-start; }
+}
+
+/* ---------------------------------------------------------------------------
+   Agent grid
+   --------------------------------------------------------------------------- */
+.agent-grid { display:grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+@media (max-width: 980px) { .agent-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 560px) { .agent-grid { grid-template-columns: 1fr; } }
+.agent-card { border: 1px solid var(--line); border-radius: 16px; padding: 20px; background: rgba(255,255,255,0.02); transition: border-color .25s ease, transform .25s ease, background .25s ease; }
+.agent-card:hover { border-color: rgba(110,231,183,0.4); transform: translateY(-3px); background: rgba(110,231,183,0.04); }
+.agent-card .num { color: var(--mint); font-size: 0.72rem; font-weight: 700; letter-spacing: 1px; }
+.agent-card h3 { font-size: 1rem; margin: 8px 0 8px; }
+.agent-card p { color: var(--ink-dim); font-size: 0.86rem; line-height: 1.55; margin: 0; }
+
+/* ---------------------------------------------------------------------------
+   Context Gate section — the single bold element on the page
+   --------------------------------------------------------------------------- */
+.gate-section { border-radius: 28px; border: 1px solid var(--line); background: linear-gradient(160deg, rgba(20,83,45,0.22), rgba(6,32,15,0.5)); padding: 56px 6%; margin: 40px 7%; max-width: 1180px; }
+.gate-grid { display: grid; grid-template-columns: 1.1fr 0.9fr; gap: 48px; align-items: center; }
+@media (max-width: 900px) { .gate-grid { grid-template-columns: 1fr; } }
+.gate-formula { font-family: 'Courier New', monospace; font-size: 0.85rem; color: var(--mint-soft); background: rgba(0,0,0,0.35); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; line-height: 1.8; white-space: pre; overflow-x: auto; }
+.weight-bars { display: flex; flex-direction: column; gap: 14px; }
+.weight-row { display: flex; align-items: center; gap: 12px; }
+.weight-row .label { width: 130px; font-size: 0.82rem; color: var(--ink-dim); flex: 0 0 auto; }
+.weight-row .track { flex: 1; height: 10px; border-radius: 6px; background: rgba(255,255,255,0.06); overflow: hidden; }
+.weight-row .fill { height: 100%; border-radius: 6px; background: linear-gradient(90deg, #14532d, #6ee7b7); }
+.weight-row .pct { width: 42px; text-align: right; font-size: 0.82rem; color: var(--mint-soft); }
+
+/* ---------------------------------------------------------------------------
+   Workflow timeline
+   --------------------------------------------------------------------------- */
+.flow-row { display:flex; gap: 10px; overflow-x: auto; padding-bottom: 10px; }
+.flow-step { flex: 0 0 200px; border: 1px solid var(--line); border-radius: 14px; padding: 18px; background: rgba(255,255,255,0.02); position: relative; }
+.flow-step .n { color: var(--amber); font-weight: 800; font-size: 0.78rem; }
+.flow-step h4 { font-size: 0.92rem; margin: 8px 0 6px; }
+.flow-step p { font-size: 0.8rem; color: var(--ink-dim); margin: 0; line-height: 1.5; }
+.flow-arrow { align-self: center; color: var(--mint); font-size: 1.1rem; flex: 0 0 auto; opacity: 0.6; }
+
+/* ---------------------------------------------------------------------------
+   CTA + footer
+   --------------------------------------------------------------------------- */
+.cta-band { text-align:center; padding: 90px 7% 60px; }
+.cta-band h2 { font-size: clamp(28px, 3.6vw, 46px); letter-spacing:-1px; margin: 0 0 16px; }
+.cta-band p { color: var(--ink-dim); margin: 0 0 34px; }
+footer { border-top: 1px solid var(--line); padding: 44px 7% 30px; color: var(--ink-dim); font-size: 0.85rem; }
+.footer-grid { display:flex; justify-content: space-between; flex-wrap: wrap; gap: 30px; max-width: 1280px; margin: 0 auto 30px; }
+footer h5 { color:#eafff2; font-size: 0.82rem; margin: 0 0 12px; }
+footer a { color: var(--ink-dim); text-decoration:none; display:block; margin-bottom: 7px; font-size: 0.84rem; }
+footer a:hover { color: var(--mint-soft); }
+footer .copyright { max-width: 1280px; margin: 0 auto; padding-top: 20px; border-top: 1px solid var(--line); font-size: 0.78rem; }
+</style>
+</head>
+<body>
+
+<div class="aurora-bg"></div>
+<div class="aurora-veil"></div>
+<div class="spotlight" id="spotlight"></div>
+<div id="starfield"></div>
+<div id="globe"></div>
+
+<div class="dock-wrap" id="dockNav">
+  <div class="dock-panel">
+    <div class="dock-brand"><span class="mark">V</span>VERIDION</div>
+    <nav class="dock-links">
+      <a href="#platform">Platform</a>
+      <a href="#agents">AI Agents</a>
+      <a href="#gate">Context Gate</a>
+      <a href="#workflow">Workflow</a>
+    </nav>
+    <div class="dock-actions">
+      <a class="login-link" href="/login.html">Log in</a>
+      <span class="hbg hbg-amber"><a class="hbg-core" href="/company/register.html">Register</a></span>
+    </div>
+  </div>
+</div>
+
+<div class="wrap">
+
+  <!-- ============================= HERO ============================= -->
+  <section class="hero" id="top">
+    <div class="hero-inner">
+      <div class="eyebrow">Confidence-weighted procurement intelligence</div>
+      <h1>Every invoice decision, explained in plain English.</h1>
+      <p class="sub">Veridion fuses OCR, semantic matching, GST compliance, fraud detection and vendor track record into one Context Gate — so your finance team sees exactly why an invoice was approved or flagged, not just a verdict.</p>
+      <div class="cta-row">
+        <span class="hbg hbg-amber"><a class="hbg-core" href="/company/register.html">Register your company →</a></span>
+        <span class="hbg hbg-ghost"><a class="hbg-core" href="/vendor/register.html">Register as a vendor</a></span>
+      </div>
+      <div class="stats">
+        <div><b>8</b><span>specialised AI agents</span></div>
+        <div><b>4</b><span>signals fused per decision</span></div>
+        <div><b>1</b><span>formula, fully explainable</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================= PLATFORM ============================= -->
+  <section id="platform">
+    <div class="eyebrow">The platform</div>
+    <h2 class="section-title">One system for requirement to payment.</h2>
+    <p class="section-lead">Vendors, procurement, finance and warehouse teams work from the same live record — a requirement becomes a quotation, a purchase order, a delivery, an invoice, and a decision, without anyone re-keying a single number.</p>
+    <div class="agent-grid">
+      <div class="agent-card"><div class="num">VENDOR</div><h3>Register &amp; quote</h3><p>Vendors register once, get verified, then browse open requirements and submit quotations vendors can track end to end.</p></div>
+      <div class="agent-card"><div class="num">PROCUREMENT</div><h3>Rank &amp; accept</h3><p>Quotations are AI-ranked on price, delivery fit and real track record — procurement still makes the final call, always.</p></div>
+      <div class="agent-card"><div class="num">WAREHOUSE</div><h3>Confirm delivery</h3><p>A narrow, quantity-only role — no pricing ever appears here — that gives every downstream decision its ground truth.</p></div>
+      <div class="agent-card"><div class="num">FINANCE</div><h3>Review &amp; pay</h3><p>Every invoice arrives with a confidence badge and a written explanation, not just a pass/fail stamp to take on faith.</p></div>
+    </div>
+  </section>
+
+  <!-- ============================= AI AGENTS ============================= -->
+  <section id="agents">
+    <div class="eyebrow">Eight specialised agents</div>
+    <h2 class="section-title">Each agent does one job well.</h2>
+    <p class="section-lead">No single model tries to do everything. Every agent reports a verdict, a confidence, and how much evidence backs it — the Context Gate decides how much each one should count.</p>
+    <div class="agent-grid">
+      <div class="agent-card"><div class="num">AGENT 1</div><h3>OCR &amp; Structuring</h3><p>Reads the uploaded invoice and extracts vendor, line items, amounts and GST into structured data.</p></div>
+      <div class="agent-card"><div class="num">AGENT 2</div><h3>Semantic Matching</h3><p>Compares the invoice against the goods actually received — not just the original order — to handle real partial deliveries fairly.</p></div>
+      <div class="agent-card"><div class="num">AGENT 3</div><h3>Compliance</h3><p>Independently recalculates the GST that should apply as of today's rate, rather than trusting a stale estimate.</p></div>
+      <div class="agent-card"><div class="num">AGENT 4</div><h3>Fraud Detection</h3><p>Watches for shared bank accounts between "different" vendors and invoices split to dodge an approval threshold.</p></div>
+      <div class="agent-card"><div class="num">AGENT 5</div><h3>Vendor Risk Scoring</h3><p>A running, evidence-weighted track record per vendor, per company — never borrowed from another company's experience.</p></div>
+      <div class="agent-card"><div class="num">AGENT 6</div><h3>Quotation Ranking</h3><p>Weighs price, delivery fit and proven history — a new vendor's thin record never gets treated as if it were reliable data.</p></div>
+      <div class="agent-card"><div class="num">AGENT 7</div><h3>Vendor Communication</h3><p>Drafts a factual, non-accusatory message the moment something needs clarifying — a human reviews before it ever sends.</p></div>
+      <div class="agent-card"><div class="num">AGENT 8</div><h3>Decision Engine</h3><p>The Context Gate itself — fuses every signal above into one final score and a plain-English reason for it.</p></div>
+    </div>
+  </section>
+
+  <!-- ============================= CONTEXT GATE ============================= -->
+  <section id="gate" style="padding-bottom:0;">
+    <div class="eyebrow">The actual novel contribution</div>
+    <h2 class="section-title">Confidence times evidence, nothing hidden.</h2>
+    <p class="section-lead">Every agent's opinion is weighed by how sure it is and how much history backs it up — a shaky OCR read on a blurry scan gets discounted automatically; a vendor's genuine 50-invoice track record does not.</p>
+  </section>
+  <div class="gate-section">
+    <div class="gate-grid">
+      <div>
+        <div class="gate-formula">raw_weight_i&#9;= confidence_i &#215; log(1 + data_volume_i)
+gate_weight_i&#9;= raw_weight_i / &#931;(raw_weight_all_agents)
+final_score&#9;= &#931;(gate_weight_i &#215; agent_verdict_score_i)</div>
+        <p style="color:var(--ink-dim); font-size:0.88rem; margin-top:18px; line-height:1.7;">A worked example: a blurry-scan invoice from a new vendor gets Matching's shaky signal automatically down-weighted, while a confident Fraud check and a valid GST result dominate the decision instead — so a clean transaction with a poor scan isn't wrongly flagged.</p>
+      </div>
+      <div>
+        <div class="weight-bars">
+          <div class="weight-row"><span class="label">Matching</span><div class="track"><div class="fill" style="width:32%"></div></div><span class="pct">32%</span></div>
+          <div class="weight-row"><span class="label">Vendor Risk</span><div class="track"><div class="fill" style="width:43%"></div></div><span class="pct">43%</span></div>
+          <div class="weight-row"><span class="label">Compliance</span><div class="track"><div class="fill" style="width:12%"></div></div><span class="pct">12%</span></div>
+          <div class="weight-row"><span class="label">Fraud</span><div class="track"><div class="fill" style="width:12%"></div></div><span class="pct">12%</span></div>
+        </div>
+        <p style="color:var(--ink-dim); font-size:0.8rem; margin-top:16px;">A real weighting from an actual decision — a vendor with a well-evidenced, imperfect track record carried more weight than a thin, one-invoice read on today's document.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================= WORKFLOW ============================= -->
+  <section id="workflow" style="padding-top:90px;">
+    <div class="eyebrow">End to end</div>
+    <h2 class="section-title">From requirement to payment, one thread.</h2>
+    <p class="section-lead">Every step is visible to the roles that need it, and invisible to the ones that don't — a warehouse worker never sees a price; a vendor never sees another vendor's quote.</p>
+    <div class="flow-row">
+      <div class="flow-step"><div class="n">01</div><h4>Requirement posted</h4><p>Procurement describes what's needed and by when.</p></div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step"><div class="n">02</div><h4>Quotations ranked</h4><p>Agent 6 ranks every bid; procurement picks.</p></div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step"><div class="n">03</div><h4>PO generated</h4><p>A purchase order is created automatically.</p></div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step"><div class="n">04</div><h4>Delivery confirmed</h4><p>Warehouse records what actually arrived.</p></div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step"><div class="n">05</div><h4>Invoice verified</h4><p>Agents 1–4 check it against the real delivery.</p></div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step"><div class="n">06</div><h4>Decision explained</h4><p>The Context Gate approves, flags, or escalates.</p></div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step"><div class="n">07</div><h4>Payment released</h4><p>Finance approves — always the final word.</p></div>
+    </div>
+  </section>
+
+  <!-- ============================= CTA ============================= -->
+  <section class="cta-band">
+    <h2>See the reasoning behind every decision.</h2>
+    <p>Set up your company, or register as a vendor — verification typically takes a Platform Admin one look.</p>
+    <div class="cta-row" style="justify-content:center;">
+      <span class="hbg hbg-amber"><a class="hbg-core" href="/company/register.html">Register your company →</a></span>
+      <span class="hbg hbg-ghost"><a class="hbg-core" href="/login.html">I already have an account</a></span>
+    </div>
+  </section>
+
+</div>
+
+<footer>
+  <div class="footer-grid">
+    <div style="max-width:280px;">
+      <div class="dock-brand" style="margin-bottom:10px;"><span class="mark">V</span>VERIDION</div>
+      <p style="color:var(--ink-dim); font-size:0.84rem; line-height:1.6;">Enterprise agentic AI for vendor &amp; procurement management — confidence-weighted decisions, explained in plain English.</p>
+    </div>
+    <div><h5>Platform</h5><a href="#platform">How it works</a><a href="#agents">AI agents</a><a href="#gate">Context Gate</a><a href="#workflow">Workflow</a></div>
+    <div><h5>Account</h5><a href="/login.html">Log in</a><a href="/company/register.html">Register a company</a><a href="/vendor/register.html">Register as vendor</a></div>
+  </div>
+  <div class="copyright">© 2026 Veridion. Built for procurement teams who want to know why, not just what.</div>
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+<script>
+/* ============================================================================
+   Starfield + shooting stars (outside the 3D scene — a 2D overlay so it
+   always renders even if WebGL is unavailable)
+   ============================================================================ */
+(function initStarfield() {
+  const field = document.getElementById('starfield');
+  const count = window.innerWidth < 700 ? 60 : 130;
+  for (let i = 0; i < count; i++) {
+    const s = document.createElement('div');
+    s.className = 'star';
+    s.style.left = Math.random() * 100 + 'vw';
+    s.style.top = Math.random() * 100 + 'vh';
+    s.style.opacity = (Math.random() * 0.6 + 0.2).toFixed(2);
+    s.style.width = s.style.height = (Math.random() * 1.6 + 1) + 'px';
+    field.appendChild(s);
+  }
+
+  function spawnShootingStar() {
+    const star = document.createElement('div');
+    star.className = 'shooting-star';
+    const startX = Math.random() * 100;
+    const startY = Math.random() * 40;
+    const angle = 18 + Math.random() * 10; // degrees, gentle downward diagonal
+    star.style.left = startX + 'vw';
+    star.style.top = startY + 'vh';
+    star.style.transform = `rotate(${angle}deg)`;
+    field.appendChild(star);
+
+    const distance = 340 + Math.random() * 220;
+    const duration = 900 + Math.random() * 500;
+    star.animate([
+      { transform: `translate(0,0) rotate(${angle}deg)`, opacity: 1 },
+      { transform: `translate(${distance}px, ${distance * Math.tan(angle * Math.PI / 180)}px) rotate(${angle}deg)`, opacity: 0 }
+    ], { duration, easing: 'ease-in' }).onfinish = () => star.remove();
+  }
+  setInterval(spawnShootingStar, 1400 + Math.random() * 1600);
+  setTimeout(spawnShootingStar, 600);
+})();
+
+/* ============================================================================
+   Spotlight follows the cursor across the hero
+   ============================================================================ */
+document.addEventListener('mousemove', (e) => {
+  document.getElementById('spotlight').style.setProperty('--sx', e.clientX + 'px');
+  document.getElementById('spotlight').style.setProperty('--sy', e.clientY + 'px');
+});
+
+/* ============================================================================
+   Floating dock navbar — hides on scroll down, reveals on scroll up
+   ============================================================================ */
+(function dockScrollHide() {
+  let lastY = window.scrollY;
+  window.addEventListener('scroll', () => {
+    const dock = document.getElementById('dockNav');
+    const y = window.scrollY;
+    if (y > lastY && y > 80) dock.classList.add('dock-hidden');
+    else dock.classList.remove('dock-hidden');
+    lastY = y;
+  }, { passive: true });
+})();
+
+/* ============================================================================
+   3D Earth — continuous idle rotation, plus a mouse-follow offset while the
+   cursor is anywhere on the page (not just hovering the canvas), inside/near
+   shooting-star particle streaks, green-tinted atmosphere to match the brand.
+   ============================================================================ */
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(38, innerWidth / innerHeight, 0.1, 100);
+camera.position.set(0, 0, 5);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+if (renderer.outputColorSpace !== undefined) renderer.outputColorSpace = THREE.SRGBColorSpace;
+document.getElementById('globe').appendChild(renderer.domElement);
+
+const group = new THREE.Group();
+group.position.set(1.1, -0.2, 0); // off-center, behind the hero copy on wide screens
+scene.add(group);
+
+const loader = new THREE.TextureLoader();
+const earthTexture = loader.load('https://threejs.org/examples/textures/planets/earth_atmos_2048.jpg', t => { if (t.colorSpace !== undefined) t.colorSpace = THREE.SRGBColorSpace; });
+const bumpTexture = loader.load('https://threejs.org/examples/textures/planets/earth_normal_2048.jpg');
+
+const earth = new THREE.Mesh(
+  new THREE.SphereGeometry(1.7, 96, 96),
+  new THREE.MeshPhongMaterial({ map: earthTexture, bumpMap: bumpTexture, bumpScale: 0.045, shininess: 6 })
+);
+group.add(earth);
+
+// Green-tinted atmosphere glow (brand color, not the reference's blue)
+const atmosphere = new THREE.Mesh(
+  new THREE.SphereGeometry(1.75, 64, 64),
+  new THREE.MeshPhongMaterial({ color: 0x4ade80, transparent: true, opacity: 0.14, side: THREE.BackSide })
+);
+group.add(atmosphere);
+const atmosphereGlow = new THREE.Mesh(
+  new THREE.SphereGeometry(1.85, 64, 64),
+  new THREE.MeshBasicMaterial({ color: 0x22c55e, transparent: true, opacity: 0.06, side: THREE.BackSide })
+);
+group.add(atmosphereGlow);
+
+const light = new THREE.DirectionalLight(0xffffff, 2.4);
+light.position.set(3, 2, 5);
+scene.add(light);
+scene.add(new THREE.AmbientLight(0x2f6e46, 0.5));
+
+// Office/network markers — a few global hubs, mint-colored to match the brand
+const points = [[40.7128, -74.006], [51.5074, -0.1278], [35.6762, 139.6503], [28.6139, 77.209], [1.3521, 103.8198], [25.2048, 55.2708]];
+function latLng(lat, lng, r = 1.76) {
+  const phi = (90 - lat) * Math.PI / 180, theta = (lng + 180) * Math.PI / 180;
+  return new THREE.Vector3(-r * Math.sin(phi) * Math.cos(theta), r * Math.cos(phi), r * Math.sin(phi) * Math.sin(theta));
+}
+const markerGroup = new THREE.Group();
+group.add(markerGroup);
+points.forEach(([lat, lng]) => {
+  const p = latLng(lat, lng);
+  const dot = new THREE.Mesh(new THREE.SphereGeometry(0.032, 12, 12), new THREE.MeshBasicMaterial({ color: 0x6ee7b7 }));
+  dot.position.copy(p); markerGroup.add(dot);
+  const ring = new THREE.Mesh(new THREE.RingGeometry(0.042, 0.055, 24), new THREE.MeshBasicMaterial({ color: 0x6ee7b7, transparent: true, opacity: 0.6, side: THREE.DoubleSide }));
+  ring.position.copy(p); ring.lookAt(new THREE.Vector3(0, 0, 0)); markerGroup.add(ring);
+});
+
+// Shooting-star particle streaks inside/around the 3D scene — short line
+// trails that dart past the globe on random trajectories.
+const streaks = [];
+function spawnStreak3D() {
+  const start = new THREE.Vector3((Math.random() - 0.5) * 8, (Math.random() - 0.3) * 5, (Math.random() - 0.5) * 4 - 1);
+  const dir = new THREE.Vector3(-1, -0.35, 0.2).normalize();
+  const length = 0.9 + Math.random() * 0.6;
+  const end = start.clone().add(dir.clone().multiplyScalar(length));
+  const geom = new THREE.BufferGeometry().setFromPoints([start, end]);
+  const mat = new THREE.LineBasicMaterial({ color: 0xd7f5e3, transparent: true, opacity: 0.9 });
+  const line = new THREE.Line(geom, mat);
+  scene.add(line);
+  streaks.push({ line, dir, life: 0, maxLife: 40 + Math.random() * 20 });
+}
+setInterval(spawnStreak3D, 900);
+
+let targetX = 0, targetY = 0;
+let spinAngle = 0;      // accumulates every frame, unboundedly -- this is what makes
+                         // the rotation continuous and never stuck
+let mouseOffsetY = 0;   // a SEPARATE, small, bounded value that eases toward
+                         // targetX -- kept independent of spinAngle so it can
+                         // never fight against (and cancel out) the ongoing spin
+const SPIN_SPEED = 0.0042; // increased from the original 0.0016 per request
+addEventListener('mousemove', (e) => {
+  targetX = (e.clientX / innerWidth - 0.5) * 0.5;
+  targetY = (e.clientY / innerHeight - 0.5) * 0.25;
+});
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+function animate() {
+  requestAnimationFrame(animate);
+
+  // Continuous idle rotation, always running — plus a gentle offset toward
+  // wherever the cursor currently is, so the globe visibly "looks toward"
+  // the mouse without ever fully stopping its own spin.
+  // FIXED: the rotation used to compute its "look toward the mouse" correction
+  // against group.rotation.y itself -- a value that grows without bound as the
+  // globe spins. Once rotation.y grew past a few radians, that correction term
+  // became an ever-larger NEGATIVE number (targetX is always small, ~±0.25;
+  // rotation.y kept growing), which fought harder and harder against the
+  // continuous spin below it -- until the two exactly cancelled out and the
+  // globe visibly stopped turning at a fixed angle (~39° in testing) instead of
+  // rotating continuously. spinAngle (unbounded) and mouseOffsetY (small,
+  // separately eased toward the target) are now independent, so the spin can
+  // never be cancelled by the mouse-follow effect.
+  spinAngle += SPIN_SPEED;
+  mouseOffsetY += (targetX - mouseOffsetY) * 0.05;
+  group.rotation.y = spinAngle + mouseOffsetY;
+  group.rotation.x += (targetY - group.rotation.x) * 0.02;
+  atmosphere.rotation.y = earth.rotation.y;
+
+  // Advance shooting-star streaks and fade them out
+  for (let i = streaks.length - 1; i >= 0; i--) {
+    const s = streaks[i];
+    s.line.position.addScaledVector(s.dir, 0.09);
+    s.life++;
+    s.line.material.opacity = Math.max(0, 0.9 * (1 - s.life / s.maxLife));
+    if (s.life >= s.maxLife) {
+      scene.remove(s.line);
+      s.line.geometry.dispose(); s.line.material.dispose();
+      streaks.splice(i, 1);
+    }
+  }
+
+  renderer.render(scene, camera);
+}
+animate();
+</script>
+</body>
+</html>

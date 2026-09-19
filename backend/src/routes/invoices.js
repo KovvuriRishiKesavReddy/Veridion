@@ -59,7 +59,7 @@ router.post('/', requireAuth, requireRole('vendor'), requireVerifiedVendor, uplo
 router.get('/mine', requireAuth, requireRole('vendor'), requireVerifiedVendor, async (req, res) => {
   const result = await db.query(
     `SELECT inv.*, r.title as requirement_title,
-            d.final_decision, d.final_score, d.reasoning_text as decision_reasoning
+            d.final_decision, d.final_score, d.reasoning_text as decision_reasoning, d.agent_inputs as decision_agent_inputs
      FROM invoices inv
      JOIN purchase_orders po ON po.id = inv.po_id
      JOIN requirements r ON r.id = po.requirement_id
@@ -282,6 +282,20 @@ router.delete('/:id', requireAuth, requireRole('vendor'), requireVerifiedVendor,
 
   if (!['flagged', 'suspicious'].includes(invoice.status)) {
     return res.status(400).json({ error: `Cannot withdraw an invoice with status '${invoice.status}' — only flagged or suspicious invoices can be withdrawn and resubmitted.` });
+  }
+
+  // A flag that decide.js determined was driven SOLELY by vendor risk — Matching,
+  // Compliance, and Fraud all came back clean on this exact invoice (see
+  // decide.js's flaggedSolelyByReputation) — has nothing on the invoice itself to
+  // correct. Withdrawing and resubmitting an identical document would accomplish
+  // nothing but confuse the vendor into thinking something on the invoice was
+  // wrong, when the review is about the account's track record, not this
+  // document. The frontend already hides the button for this case; this is the
+  // matching server-side guard so a direct API call can't bypass it either.
+  const decisionRes = await db.query(`SELECT * FROM decisions WHERE invoice_id = $1 ORDER BY id DESC LIMIT 1`, [req.params.id]);
+  const decision = decisionRes.rows[0];
+  if (decision?.agent_inputs?.vendor_risk?.counted_as_positive_despite_flag === true) {
+    return res.status(400).json({ error: 'This invoice itself was correct — Matching, Compliance, and Fraud all came back clean. It is flagged only because of your account\'s track record, not anything on this document, so there is nothing to correct by resubmitting. It is with your buyer\'s Finance team for review.' });
   }
 
   await db.query(`DELETE FROM invoices WHERE id = $1`, [req.params.id]);

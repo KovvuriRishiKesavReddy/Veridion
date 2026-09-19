@@ -30,10 +30,346 @@ body {
 .btn-accept { background-color: var(--accept-green); border-color: var(--accept-green); color: #04342c; font-weight: 500; }
 .btn-accept:hover { background-color: var(--accept-green-dark); border-color: var(--accept-green-dark); color: #04342c; }
 
-.card { border: none; box-shadow: 0 1px 4px rgba(0,0,0,0.08); border-radius: 10px; background-color: #ffffff; }
+.card { border: 1px solid rgba(20, 83, 45, 0.08); box-shadow: 0 10px 26px -10px rgba(6, 32, 18, 0.18); border-radius: 24px; background-color: rgba(255, 255, 255, 0.82); transition: transform 0.25s ease, box-shadow 0.25s ease; }
+.card:hover { transform: translateY(-3px); box-shadow: 0 16px 34px -12px rgba(6, 32, 18, 0.26); }
 .status-badge { font-size: 0.75rem; text-transform: capitalize; }
 
 @keyframes veridion-toast-in {
   from { opacity: 0; transform: translateX(24px); }
   to { opacity: 1; transform: translateX(0); }
 }
+
+/* ============================================================================
+   Content Glass Panel
+   The floating dock navbar is a frosted-glass pill sitting on the green
+   gradient background. Page content previously sat in a plain Bootstrap
+   .container with no visual relationship to it. This gives every page's
+   main content area (all pages wrap their content in .container, right
+   below #navbar-root) the same glassmorphism language — soft translucency,
+   blur, a mint-tinted hairline border, and rounded corners — so the two
+   feel like one cohesive surface instead of "fancy navbar, plain page".
+   Purely presentational: no markup, navbar, backend, or agent code touched.
+   ============================================================================ */
+body.has-dock-nav > .container {
+  position: relative;
+  background: linear-gradient(165deg, rgba(255, 255, 255, 0.58) 0%, rgba(214, 245, 224, 0.32) 100%);
+  backdrop-filter: blur(22px) saturate(160%);
+  -webkit-backdrop-filter: blur(22px) saturate(160%);
+  border: 1px solid rgba(180, 255, 210, 0.45);
+  border-radius: 28px;
+  box-shadow:
+    0 24px 55px -20px rgba(6, 32, 18, 0.38),
+    inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  padding: 2.25rem 2.25rem 2.75rem;
+  margin-top: 1.75rem;
+  margin-bottom: 2.5rem;
+}
+body.has-dock-nav > .container::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: inherit;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.35), transparent 45%);
+  pointer-events: none;
+}
+body.has-dock-nav > .container > * { position: relative; z-index: 1; }
+
+/* Narrow auth-style panels (login, register, accept-invite, awaiting-approval)
+   set their own max-width/margin-top inline — those still apply, this just
+   adds the glass treatment on top and tightens the padding a touch. */
+body.has-dock-nav > .container[style*="max-width"] { padding: 2rem; }
+
+body.has-dock-nav > .container h3,
+body.has-dock-nav > .container h4,
+body.has-dock-nav > .container h5,
+body.has-dock-nav > .container h6 { color: #14532d; font-weight: 700; }
+body.has-dock-nav > .container h5,
+body.has-dock-nav > .container h6 { font-weight: 600; }
+
+/* Cards inside the glass panel read as frosted tiles floating on the panel
+   itself, with a mint accent line on top to tie them to the dock's palette. */
+body.has-dock-nav > .container .card {
+  position: relative;
+  background-color: rgba(255, 255, 255, 0.86);
+  border: 1px solid rgba(20, 83, 45, 0.1);
+  overflow: hidden;
+}
+body.has-dock-nav > .container .card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, #14532d, #6ee7b7);
+  opacity: 0.85;
+}
+
+/* Tables: rounded frosted surface with a soft mint-tinted header, instead of
+   a flat white rectangle sitting directly on the glass panel. */
+body.has-dock-nav > .container table.table,
+body.has-dock-nav > .container table.bg-white {
+  background-color: rgba(255, 255, 255, 0.78);
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 6px 18px -10px rgba(6, 32, 18, 0.2);
+}
+body.has-dock-nav > .container table.table thead,
+body.has-dock-nav > .container table.bg-white thead {
+  background-color: rgba(20, 83, 45, 0.08);
+}
+body.has-dock-nav > .container table.table thead th,
+body.has-dock-nav > .container table.bg-white thead th {
+  color: #14532d;
+  font-weight: 700;
+  border-bottom: none;
+}
+body.has-dock-nav > .container table.table tbody tr:hover,
+body.has-dock-nav > .container table.bg-white tbody tr:hover {
+  background-color: rgba(110, 231, 183, 0.1);
+}
+
+/* .table-centered: used on the Platform Admin tables (Vendor/Company
+   Verification, Fraud Review Queue) — headers and cell content both
+   centered so every column (including the Action buttons) sits evenly in
+   its own column instead of hugging the left edge with dead space on the
+   right, matching how compact the row-expand toggle button already reads. */
+.table-centered th,
+.table-centered td {
+  text-align: center;
+  vertical-align: middle;
+  padding-top: 0.85rem;
+  padding-bottom: 0.85rem;
+}
+
+/* Alerts, form fields and badges pick up the same rounding + mint accents. */
+body.has-dock-nav > .container .alert { border-radius: 14px; border: 1px solid rgba(20, 83, 45, 0.12); }
+body.has-dock-nav > .container .form-control,
+body.has-dock-nav > .container .form-select {
+  border-radius: 10px;
+  border: 1px solid rgba(20, 83, 45, 0.18);
+  background-color: rgba(255, 255, 255, 0.85);
+}
+body.has-dock-nav > .container .form-control:focus,
+body.has-dock-nav > .container .form-select:focus {
+  border-color: #6ee7b7;
+  box-shadow: 0 0 0 0.2rem rgba(110, 231, 183, 0.25);
+}
+body.has-dock-nav > .container .badge { border-radius: 999px; font-weight: 600; padding: 0.4em 0.75em; }
+
+@media (max-width: 640px) {
+  body.has-dock-nav > .container { border-radius: 20px; padding: 1.5rem 1.25rem 1.75rem; margin-top: 1rem; }
+}
+
+/* ============================================================================
+   Rounder buttons, everywhere
+   The amber CTA (e.g. "Invite Team Member") and the standard primary button
+   get a softer, pill-leaning radius so they read as part of the same rounded,
+   glassy language as the panels/cards around them. Purely cosmetic.
+   ============================================================================ */
+.btn-amber {
+  border-radius: 999px;
+  padding: 0.55rem 1.5rem;
+  font-weight: 600;
+  box-shadow: 0 8px 20px -8px rgba(224, 167, 46, 0.55);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
+}
+.btn-amber:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 24px -8px rgba(224, 167, 46, 0.65);
+}
+.btn-amber:active { transform: translateY(0); }
+
+.btn-primary,
+.btn-secondary,
+.btn-outline-secondary,
+.btn-outline-danger,
+.btn-accept {
+  border-radius: 12px;
+}
+.btn-primary {
+  box-shadow: 0 8px 18px -8px rgba(20, 83, 45, 0.45);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
+}
+.btn-primary:hover { transform: translateY(-1px); }
+
+/* ============================================================================
+   Auth pages: login, company/vendor register, accept-invite
+   These are pre-login screens (no dock links, just the brand pill), so they
+   read visually thinner than pages like Team. Add an ".auth-container" class
+   to the page's outer .container to opt in to a stronger glass treatment —
+   deeper blur/saturation, a softer glowing edge, a rounder glass card with a
+   tri-color accent top bar, and rounder form fields/buttons inside it. Scoped
+   entirely to that class, so no other page is affected.
+   ============================================================================ */
+body.has-dock-nav > .container.auth-container {
+  background: linear-gradient(165deg, rgba(255, 255, 255, 0.64) 0%, rgba(214, 245, 224, 0.4) 100%);
+  backdrop-filter: blur(30px) saturate(180%);
+  -webkit-backdrop-filter: blur(30px) saturate(180%);
+  border: 1px solid rgba(180, 255, 210, 0.55);
+  border-radius: 32px;
+  box-shadow:
+    0 30px 70px -22px rgba(6, 32, 18, 0.42),
+    inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+body.has-dock-nav > .container.auth-container .card {
+  background: rgba(255, 255, 255, 0.55);
+  backdrop-filter: blur(18px) saturate(160%);
+  -webkit-backdrop-filter: blur(18px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.65);
+  border-radius: 26px;
+  box-shadow:
+    0 18px 45px -18px rgba(6, 32, 18, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.55);
+}
+body.has-dock-nav > .container.auth-container .card::before {
+  height: 4px;
+  background: linear-gradient(90deg, #14532d, #6ee7b7, #e0a72e);
+  opacity: 0.95;
+}
+body.has-dock-nav > .container.auth-container .form-control,
+body.has-dock-nav > .container.auth-container .form-select {
+  border-radius: 12px;
+  background-color: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(20, 83, 45, 0.16);
+}
+body.has-dock-nav > .container.auth-container .form-control:focus,
+body.has-dock-nav > .container.auth-container .form-select:focus {
+  background-color: rgba(255, 255, 255, 0.92);
+  border-color: #6ee7b7;
+  box-shadow: 0 0 0 0.2rem rgba(110, 231, 183, 0.3);
+}
+body.has-dock-nav > .container.auth-container .btn.w-100 {
+  border-radius: 999px;
+  padding: 0.65rem 1rem;
+  font-weight: 600;
+}
+body.has-dock-nav > .container.auth-container .alert {
+  border-radius: 14px;
+}
+@media (max-width: 640px) {
+  body.has-dock-nav > .container.auth-container { border-radius: 24px; }
+  body.has-dock-nav > .container.auth-container .card { border-radius: 20px; }
+}
+
+/* ============================================================================
+   Small action buttons — table-row actions like Approve / Reject / Revoke /
+   Re-approve / View Proof / Mark Resolved / row-expand, etc.
+   Bootstrap's .btn-sm padding gets overridden by heavier custom button rules
+   above (e.g. .btn-amber's pill padding), so buttons sitting side by side in
+   the same table cell end up different sizes. This re-unifies every .btn-sm
+   to the same compact pill padding, and gives each outline variant a tinted
+   frosted-glass fill (green for neutral actions, red for destructive ones)
+   instead of a flat white-on-outline look.
+   ============================================================================ */
+.btn-sm {
+  border-radius: 999px !important;
+  font-weight: 600;
+  font-size: 0.8rem !important;
+  padding: 0.32rem 1rem !important;
+  line-height: 1.4;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  min-width: 100px;
+  backdrop-filter: blur(8px) saturate(160%);
+  -webkit-backdrop-filter: blur(8px) saturate(160%);
+  transition: transform 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.btn-sm:hover { transform: translateY(-1px); }
+.btn-sm.btn-icon {
+  min-width: 2.3rem !important;
+  padding: 0.32rem 0.5rem !important;
+}
+.btn-sm:active { transform: translateY(0); }
+.btn-sm.btn-amber { box-shadow: 0 6px 14px -6px rgba(224, 167, 46, 0.55); }
+
+.btn-outline-secondary {
+  color: #0f5132;
+  border-color: rgba(20, 83, 45, 0.35);
+  background-color: rgba(214, 245, 224, 0.55);
+  backdrop-filter: blur(8px) saturate(160%);
+  -webkit-backdrop-filter: blur(8px) saturate(160%);
+}
+.btn-outline-secondary:hover,
+.btn-outline-secondary:focus {
+  background-color: rgba(20, 83, 45, 0.92);
+  border-color: rgba(20, 83, 45, 0.92);
+  color: #fff;
+  box-shadow: 0 8px 18px -8px rgba(20, 83, 45, 0.45);
+}
+
+.btn-outline-danger {
+  color: #b91c1c;
+  border-color: rgba(185, 28, 28, 0.4);
+  background-color: rgba(254, 226, 226, 0.6);
+  backdrop-filter: blur(8px) saturate(160%);
+  -webkit-backdrop-filter: blur(8px) saturate(160%);
+}
+.btn-outline-danger:hover,
+.btn-outline-danger:focus {
+  background-color: rgba(185, 28, 28, 0.92);
+  border-color: rgba(185, 28, 28, 0.92);
+  color: #fff;
+  box-shadow: 0 8px 18px -8px rgba(185, 28, 28, 0.5);
+}
+
+/* ============================================================================
+   "Browse all →" / "View all …" links, upgraded from plain small text links
+   into little frosted-glass pill buttons.
+   ============================================================================ */
+.btn-glass-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border-radius: 999px;
+  padding: 0.4rem 1.15rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #0f5132;
+  background-color: rgba(255, 255, 255, 0.5);
+  border: 1px solid rgba(20, 83, 45, 0.25);
+  backdrop-filter: blur(10px) saturate(160%);
+  -webkit-backdrop-filter: blur(10px) saturate(160%);
+  box-shadow: 0 8px 18px -10px rgba(6, 32, 18, 0.3);
+  text-decoration: none;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+}
+.btn-glass-link:hover {
+  transform: translateY(-1px);
+  background-color: rgba(255, 255, 255, 0.78);
+  box-shadow: 0 10px 22px -10px rgba(6, 32, 18, 0.35);
+  color: #0f5132;
+}
+
+/* ============================================================================
+   Filter / sort toolbar — the strip of controls at the top of list pages
+   (Open Requirements' category/company/title filters + sort, and the shared
+   Sort/date-range bar used on POs, invoices, GRNs, quotations, payments and
+   disputes). Given its own frosted card so it reads as a distinct control
+   surface instead of loose inputs floating on the page, with rounder fields
+   and a clearer, bolder label style.
+   ============================================================================ */
+.filter-toolbar {
+  background-color: rgba(255, 255, 255, 0.55);
+  border: 1px solid rgba(20, 83, 45, 0.14);
+  border-radius: 18px;
+  padding: 0.9rem 1.1rem;
+  backdrop-filter: blur(14px) saturate(160%);
+  -webkit-backdrop-filter: blur(14px) saturate(160%);
+  box-shadow: 0 10px 24px -14px rgba(6, 32, 18, 0.25);
+}
+.filter-toolbar .form-label,
+.filter-toolbar .toolbar-label {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #14532d;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.filter-toolbar .form-control,
+.filter-toolbar .form-select {
+  border-radius: 999px;
+  padding-left: 0.9rem;
+}
+.filter-toolbar .btn-outline-secondary { white-space: nowrap; }

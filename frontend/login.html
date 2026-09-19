@@ -8,7 +8,7 @@
 </head>
 <body>
 <div id="navbar-root"></div>
-<div class="container" style="max-width:420px; margin-top:60px;">
+<div class="container auth-container" style="max-width:420px; margin-top:60px;">
   <div class="card p-4">
     <h4 class="mb-3 text-center">Log in to Veridion</h4>
     <div id="error" class="alert alert-danger d-none"></div>
@@ -25,7 +25,7 @@
         <input type="checkbox" class="form-check-input" id="rememberMe">
         <label class="form-check-label small" for="rememberMe">Remember me on this device</label>
       </div>
-      <button type="submit" class="btn btn-primary w-100">Log in</button>
+      <span class="hbg d-block"><button type="submit" class="hbg-core w-100" id="loginBtn">Log in</button></span>
     </form>
     <hr>
     <div class="d-flex justify-content-between">
@@ -51,34 +51,39 @@ function fillAdmin() {
 }
 document.getElementById('loginForm').addEventListener('submit', async (e) => {
   e.preventDefault();
-  const email = document.getElementById('email').value;
-  const password = document.getElementById('password').value;
-  const errorBox = document.getElementById('error');
-  errorBox.classList.add('d-none');
+  const loginBtn = document.getElementById('loginBtn');
+  await withButtonState(loginBtn, async () => {
+    const email = document.getElementById('email').value;
+    const password = document.getElementById('password').value;
+    const errorBox = document.getElementById('error');
+    errorBox.classList.add('d-none');
 
-  try {
-    const res = await fetch(`${API_BASE}/api/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password })
-    });
-    const data = await res.json();
-    if (!res.ok) { errorBox.textContent = data.error || 'Login failed'; errorBox.classList.remove('d-none'); return; }
-    const remember = document.getElementById('rememberMe').checked;
-    setSession(data.token, data.user, remember);
-    const dest = {
-      vendor: data.user.vendor_verification_status === 'verified' ? '/vendor/dashboard.html' : '/vendor/awaiting-approval.html',
-      company_admin: '/company/dashboard.html',
-      procurement: '/company/dashboard.html',
-      finance: '/company/dashboard.html',
-      warehouse: '/company/dashboard.html',
-      platform_admin: '/admin/dashboard.html'
-    }[data.user.role] || '/login.html';
-    window.location.href = dest;
-  } catch (err) {
-    errorBox.textContent = 'Could not reach the server — is the backend running on ' + API_BASE + '?';
-    errorBox.classList.remove('d-none');
-  }
+    try {
+      const res = await fetch(`${API_BASE}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password })
+      });
+      const data = await res.json();
+      if (!res.ok) { errorBox.textContent = data.error || 'Login failed'; errorBox.classList.remove('d-none'); return false; }
+      const remember = document.getElementById('rememberMe').checked;
+      setSession(data.token, data.user, remember);
+      const dest = {
+        vendor: data.user.vendor_verification_status === 'verified' ? '/vendor/dashboard.html' : '/vendor/awaiting-approval.html',
+        company_admin: '/company/dashboard.html',
+        procurement: '/company/dashboard.html',
+        finance: '/company/dashboard.html',
+        warehouse: '/company/dashboard.html',
+        platform_admin: '/admin/dashboard.html'
+      }[data.user.role] || '/login.html';
+      window.location.href = dest;
+      return null; // navigating away — no success flash needed, the redirect IS the feedback
+    } catch (err) {
+      errorBox.textContent = 'Could not reach the server — is the backend running on ' + API_BASE + '?';
+      errorBox.classList.remove('d-none');
+      return false;
+    }
+  });
 });
 </script>
 </body>

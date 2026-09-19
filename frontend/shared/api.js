@@ -202,24 +202,26 @@ function formatInvoiceTotal(invoice) {
 // recency, by document number, or narrow to a date range, consistently, everywhere.
 // ---------------------------------------------------------------------------
 
-// sortAndFilterItems(items, state, config): pure function, no DOM — filters by the
-// state's date range (inclusive) against config.dateField, then sorts by state.sortBy
-// against config.dateField (newest/oldest) or config.numberField (number_asc/desc).
-// Never mutates the input array.
+// sortAndFilterItems(items, state, config): pure function, no DOM — filters by a free-text
+// search (against config.searchFields, case-insensitive, matches if ANY field contains the
+// text), then sorts by state.sortBy: 'newest'/'oldest' against config.dateField,
+// 'number_asc'/'number_desc' against config.numberField, or 'text:<field>' (alphabetical,
+// A → Z) against whichever field name follows the colon. Never mutates the input array.
 function sortAndFilterItems(items, state, config) {
   let result = items.slice();
-  if (state.dateFrom) {
-    const from = new Date(state.dateFrom);
-    result = result.filter(i => i[config.dateField] && new Date(i[config.dateField]) >= from);
-  }
-  if (state.dateTo) {
-    // Treat "To" as inclusive of the whole day.
-    const to = new Date(state.dateTo);
-    to.setHours(23, 59, 59, 999);
-    result = result.filter(i => i[config.dateField] && new Date(i[config.dateField]) <= to);
+  if (state.search && config.searchFields && config.searchFields.length) {
+    const q = state.search.toLowerCase();
+    result = result.filter(item =>
+      config.searchFields.some(field => String(item[field] ?? '').toLowerCase().includes(q))
+    );
   }
   const byDate = (a, b) => new Date(a[config.dateField] || 0) - new Date(b[config.dateField] || 0);
   const byNumber = (a, b) => (Number(a[config.numberField]) || 0) - (Number(b[config.numberField]) || 0);
+  if (state.sortBy && state.sortBy.startsWith('text:')) {
+    const field = state.sortBy.slice(5);
+    result.sort((a, b) => String(a[field] ?? '').localeCompare(String(b[field] ?? '')));
+    return result;
+  }
   switch (state.sortBy) {
     case 'oldest': result.sort(byDate); break;
     case 'number_asc': result.sort(byNumber); break;
@@ -229,42 +231,66 @@ function sortAndFilterItems(items, state, config) {
   return result;
 }
 
-// renderSortToolbar(containerId, onChange): renders the toolbar ONCE into
-// containerId and wires its controls to call onChange(state) whenever any of them
-// change. Deliberately NOT re-rendered by the page's poll loop (only the results list
-// below it is) — re-rendering this every second would reset the dropdown/date inputs
-// back to their defaults while someone has them set, exactly the bug already fixed
-// once for the requirement dropdown on quotation-comparison.html. Call this once at
-// page load; call the returned getState() from inside your load()/render function
-// each time you need the current sort/filter to apply.
-function renderSortToolbar(containerId, onChange) {
+// renderSortToolbar(containerId, onChange, options): renders the toolbar ONCE into
+// containerId — a free-text Search box, a Sort by dropdown, and a Clear button, laid
+// out exactly like the Open Requirements page — and wires its controls to call
+// onChange(state) whenever either of them change. Deliberately NOT re-rendered by the
+// page's poll loop (only the results list below it is) — re-rendering this every
+// second would reset the search box/dropdown back to their defaults while someone has
+// them set, exactly the bug already fixed once for the requirement dropdown on
+// quotation-comparison.html. Call this once at page load; call the returned getState()
+// from inside your load()/render function each time you need the current search/sort
+// to apply (typically passed straight into sortAndFilterItems's `state` argument,
+// whose `config.searchFields` says which item fields the search box matches against).
+//
+// options.searchPlaceholder: placeholder text for the search box (defaults to a
+// generic "Search..."). The toolbar itself carries a bottom margin (mb-3) so there's
+// always breathing room between it and whatever list/table follows, the same gap
+// Open Requirements has.
+//
+// options.sortOptions: extra <option> entries appended after the always-present
+// "Newest first" / "Oldest first", as [{ value, label }] — e.g.
+// [{ value: 'text:vendor_name', label: 'Vendor: A → Z' }]. This is what keeps every
+// page's Sort by dropdown looking and behaving the same way as Open Requirements'
+// (Newest first, Oldest first, then a couple of relevant "X: A → Z" choices) instead
+// of each page inventing its own set of options. Defaults to the generic
+// low-to-high/high-to-low numeric pair for any page that doesn't pass its own.
+function renderSortToolbar(containerId, onChange, options = {}) {
+  const searchPlaceholder = options.searchPlaceholder || 'Search...';
+  const sortOptions = options.sortOptions || [
+    { value: 'number_asc', label: 'Number: low to high' },
+    { value: 'number_desc', label: 'Number: high to low' }
+  ];
   const container = document.getElementById(containerId);
-  if (!container) return () => ({ sortBy: 'newest', dateFrom: '', dateTo: '' });
+  if (!container) return () => ({ search: '', sortBy: 'newest' });
   container.innerHTML = `
-    <div class="d-flex gap-2 align-items-center flex-wrap small mb-2">
-      <label class="mb-0 text-muted">Sort:</label>
-      <select class="form-select form-select-sm" id="${containerId}-sort" style="width:auto;">
-        <option value="newest">Newest first</option>
-        <option value="oldest">Oldest first</option>
-        <option value="number_asc">Number: low to high</option>
-        <option value="number_desc">Number: high to low</option>
-      </select>
-      <label class="mb-0 text-muted ms-2">From:</label>
-      <input type="date" class="form-control form-control-sm" id="${containerId}-from" style="width:auto;">
-      <label class="mb-0 text-muted">To:</label>
-      <input type="date" class="form-control form-control-sm" id="${containerId}-to" style="width:auto;">
-      <button type="button" class="btn btn-sm btn-outline-secondary" id="${containerId}-clear">Clear</button>
+    <div class="filter-toolbar mb-3">
+      <div class="d-flex flex-wrap gap-3 align-items-end">
+        <div class="flex-grow-1" style="min-width:220px;">
+          <label class="form-label small mb-1" for="${containerId}-search">Search</label>
+          <input class="form-control form-control-sm" id="${containerId}-search" placeholder="${searchPlaceholder}">
+        </div>
+        <div style="min-width:180px;">
+          <label class="form-label small mb-1" for="${containerId}-sort">Sort by</label>
+          <select class="form-select form-select-sm" id="${containerId}-sort" style="width:auto;">
+            <option value="newest">Newest first</option>
+            <option value="oldest">Oldest first</option>
+            ${sortOptions.map(o => `<option value="${o.value}">${o.label}</option>`).join('')}
+          </select>
+        </div>
+        <button type="button" class="btn btn-sm btn-outline-secondary" id="${containerId}-clear">Clear</button>
+      </div>
     </div>`;
 
+  const searchEl = document.getElementById(`${containerId}-search`);
   const sortEl = document.getElementById(`${containerId}-sort`);
-  const fromEl = document.getElementById(`${containerId}-from`);
-  const toEl = document.getElementById(`${containerId}-to`);
   const clearBtn = document.getElementById(`${containerId}-clear`);
-  const getState = () => ({ sortBy: sortEl.value, dateFrom: fromEl.value, dateTo: toEl.value });
+  const getState = () => ({ search: searchEl.value.trim().toLowerCase(), sortBy: sortEl.value });
 
-  [sortEl, fromEl, toEl].forEach(el => el.addEventListener('change', () => onChange(getState())));
+  searchEl.addEventListener('input', () => onChange(getState()));
+  sortEl.addEventListener('change', () => onChange(getState()));
   clearBtn.addEventListener('click', () => {
-    sortEl.value = 'newest'; fromEl.value = ''; toEl.value = '';
+    searchEl.value = ''; sortEl.value = 'newest';
     onChange(getState());
   });
 
@@ -295,4 +321,136 @@ function showToast(message) {
   toast.querySelector('.btn-close').addEventListener('click', () => toast.remove());
   stack.appendChild(toast);
   setTimeout(() => toast.remove(), 6000);
+}
+
+// withButtonState(button, asyncFn): wraps an async action with a visible
+// loading -> success/error sequence on a `.hbg-core` button (see
+// dock-navbar.css's stateful-button styling), instead of a button that just
+// sits there giving no feedback until the request finishes. Usage:
+//   <button class="hbg-core" onclick="withButtonState(this, () => resolveDispute(id))">
+// asyncFn's own return value decides which outcome is shown:
+//   - `false` (or a thrown error)      -> red "Failed" flash
+//   - `null`                           -> silent revert, no flash at all —
+//     for a genuine no-op, like the user dismissing a confirm() dialog
+//     inside asyncFn; nothing happened, so neither success nor failure
+//     would be honest here
+//   - anything else (including undefined) -> green "Done" flash
+// This means adding stateful feedback to an existing handler needs no
+// rewrite of its logic — only `return false`/`return null` at the specific
+// early-exit points that should show something other than plain success.
+async function withButtonState(button, asyncFn) {
+  if (!button || button.dataset.state === 'loading') return;
+  const originalHTML = button.innerHTML;
+  button.dataset.state = 'loading';
+  button.disabled = true;
+  button.innerHTML = '<span class="btn-state-label"><span class="btn-spinner"></span>Working...</span>';
+
+  let result;
+  try {
+    result = await asyncFn();
+  } catch (err) {
+    result = false;
+  }
+
+  if (result === null) {
+    button.dataset.state = 'idle';
+    button.innerHTML = originalHTML;
+    button.disabled = false;
+    return;
+  }
+
+  const ok = result !== false;
+  button.dataset.state = ok ? 'success' : 'error';
+  button.innerHTML = ok ? '<span class="btn-state-label">✓ Done</span>' : '<span class="btn-state-label">✕ Failed</span>';
+  setTimeout(() => {
+    button.dataset.state = 'idle';
+    button.innerHTML = originalHTML;
+    button.disabled = false;
+  }, ok ? 1100 : 1700);
+}
+
+// ---------------------------------------------------------------------------
+// Alert Dialog — a real modal (Bootstrap-based, since bootstrap.bundle is
+// already loaded on every page) instead of the browser's native confirm()/
+// prompt(). Used for the app's genuinely high-stakes actions — approving a
+// payment, overriding a flag, withdrawing an invoice, resolving a dispute —
+// so they get a moment of visual weight a plain OS popup doesn't carry, and
+// so the reason/context is presented alongside the actual choice instead of
+// a bare yes/no. Both return a Promise, so existing `if (!confirm(...)) return;`
+// call sites become `if (!(await confirmDialog(...))) return;` with no other
+// logic changed.
+// ---------------------------------------------------------------------------
+
+// confirmDialog({ title, message, confirmText, cancelText, danger }): resolves
+// true if the user confirms, false if they cancel OR dismiss the dialog any
+// other way (backdrop click is disabled deliberately — a decision this
+// consequential shouldn't be dismissible by an accidental click outside it;
+// Escape and the Cancel button both still work).
+function confirmDialog({ title = 'Are you sure?', message = '', confirmText = 'Confirm', cancelText = 'Cancel', danger = false } = {}) {
+  return new Promise((resolve) => {
+    const id = 'veridion-alert-dialog-' + Date.now() + '-' + Math.floor(Math.random() * 1e6);
+    document.body.insertAdjacentHTML('beforeend', `
+      <div class="modal fade veridion-alert-modal" id="${id}" tabindex="-1" data-bs-backdrop="static">
+        <div class="modal-dialog modal-dialog-centered">
+          <div class="modal-content">
+            <div class="modal-body p-4">
+              <div class="d-flex align-items-start gap-3">
+                <div class="alert-dialog-icon ${danger ? 'alert-dialog-icon-danger' : ''}"><i class="bi ${danger ? 'bi-exclamation-triangle-fill' : 'bi-question-circle-fill'}"></i></div>
+                <div>
+                  <h6 class="mb-1">${title}</h6>
+                  <p class="small text-muted mb-0">${message}</p>
+                </div>
+              </div>
+            </div>
+            <div class="modal-footer border-0 pt-0">
+              <button type="button" class="btn btn-sm btn-outline-secondary" data-role="cancel">${cancelText}</button>
+              <span class="hbg ${danger ? 'hbg-danger' : ''} d-inline-block"><button type="button" class="hbg-core" data-role="confirm">${confirmText}</button></span>
+            </div>
+          </div>
+        </div>
+      </div>`);
+    const el = document.getElementById(id);
+    const modal = new bootstrap.Modal(el);
+    let resolved = false;
+    el.querySelector('[data-role="confirm"]').addEventListener('click', () => { resolved = true; modal.hide(); resolve(true); });
+    el.querySelector('[data-role="cancel"]').addEventListener('click', () => { resolved = true; modal.hide(); resolve(false); });
+    el.addEventListener('hidden.bs.modal', () => { if (!resolved) resolve(false); el.remove(); });
+    modal.show();
+  });
+}
+
+// promptDialog({ title, message, placeholder, confirmText, cancelText }):
+// resolves the trimmed text entered, or null if cancelled/dismissed/left empty
+// — matching the existing `if (!reason || !reason.trim()) return;` pattern
+// every call site already used with the native prompt().
+function promptDialog({ title = 'Enter details', message = '', placeholder = '', confirmText = 'Submit', cancelText = 'Cancel' } = {}) {
+  return new Promise((resolve) => {
+    const id = 'veridion-prompt-dialog-' + Date.now() + '-' + Math.floor(Math.random() * 1e6);
+    document.body.insertAdjacentHTML('beforeend', `
+      <div class="modal fade veridion-alert-modal" id="${id}" tabindex="-1" data-bs-backdrop="static">
+        <div class="modal-dialog modal-dialog-centered">
+          <div class="modal-content">
+            <div class="modal-body p-4">
+              <h6 class="mb-1">${title}</h6>
+              <p class="small text-muted mb-2">${message}</p>
+              <textarea class="form-control" data-role="input" rows="3" placeholder="${placeholder}"></textarea>
+            </div>
+            <div class="modal-footer border-0 pt-0">
+              <button type="button" class="btn btn-sm btn-outline-secondary" data-role="cancel">${cancelText}</button>
+              <span class="hbg hbg-danger d-inline-block"><button type="button" class="hbg-core" data-role="confirm">${confirmText}</button></span>
+            </div>
+          </div>
+        </div>
+      </div>`);
+    const el = document.getElementById(id);
+    const modal = new bootstrap.Modal(el);
+    const input = el.querySelector('[data-role="input"]');
+    let resolved = false;
+    const submit = () => { const val = input.value.trim(); resolved = true; modal.hide(); resolve(val || null); };
+    el.querySelector('[data-role="confirm"]').addEventListener('click', submit);
+    el.querySelector('[data-role="cancel"]').addEventListener('click', () => { resolved = true; modal.hide(); resolve(null); });
+    el.addEventListener('hidden.bs.modal', () => { if (!resolved) resolve(null); el.remove(); });
+    el.addEventListener('shown.bs.modal', () => input.focus());
+    modal.show();
+  });
 }

@@ -7,6 +7,10 @@
 <link href="/shared/style.css" rel="stylesheet">
 <style>
   .dispute-thread { max-height: 260px; overflow-y: auto; padding-right: 4px; }
+  .chat-avatar { width: 28px; height: 28px; border-radius: 50%; flex: 0 0 auto; display:flex; align-items:center; justify-content:center; font-size:0.75rem; font-weight:700; color:#eafff2; }
+  .chat-bubble { padding: 8px 12px; border-radius: 14px; font-size: 0.85rem; line-height:1.4; margin-bottom: 3px; display:inline-block; max-width:100%; word-wrap:break-word; }
+  .chat-bubble-them { background: #f1f5f2; color:#14261a; border-bottom-left-radius: 4px; }
+  .chat-bubble-me { background: var(--amber, #e0a72e); color:#1a1a1a; border-bottom-right-radius: 4px; margin-left:auto; display:block; }
 </style>
 </head>
 <body>
@@ -47,13 +51,13 @@ function card(c) {
       <div class="mt-2">
         <label class="form-label small text-muted mb-1">Conversation</label>
         <div class="dispute-thread">
-          ${thread.map(m => chatBubble(m, m.sender_role === 'vendor')).join('')}
+          ${renderThread(thread, m => m.sender_role === 'vendor')}
         </div>
       </div>` : ''}
       ${canRespond ? `
       <div class="mt-2">
         <textarea class="form-control" id="resp-${c.id}" rows="2" placeholder="Send a message..."></textarea>
-        <button class="btn btn-sm btn-amber mt-2" onclick="respond(${c.id})">Send Message</button>
+        <span class="hbg d-inline-block mt-2"><button class="hbg-core" style="padding:6px 14px;font-size:0.85rem;" onclick="withButtonState(this, () => respond(${c.id}))">Send Message</button></span>
       </div>` : ''}
     </div>`;
 }
@@ -62,24 +66,39 @@ function card(c) {
 // vendor's own point of view, THEIR messages align right (as "You"); the buyer's
 // Finance team's messages align left — the mirror image of how the same conversation
 // renders on the company side.
-function chatBubble(m, isMe) {
-  return `
-    <div class="d-flex ${isMe ? 'justify-content-end' : 'justify-content-start'} mt-1">
-      <div class="p-2 rounded ${isMe ? 'bg-amber text-dark' : 'bg-light border'}" style="max-width: 85%;">
-        <div class="small fw-bold">${m.sender_name || (isMe ? 'You' : 'Finance')} <span class="fw-normal text-muted">· ${new Date(m.created_at).toLocaleString()}</span></div>
-        <div class="small">${m.message}</div>
+function renderThread(thread, senderIsMe) {
+  const groups = [];
+  thread.forEach(m => {
+    const isMe = senderIsMe(m);
+    const last = groups[groups.length - 1];
+    if (last && last.isMe === isMe) last.messages.push(m);
+    else groups.push({ isMe, messages: [m] });
+  });
+
+  return groups.map(g => {
+    const name = g.messages[0].sender_name || (g.isMe ? 'You' : 'Finance');
+    const initial = name.trim().charAt(0).toUpperCase() || '?';
+    const lastMsg = g.messages[g.messages.length - 1];
+    return `
+    <div class="d-flex ${g.isMe ? 'justify-content-end' : 'justify-content-start'} align-items-end gap-2 mt-2">
+      ${!g.isMe ? `<div class="chat-avatar" style="background:#166534;">${initial}</div>` : ''}
+      <div style="max-width:78%;">
+        ${g.messages.map(m => `<div class="chat-bubble ${g.isMe ? 'chat-bubble-me' : 'chat-bubble-them'}">${m.message}</div>`).join('')}
+        <div class="small text-muted mt-1 ${g.isMe ? 'text-end' : ''}">${name} · ${new Date(lastMsg.created_at).toLocaleString()}</div>
       </div>
+      ${g.isMe ? `<div class="chat-avatar" style="background:var(--amber-dark, #b8860b); color:#1a1a1a;">${initial}</div>` : ''}
     </div>`;
+  }).join('');
 }
 
 async function respond(id) {
   const textarea = document.getElementById(`resp-${id}`);
   const response = textarea.value;
-  if (!response || !response.trim()) { alert('Please enter a message first.'); return; }
+  if (!response || !response.trim()) { alert('Please enter a message first.'); return false; }
   const res = await fetchWithAuth(`/api/vendor-communications/${id}/respond`, { method: 'POST', body: JSON.stringify({ response }) });
-  if (!res) return;
+  if (!res) return false;
   const data = await res.json();
-  if (!res.ok) { alert(data.error || 'Failed'); return; }
+  if (!res.ok) { alert(data.error || 'Failed'); return false; }
   textarea.value = ''; // each send is a new, separate message -- never left pre-filled
   load();
 }
@@ -88,13 +107,19 @@ async function load() {
   const res = await fetchWithAuth('/api/vendor-communications/mine');
   if (!res) return;
   let all = await res.json();
-  all = sortAndFilterItems(all, getSortState(), { dateField: 'created_at', numberField: 'id' });
+  all = sortAndFilterItems(all, getSortState(), { dateField: 'created_at', numberField: 'id', searchFields: ['company_name', 'invoice_number', 'requirement_title'] });
   const list = document.getElementById('list');
   list.innerHTML = all.length ? all.map(card).join('') : '<p class="text-muted">No disputes — nothing flagged on your invoices.</p>';
   document.querySelectorAll('.dispute-thread').forEach(el => { el.scrollTop = el.scrollHeight; });
 }
 
-getSortState = renderSortToolbar('sortToolbar', load);
+getSortState = renderSortToolbar('sortToolbar', load, {
+  searchPlaceholder: 'Search by company, invoice, or requirement...',
+  sortOptions: [
+    { value: 'text:company_name', label: 'Company: A → Z' },
+    { value: 'text:requirement_title', label: 'Requirement: A → Z' }
+  ]
+});
 // Poll every second so a new dispute, or Finance's side of the conversation, shows up
 // live. Skips a tick while you're actively typing a response, or reading back through
 // a conversation, so a poll never overwrites in-progress text or yanks your scroll

@@ -32,7 +32,13 @@ let poModal;
 let getSortState = () => ({ sortBy: 'newest' });
 document.addEventListener('DOMContentLoaded', () => {
   poModal = new bootstrap.Modal(document.getElementById('poModal'));
-  getSortState = renderSortToolbar('sortToolbar', load);
+  getSortState = renderSortToolbar('sortToolbar', load, {
+    searchPlaceholder: 'Search by requirement or vendor...',
+    sortOptions: [
+      { value: 'text:requirement_title', label: 'Requirement: A → Z' },
+      { value: 'text:vendor_name', label: 'Vendor: A → Z' }
+    ]
+  });
   // Poll every second so fulfillment status updates live as GRNs are recorded.
   // Pauses while any PO detail is being selected/copied.
   pollEvery(load, 1000, () => pollBlockedBy('cards'));
@@ -42,7 +48,7 @@ async function load() {
   const res = await fetchWithAuth('/api/purchase-orders/mine');
   if (!res) return;
   let pos = await res.json();
-  pos = sortAndFilterItems(pos, getSortState(), { dateField: 'created_at', numberField: 'id' });
+  pos = sortAndFilterItems(pos, getSortState(), { dateField: 'created_at', numberField: 'id', searchFields: ['requirement_title', 'vendor_name'] });
   const cards = document.getElementById('cards');
   if (!pos.length) { cards.innerHTML = '<p class="text-muted">No purchase orders yet.</p>'; return; }
 
@@ -85,7 +91,7 @@ async function viewDetails(id) {
     <p><strong>PO #${data.po_id}</strong> — Agreed Quantity: ${data.agreed_quantity} · Status: <span class="badge status-badge ${statusBadgeClass(data.fulfillment_status)}">${data.fulfillment_status}</span></p>
     <p>Total Received So Far: <strong>${received} / ${data.agreed_quantity}</strong></p>
     ${data.grns.length ? `
-    <table class="table table-sm">
+    <table class="table table-centered table-sm">
       <thead><tr><th>Date</th><th>Qty Received</th><th>Recorded Notes</th><th>Next Expected</th></tr></thead>
       <tbody>
         ${data.grns.map(g => `

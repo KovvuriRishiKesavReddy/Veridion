@@ -49,7 +49,7 @@ if (!fs.existsSync(frontendRoot)) {
 // those are real subfolders/files inside frontendRoot.
 app.use(express.static(frontendRoot));
 
-app.get('/', (req, res) => res.sendFile(path.join(frontendRoot, 'login.html')));
+app.get('/', (req, res) => res.sendFile(path.join(frontendRoot, 'index.html')));
 
 // API 404s stay JSON (must be registered after the real /api routes above)
 app.use('/api', (req, res) => res.status(404).json({ error: 'API route not found' }));

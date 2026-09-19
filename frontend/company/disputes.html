@@ -10,6 +10,10 @@
      alerts — caps the height so a long back-and-forth doesn't make the page
      unmanageable, and lets you scroll within just that conversation. */
   .dispute-thread { max-height: 260px; overflow-y: auto; padding-right: 4px; }
+  .chat-avatar { width: 28px; height: 28px; border-radius: 50%; flex: 0 0 auto; display:flex; align-items:center; justify-content:center; font-size:0.75rem; font-weight:700; color:#eafff2; }
+  .chat-bubble { padding: 8px 12px; border-radius: 14px; font-size: 0.85rem; line-height:1.4; margin-bottom: 3px; display:inline-block; max-width:100%; word-wrap:break-word; }
+  .chat-bubble-vendor { background: #f1f5f2; color:#14261a; border-bottom-left-radius: 4px; }
+  .chat-bubble-finance { background: var(--amber, #e0a72e); color:#1a1a1a; border-bottom-right-radius: 4px; margin-left:auto; display:block; }
 </style>
 </head>
 <body>
@@ -77,13 +81,13 @@ function card(c, actionsHtml) {
       <div class="mt-2">
         <label class="form-label small text-muted mb-1">Conversation</label>
         <div class="dispute-thread">
-          ${thread.map(m => chatBubble(m, m.sender_role === 'finance')).join('')}
+          ${renderThread(thread, m => m.sender_role === 'finance')}
         </div>
       </div>` : ''}
       ${canMessage ? `
       <div class="mt-2">
         <textarea class="form-control" id="fmsg-${c.id}" rows="2" placeholder="Message the vendor..."></textarea>
-        <button class="btn btn-sm btn-amber mt-2" onclick="sendMessage(${c.id})">Send Message</button>
+        <span class="hbg d-inline-block mt-2"><button class="hbg-core" style="padding:6px 14px;font-size:0.85rem;" onclick="withButtonState(this, () => sendMessage(${c.id}))">Send Message</button></span>
       </div>` : ''}
       ${c.resolved ? `<div class="alert alert-success mt-2 mb-0 small">Resolved on ${new Date(c.resolved_at).toLocaleString()} — took ${Number(c.resolution_time_hours).toFixed(1)} hour(s).</div>` : ''}
       <div class="mt-2">${actionsHtml}</div>
@@ -95,14 +99,36 @@ function card(c, actionsHtml) {
 // stack of quotes. Finance's own messages align right in the accent color; the
 // vendor's align left — the same visual language on every dispute, flagged or
 // fraud-review alike.
-function chatBubble(m, isFinance) {
-  return `
-    <div class="d-flex ${isFinance ? 'justify-content-end' : 'justify-content-start'} mt-1">
-      <div class="p-2 rounded ${isFinance ? 'bg-amber text-dark' : 'bg-light border'}" style="max-width: 85%;">
-        <div class="small fw-bold">${m.sender_name || (isFinance ? 'Finance' : 'Vendor')} <span class="fw-normal text-muted">· ${new Date(m.created_at).toLocaleString()}</span></div>
-        <div class="small">${m.message}</div>
+// renderThread: the message/bubble layout — a circular avatar per sender,
+// consecutive messages from the SAME sender grouped together with one avatar
+// and one timestamp footer (on the last bubble of the group) instead of
+// repeating both on every line, mirroring how a real chat groups a person's
+// own back-to-back messages.
+function renderThread(thread, senderIsFinance) {
+  const groups = [];
+  thread.forEach(m => {
+    const isFinance = senderIsFinance(m);
+    const last = groups[groups.length - 1];
+    if (last && last.isFinance === isFinance) last.messages.push(m);
+    else groups.push({ isFinance, messages: [m] });
+  });
+
+  return groups.map(g => {
+    const name = g.messages[0].sender_name || (g.isFinance ? 'Finance' : 'Vendor');
+    const initial = name.trim().charAt(0).toUpperCase() || '?';
+    const lastMsg = g.messages[g.messages.length - 1];
+    return `
+    <div class="d-flex ${g.isFinance ? 'justify-content-end' : 'justify-content-start'} align-items-end gap-2 mt-2">
+      ${!g.isFinance ? `<div class="chat-avatar" style="background:#166534;">${initial}</div>` : ''}
+      <div style="max-width:78%;">
+        ${g.messages.map((m, i) => `
+          <div class="chat-bubble ${g.isFinance ? 'chat-bubble-finance' : 'chat-bubble-vendor'}">${m.message}</div>
+        `).join('')}
+        <div class="small text-muted mt-1 ${g.isFinance ? 'text-end' : ''}">${name} · ${new Date(lastMsg.created_at).toLocaleString()}</div>
       </div>
+      ${g.isFinance ? `<div class="chat-avatar" style="background:var(--amber-dark, #b8860b); color:#1a1a1a;">${initial}</div>` : ''}
     </div>`;
+  }).join('');
 }
 
 // resolvedCard: a deliberately compact summary for the Resolved list — just enough to
@@ -128,11 +154,11 @@ function resolvedCard(c) {
 async function sendMessage(id) {
   const textarea = document.getElementById(`fmsg-${id}`);
   const message = textarea.value;
-  if (!message || !message.trim()) { alert('Please enter a message first.'); return; }
+  if (!message || !message.trim()) { alert('Please enter a message first.'); return false; }
   const res = await fetchWithAuth(`/api/vendor-communications/${id}/message`, { method: 'POST', body: JSON.stringify({ message }) });
-  if (!res) return;
+  if (!res) return false;
   const data = await res.json();
-  if (!res.ok) { alert(data.error || 'Failed'); return; }
+  if (!res.ok) { alert(data.error || 'Failed'); return false; }
   textarea.value = '';
   loadAll();
 }
@@ -140,36 +166,46 @@ async function sendMessage(id) {
 async function saveEdit(id) {
   const draft_text = document.getElementById(`msg-${id}`).value;
   const res = await fetchWithAuth(`/api/vendor-communications/${id}`, { method: 'PUT', body: JSON.stringify({ draft_text }) });
-  if (!res) return;
+  if (!res) return false;
   const data = await res.json();
-  if (!res.ok) { alert(data.error || 'Failed'); return; }
-  alert('Saved.');
+  if (!res.ok) { alert(data.error || 'Failed'); return false; }
+  // No alert() here — the button's own loading -> success animation already
+  // confirms the save; a blocking dialog on top of that would just be noise.
 }
 
 async function sendDispute(id) {
-  if (!confirm('Send this message to the vendor?')) return;
+  const ok = await confirmDialog({
+    title: 'Send this message to the vendor?',
+    message: 'Once sent, the vendor can see it and respond — you can still send follow-up messages afterward, but this exact wording is what they\'ll see first.',
+    confirmText: 'Send to Vendor'
+  });
+  if (!ok) return null;
   await saveEdit(id);
   const res = await fetchWithAuth(`/api/vendor-communications/${id}/send`, { method: 'POST' });
-  if (!res) return;
+  if (!res) return false;
   const data = await res.json();
-  if (!res.ok) { alert(data.error || 'Failed'); return; }
+  if (!res.ok) { alert(data.error || 'Failed'); return false; }
   loadAll();
 }
 
 async function resolveDispute(id) {
-  if (!confirm('Mark this dispute as resolved? This is recorded and feeds this vendor\'s dispute-rate score.')) return;
+  const ok = await confirmDialog({
+    title: 'Mark this dispute as resolved?',
+    message: 'This is recorded permanently and feeds this vendor\'s dispute-rate score.',
+    confirmText: 'Mark Resolved'
+  });
+  if (!ok) return null;
   const res = await fetchWithAuth(`/api/vendor-communications/${id}/resolve`, { method: 'POST' });
-  if (!res) return;
+  if (!res) return false;
   const data = await res.json();
-  if (!res.ok) { alert(data.error || 'Failed'); return; }
+  if (!res.ok) { alert(data.error || 'Failed'); return false; }
   loadAll();
 }
-
 async function loadAll() {
   const res = await fetchWithAuth('/api/vendor-communications');
   if (!res) return;
   let all = await res.json();
-  all = sortAndFilterItems(all, getSortState(), { dateField: 'created_at', numberField: 'id' });
+  all = sortAndFilterItems(all, getSortState(), { dateField: 'created_at', numberField: 'id', searchFields: ['vendor_name', 'invoice_number', 'requirement_title', 'mismatch_type'] });
 
   // New-vendor-message notification: compare this poll's message counts per dispute
   // against what we last saw. Skipped on the very first load (nothing to compare
@@ -192,12 +228,12 @@ async function loadAll() {
 
   document.getElementById('pending').innerHTML = pending.length
     ? pending.map(c => card(c, `
-        <button class="btn btn-sm btn-outline-secondary" onclick="saveEdit(${c.id})">Save Edit</button>
-        <button class="btn btn-sm btn-amber" onclick="sendDispute(${c.id})">Send to Vendor</button>`)).join('')
+        <span class="hbg hbg-outline d-inline-block"><button class="hbg-core" style="padding:6px 14px;font-size:0.85rem;" onclick="withButtonState(this, () => saveEdit(${c.id}))">Save Edit</button></span>
+        <span class="hbg d-inline-block"><button class="hbg-core" style="padding:6px 14px;font-size:0.85rem;" onclick="withButtonState(this, () => sendDispute(${c.id}))">Send to Vendor</button></span>`)).join('')
     : '<p class="text-muted small">Nothing pending — every flagged invoice has already had its dispute message sent.</p>';
 
   document.getElementById('sentList').innerHTML = sent.length
-    ? sent.map(c => card(c, `<button class="btn btn-sm btn-amber" onclick="resolveDispute(${c.id})">Mark Resolved</button>`)).join('')
+    ? sent.map(c => card(c, `<span class="hbg d-inline-block"><button class="hbg-core" style="padding:6px 14px;font-size:0.85rem;" onclick="withButtonState(this, () => resolveDispute(${c.id}))">Mark Resolved</button></span>`)).join('')
     : '<p class="text-muted small">No open disputes waiting on the vendor right now.</p>';
 
   document.getElementById('resolvedList').innerHTML = resolved.length
@@ -209,7 +245,13 @@ async function loadAll() {
   document.querySelectorAll('.dispute-thread').forEach(el => { el.scrollTop = el.scrollHeight; });
 }
 
-getSortState = renderSortToolbar('sortToolbar', loadAll);
+getSortState = renderSortToolbar('sortToolbar', loadAll, {
+  searchPlaceholder: 'Search by vendor, invoice, or requirement...',
+  sortOptions: [
+    { value: 'text:vendor_name', label: 'Vendor: A → Z' },
+    { value: 'text:requirement_title', label: 'Requirement: A → Z' }
+  ]
+});
 // Poll every second so a newly flagged invoice's dispute appears live, and the
 // vendor's response shows up without a manual refresh. Skips a tick while Finance is
 // actively typing in one of the message textareas, so a poll never overwrites an

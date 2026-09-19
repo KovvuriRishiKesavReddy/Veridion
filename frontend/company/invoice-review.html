@@ -128,8 +128,8 @@ async function load() {
 
     ${invoice.status !== 'paid' ? (
       user.role !== 'finance' ? `<span class="small text-muted">Only Finance can approve payment.</span>` :
-      decision && decision.final_decision === 'auto_approved' ? `<button class="btn btn-amber" onclick="markPaid()">Approve Payment</button>` :
-      decision ? `<button class="btn btn-outline-danger" onclick="overrideAndPay()">Override &amp; Approve Payment Anyway</button>
+      decision && decision.final_decision === 'auto_approved' ? `<span class="hbg d-inline-block"><button class="hbg-core" onclick="withButtonState(this, () => markPaid())">Approve Payment</button></span>` :
+      decision ? `<span class="hbg hbg-danger d-inline-block"><button class="hbg-core" onclick="withButtonState(this, () => overrideAndPay())">Override &amp; Approve Payment Anyway</button></span>
         <p class="small text-muted mt-1">This was ${decision.final_decision} by verification — approving anyway requires a reason, which is kept on record.</p>` :
       `<span class="small text-muted">Waiting on AI verification.</span>`
     ) : `<span class="badge bg-success">Already Paid</span>`}
@@ -137,21 +137,31 @@ async function load() {
 }
 
 async function markPaid() {
-  if (!confirm('Approve payment for this invoice? This is your decision — the system only recommends.')) return;
+  const ok = await confirmDialog({
+    title: 'Approve payment?',
+    message: 'This releases payment for this invoice. The system only recommends — this is your decision.',
+    confirmText: 'Approve Payment'
+  });
+  if (!ok) return null;
   const res = await fetchWithAuth(`/api/invoices/${invoiceId}/mark-paid`, { method: 'POST' });
-  if (!res) return;
+  if (!res) return false;
   const data = await res.json();
-  if (!res.ok) { alert(data.error || 'Failed'); return; }
+  if (!res.ok) { alert(data.error || 'Failed'); return false; }
   load();
 }
 
 async function overrideAndPay() {
-  const reason = prompt('This invoice was flagged by verification. Enter a reason for approving payment anyway (kept on the audit record):');
-  if (!reason || !reason.trim()) return;
+  const reason = await promptDialog({
+    title: 'Override the flag and pay anyway?',
+    message: 'This invoice was flagged by verification. Enter a reason for approving payment anyway — it is kept on the audit record.',
+    placeholder: 'e.g. Confirmed correct after checking with the vendor directly.',
+    confirmText: 'Override & Pay'
+  });
+  if (!reason) return null;
   const res = await fetchWithAuth(`/api/invoices/${invoiceId}/override-and-pay`, { method: 'POST', body: JSON.stringify({ reason }) });
-  if (!res) return;
+  if (!res) return false;
   const data = await res.json();
-  if (!res.ok) { alert(data.error || 'Failed'); return; }
+  if (!res.ok) { alert(data.error || 'Failed'); return false; }
   load();
 }
 
