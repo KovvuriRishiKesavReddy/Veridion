@@ -349,6 +349,9 @@ async function withButtonState(button, asyncFn) {
   try {
     result = await asyncFn();
   } catch (err) {
+    // Log it — this catch used to swallow errors completely, which is what made a
+    // missing-Bootstrap-JS bug look like a mysterious silent "Failed" flash.
+    console.error('withButtonState: action failed:', err);
     result = false;
   }
 
@@ -387,6 +390,13 @@ async function withButtonState(button, asyncFn) {
 // consequential shouldn't be dismissible by an accidental click outside it;
 // Escape and the Cancel button both still work).
 function confirmDialog({ title = 'Are you sure?', message = '', confirmText = 'Confirm', cancelText = 'Cancel', danger = false } = {}) {
+  // Safety net: the modal needs bootstrap.bundle.min.js. If a page forgot to include it
+  // (or the CDN is unreachable), fall back to the native confirm() instead of throwing
+  // and leaving the action dead.
+  if (typeof bootstrap === 'undefined' || !bootstrap.Modal) {
+    console.warn('confirmDialog: bootstrap JS not loaded — falling back to native confirm(). Add bootstrap.bundle.min.js to this page.');
+    return Promise.resolve(window.confirm(`${title}\n\n${message}`));
+  }
   return new Promise((resolve) => {
     const id = 'veridion-alert-dialog-' + Date.now() + '-' + Math.floor(Math.random() * 1e6);
     document.body.insertAdjacentHTML('beforeend', `
@@ -424,6 +434,11 @@ function confirmDialog({ title = 'Are you sure?', message = '', confirmText = 'C
 // — matching the existing `if (!reason || !reason.trim()) return;` pattern
 // every call site already used with the native prompt().
 function promptDialog({ title = 'Enter details', message = '', placeholder = '', confirmText = 'Submit', cancelText = 'Cancel' } = {}) {
+  if (typeof bootstrap === 'undefined' || !bootstrap.Modal) {
+    console.warn('promptDialog: bootstrap JS not loaded — falling back to native prompt(). Add bootstrap.bundle.min.js to this page.');
+    const val = window.prompt(`${title}\n\n${message}`);
+    return Promise.resolve(val && val.trim() ? val.trim() : null);
+  }
   return new Promise((resolve) => {
     const id = 'veridion-prompt-dialog-' + Date.now() + '-' + Math.floor(Math.random() * 1e6);
     document.body.insertAdjacentHTML('beforeend', `
