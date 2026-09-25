@@ -373,3 +373,80 @@ body.has-dock-nav > .container.auth-container .alert {
   padding-left: 0.9rem;
 }
 .filter-toolbar .btn-outline-secondary { white-space: nowrap; }
+
+/* ============================================================================
+   Auth hero — small centered title block used above login/register cards
+   ============================================================================ */
+.auth-hero { text-align: center; margin-bottom: 1.5rem; }
+.auth-hero h4 { font-weight: 800; letter-spacing: -0.01em; color: #14532d; margin-bottom: 0.35rem; }
+.auth-hero p { color: #4a5a50; margin-bottom: 0; font-size: 0.92rem; }
+
+/* ============================================================================
+   Icon-prefixed auth inputs (login/register) — a left-aligned icon inside the
+   field, and for passwords a right-aligned show/hide toggle button.
+   ============================================================================ */
+.auth-icon-field { position: relative; }
+.auth-icon-field > .form-control { padding-left: 2.6rem; }
+.auth-icon-field > i.auth-field-icon {
+  position: absolute; left: 0.95rem; top: 50%; transform: translateY(-50%);
+  color: #5b8a6c; font-size: 1rem; pointer-events: none;
+}
+.auth-icon-field.has-eye > .form-control { padding-right: 2.6rem; }
+.auth-icon-field > .auth-eye-toggle {
+  position: absolute; right: 0.6rem; top: 50%; transform: translateY(-50%);
+  background: none; border: none; color: #5b8a6c; cursor: pointer;
+  padding: 0.3rem 0.4rem; line-height: 1; font-size: 1rem;
+}
+.auth-icon-field > .auth-eye-toggle:hover { color: #14532d; }
+
+/* ============================================================================
+   Multi-step registration wizard — a row of numbered circles connected by
+   lines (upcoming = hollow, active = filled emerald gradient with glow, done
+   = mint filled with a check mark), with each step's fields in its own
+   panel that Next/Back toggle between. Purely presentational scaffolding;
+   step logic lives inline on each registration page.
+   ============================================================================ */
+.step-indicator { display: flex; align-items: flex-start; justify-content: center; gap: 0; margin-bottom: 1.75rem; }
+.step-item { display: flex; flex-direction: column; align-items: center; gap: 0.4rem; position: relative; }
+.step-circle {
+  width: 40px; height: 40px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 700; font-size: 0.92rem;
+  background-color: #fff; color: #93a89c;
+  border: 2px solid rgba(20, 83, 45, 0.2);
+  transition: background 0.3s ease, border-color 0.3s ease, color 0.3s ease, box-shadow 0.3s ease;
+}
+.step-item.active .step-circle {
+  background: linear-gradient(135deg, #14532d, #1a6b3a);
+  border-color: #14532d;
+  color: #eafff2;
+  box-shadow: 0 6px 16px -6px rgba(20, 83, 45, 0.6);
+}
+.step-item.done .step-circle {
+  background-color: #6ee7b7;
+  border-color: #6ee7b7;
+  color: #04342c;
+}
+.step-label { font-size: 0.74rem; font-weight: 700; color: #7c8c81; white-space: nowrap; text-align: center; }
+.step-item.active .step-label,
+.step-item.done .step-label { color: #14532d; }
+.step-line {
+  width: 56px; height: 2px; background-color: rgba(20, 83, 45, 0.2);
+  margin-top: 19px; transition: background-color 0.3s ease;
+  flex: 0 0 auto;
+}
+.step-line.done { background-color: #6ee7b7; }
+@media (max-width: 480px) {
+  .step-line { width: 30px; }
+  .step-label { font-size: 0.66rem; }
+}
+
+.step-panel { animation: veridion-step-in 0.25s ease; }
+@keyframes veridion-step-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.step-nav { display: flex; gap: 0.75rem; margin-top: 0.5rem; }
+.step-nav > .hbg { flex: 1; }
+.step-nav .hbg-outline .hbg-core { font-weight: 600; }

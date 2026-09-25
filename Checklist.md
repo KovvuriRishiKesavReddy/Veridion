@@ -167,6 +167,60 @@ want a clean slate (it truncates and re-seeds everything).
 
 ---
 
+## FLOW 5 — Legacy Vendor Import & Platform-Wide Aggregate
+
+Multi-company isolation itself (`vendor_risk_scores.company_id` + the UNIQUE constraint) shipped
+back in Flow 3 — nothing to re-test there. This section covers what Flow 5 actually added:
+`legacy_vendor_imports`, the halve-and-cap discount, seeding the exact ranking counters, and the
+`vendor_platform_summary` view. Everything below was already verified once via direct
+API/function-level testing during development (registration → 400s → 201 → 409 →
+platform-summary, plus the cap/dilution math) — this checklist is for walking the same thing
+through the actual UI.
+
+1. **The discount and cap**
+   - [ ] Vendor Directory (company_admin) → Import Legacy History on a vendor with **no**
+         existing score → button only appears for vendors showing "No history yet"
+   - [ ] Enter 10 transactions → live preview shows `data_volume = 5` (plain halving, below cap)
+   - [ ] Enter 1,000 transactions → live preview shows `data_volume = 12` (capped, not 500)
+   - [ ] Submit without a justification, or without checking the confirmation box → both rejected
+         with a clear message, nothing saved
+   - [ ] Submit a valid import → 201, vendor now shows the "Self-reported" badge and a score in
+         the directory
+2. **One-time-only enforcement**
+   - [ ] Attempting a second legacy import for the **same** (company, vendor) pair → 409, and the
+         "Import Legacy History" button is gone for that row on reload
+   - [ ] A **different** company importing the **same** vendor → succeeds independently; the two
+         companies' scores for that vendor never mix (already guaranteed by the UNIQUE
+         constraint, worth confirming end-to-end through two separate company logins)
+   - [ ] Attempting a legacy import for a vendor that already has **real** platform activity with
+         your company (a GRN/invoice/dispute already happened) → 409, same as above
+3. **Ranking actually uses the imported history**
+   - [ ] Immediately after import (before any real event), open Quotation Comparison for a
+         requirement this vendor has quoted on → `ai_rank_reasoning` shows a **non-zero** Past
+         Performance weight, not "no track record yet" — this is the check that catches the
+         `grn_on_time_count`/`invoice_decision_success_count` seeding gap if it's ever missed
+4. **Real events dilute the imported baseline**
+   - [ ] After the import, record a real GRN for that vendor/company → `on_time_delivery_pct` and
+         `data_volume` both move per the running-average formula (e.g. 90% at volume 25 + one
+         late delivery → ~86.5% at volume 26) — `data_source` stays `self_reported` permanently
+5. **The platform-wide aggregate stays verified-only**
+   - [ ] `vendor_platform_summary` for a vendor with **only** a self-reported import shows
+         `total_platform_verified_events = 0` — the import never counts
+   - [ ] After a real event, the same vendor's aggregate updates and `num_companies_worked_with`
+         includes your company
+   - [ ] Quotation Comparison shows the platform aggregate as **informational, italic** text only
+         for a vendor with no history with your company — never for one that already has its own
+         score — and it's clearly separate from the AI ranking reasoning above it
+   - [ ] Vendor's own Profile page shows one coherent platform-wide figure (verified transactions
+         / on-time % / companies worked with), not per-company fragments
+6. **Access control**
+   - [ ] `procurement` can view the Vendor Directory but gets 403 attempting a legacy import
+   - [ ] `finance`/`warehouse` cannot reach `/api/company/vendors` at all
+   - [ ] Any authenticated role can read `GET /api/vendors/:id/platform-summary` (deliberately
+         unrestricted — it's aggregate-only, never a per-company breakdown)
+
+---
+
 ## Quick smoke test (fastest path through everything)
 
 1. Open 2 tabs: Tab 1 = procurement (no Remember Me), Tab 2 = a vendor (no Remember Me).

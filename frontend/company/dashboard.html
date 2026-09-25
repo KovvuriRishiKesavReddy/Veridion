@@ -5,16 +5,52 @@
 <title>Company Dashboard — Veridion</title>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
 <link href="/shared/style.css" rel="stylesheet">
+<link href="/shared/dashboard.css" rel="stylesheet">
 </head>
 <body>
 <div id="navbar-root"></div>
 <div class="container">
-  <h3 class="mb-4">Welcome, <span id="userName"></span> <span class="badge bg-secondary" id="roleBadge"></span></h3>
+  <div class="dash-hero">
+    <div>
+      <h3>Welcome back, <span id="userName"></span> 👋</h3>
+      <div class="dash-hero-sub">A quick snapshot of what needs your attention today.</div>
+    </div>
+    <span class="dash-role-chip"><span class="dot"></span> <span id="roleBadge"></span></span>
+  </div>
 
-  <div class="row g-3" id="quickLinks"></div>
+  <div class="dash-kpi-grid" id="companyKpis"></div>
 
-  <div id="paymentsSection" class="mt-5" style="display:none;">
-    <h5 class="mb-2">Invoices Awaiting Payment</h5>
+  <div class="dash-carousel" id="companyTips">
+    <div class="dash-carousel-track">
+      <div class="dash-carousel-slide dcs-slide-warm" style="background:linear-gradient(120deg,#14532d,#1f9d5c);">
+        <div class="dcs-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="9"/></svg></div>
+        <div><h4>Review pending items promptly</h4><p>Vendor approvals, flagged invoices, and disputes all move faster when they're not left waiting.</p></div>
+      </div>
+      <div class="dash-carousel-slide" style="background:linear-gradient(120deg,#4c1d95,#8b5cf6);">
+        <div class="dcs-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20V10M18 20V4M6 20v-4"/></svg></div>
+        <div><h4>Keep requirements specific</h4><p>Clear quantities, categories, and deadlines get you faster, more accurate vendor quotations.</p></div>
+      </div>
+      <div class="dash-carousel-slide" style="background:linear-gradient(120deg,#b8860b,#e0a72e);">
+        <div class="dcs-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 7V3m8 4V3M4 11h16M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg></div>
+        <div><h4>Keep company details current</h4><p>An accurate GSTIN and address on file keeps invoices and payments running smoothly.</p></div>
+      </div>
+    </div>
+    <button class="dash-carousel-nav prev" onclick="DashCarousel.go('companyTips',-1)">‹</button>
+    <button class="dash-carousel-nav next" onclick="DashCarousel.go('companyTips',1)">›</button>
+    <div class="dash-carousel-dots" id="dots-companyTips"></div>
+  </div>
+
+  <div id="teamSection" class="mt-4" style="display:none;">
+    <div class="dash-section-heading"><h5>Team Overview</h5><span id="teamCountLabel"></span></div>
+    <table class="table table-centered bg-white">
+      <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th></tr></thead>
+      <tbody id="teamOverviewRows"><tr><td colspan="4" class="text-muted">Loading...</td></tr></tbody>
+    </table>
+    <a href="/company/team.html" class="small">Manage team &rarr;</a>
+  </div>
+
+  <div id="paymentsSection" class="mt-4" style="display:none;">
+    <div class="dash-section-heading"><h5>Invoices Awaiting Payment</h5><span></span></div>
     <table class="table table-centered bg-white">
       <thead><tr><th>Invoice #</th><th>Requirement</th><th>Vendor</th><th>Amount (incl. GST)</th><th>Submitted</th><th>Action</th></tr></thead>
       <tbody id="paymentRows"></tbody>
@@ -22,38 +58,62 @@
     <a href="/company/invoices.html" class="small">View all invoices &rarr;</a>
   </div>
 
-  <div id="deliverySection" class="mt-5" style="display:none;">
-    <h5 class="mb-2">Purchase Orders Awaiting Delivery</h5>
+  <div id="deliverySection" class="mt-4" style="display:none;">
+    <div class="dash-section-heading"><h5>Purchase Orders Awaiting Delivery</h5><span></span></div>
     <div id="deliveryCards" class="row g-3 mb-2"></div>
     <a href="/company/grn-entry.html" class="small">Go to GRN Entry &rarr;</a>
   </div>
 
-  <div id="requirementsSection" class="mt-5" style="display:none;">
-    <h5 class="mb-2">Your Requirements</h5>
+  <div id="requirementsSection" class="mt-4" style="display:none;">
+    <div class="dash-section-heading"><h5>Your Requirements</h5><span></span></div>
     <table class="table table-centered bg-white">
       <thead><tr><th>Title</th><th>Category</th><th>Quantity</th><th>Status</th><th>Posted</th></tr></thead>
       <tbody id="reqRows"><tr><td colspan="5" class="text-muted">Loading...</td></tr></tbody>
     </table>
   </div>
+
+  <div class="dash-section-heading"><h5>Frequently Asked Questions</h5><span id="companyFaqHint"></span></div>
+  <div class="dash-faq-list" id="companyFaq"></div>
 </div>
 <script src="/shared/api.js"></script>
 <script src="/shared/navbar.js"></script>
+<script src="/shared/dashboard-widgets.js"></script>
 <script>
 const user = requireLogin(['company_admin', 'procurement', 'finance', 'warehouse', 'platform_admin']);
 document.getElementById('userName').textContent = user ? user.name : '';
 document.getElementById('roleBadge').textContent = user ? user.role : '';
 
-const linksByRole = {
-  company_admin: [['/company/team.html','Manage Team'], ['/company/profile.html','Company Profile']],
-  procurement: [['/company/post-requirement.html','Post Requirement'], ['/company/quotation-comparison.html','Review Quotations'], ['/company/purchase-orders.html','Purchase Orders'], ['/company/grn-documents.html','GRN Documents']],
-  finance: [['/company/purchase-orders.html','Purchase Orders'], ['/company/grn-documents.html','GRN Documents'], ['/company/invoices.html','Invoices'], ['/company/payment.html','Payments']],
-  warehouse: [['/company/grn-entry.html','GRN Entry'], ['/company/purchase-orders.html','Purchase Orders'], ['/company/grn-documents.html','GRN Documents']],
-  platform_admin: []
-};
+DashCarousel.init('companyTips');
+
+const ROLE_FAQ_KEY = { company_admin: 'company-admin', procurement: 'procurement', finance: 'finance', warehouse: 'warehouse', platform_admin: 'admin' };
+const ROLE_FAQ_LABEL = { company_admin: 'For Company Admin', procurement: 'For Procurement', finance: 'For Finance', warehouse: 'For Warehouse', platform_admin: '' };
 if (user) {
-  document.getElementById('quickLinks').innerHTML = (linksByRole[user.role] || [])
-    .map(([href, label]) => `<div class="col-md-4"><div class="card p-3 text-center"><h6>${label}</h6><a href="${href}" class="btn btn-amber btn-sm mt-2">Go</a></div></div>`).join('');
+  renderDashFaq('companyFaq', ROLE_FAQ_KEY[user.role]);
+  document.getElementById('companyFaqHint').textContent = ROLE_FAQ_LABEL[user.role] || '';
 }
+
+function renderKpis(cards) {
+  document.getElementById('companyKpis').innerHTML = cards.map(([cls, icon, value, label]) => `
+    <div class="dash-kpi-card ${cls}">
+      <div class="dash-kpi-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${icon}</svg></div>
+      <div class="dash-kpi-value">${value}</div>
+      <div class="dash-kpi-label">${label}</div>
+    </div>`).join('');
+}
+
+const ICONS = {
+  people: '<circle cx="9" cy="8" r="3.2"/><path d="M2.5 20c.3-3.3 3-5.8 6.5-5.8s6.2 2.5 6.5 5.8"/><circle cx="17.5" cy="8.5" r="2.6"/><path d="M15 13.5c2.6.5 4.5 2.6 4.9 5.2"/>',
+  mail: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/>',
+  building: '<path d="M4 21V5a1 1 0 011-1h9a1 1 0 011 1v16"/><path d="M15 10h5v11h-5"/><path d="M8 8h.01M11 8h.01M8 12h.01M11 12h.01M8 16h.01M11 16h.01"/>',
+  shield: '<path d="M12 2l8 4v6c0 5-3.4 8.4-8 10-4.6-1.6-8-5-8-10V6l8-4z"/>',
+  doc: '<path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5"/><path d="M9.5 13h5M9.5 16.5h5"/>',
+  cart: '<path d="M3 5h2l2.2 11.4a2 2 0 002 1.6h7.6a2 2 0 002-1.6L20 8H7"/><circle cx="9.5" cy="20" r="1.4"/><circle cx="17" cy="20" r="1.4"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/>',
+  cash: '<path d="M6 4h12"/><path d="M6 8h12"/><path d="M9 4v8"/><path d="M9 4c3.5 0 6 1.2 6 4s-2.5 4-6 4"/><path d="M9 12l7 8"/>',
+  flag: '<path d="M12 9v4m0 4h.01M10.3 3.9L2.6 18a1 1 0 00.9 1.5h17a1 1 0 00.9-1.5L13.7 3.9a1 1 0 00-1.7 0z"/>',
+  truck: '<rect x="1" y="8" width="12" height="9"/><path d="M13 11h4l4 3.2V17h-8z"/><circle cx="5" cy="19.3" r="1.5"/><circle cx="16.5" cy="19.3" r="1.5"/>',
+  check: '<path d="M20 6L9 17l-5-5"/>'
+};
 
 // "Your Requirements" only makes sense for roles that actually deal with requirements —
 // Warehouse and Platform Admin never touch this, and Company Admin no longer has API
@@ -74,8 +134,46 @@ if (user && !['warehouse', 'platform_admin', 'company_admin'].includes(user.role
         <td><span class="badge status-badge ${statusBadgeClass(r.status)}">${r.status}</span></td>
         <td>${new Date(r.created_at).toLocaleDateString()}</td>
       </tr>`).join('');
+    if (user.role === 'procurement') {
+      const open = reqs.filter(r => r.status === 'open').length;
+      window.__reqStats = { total: reqs.length, open };
+      maybeRenderProcurementKpis();
+    }
   };
   pollEvery(loadRequirements, 1000, () => pollBlockedBy('reqRows'));
+}
+
+// Procurement KPIs combine three independent fetches (requirements, quotations,
+// purchase orders) — each stashes its slice on window.__* and this renders once all
+// three have reported in, then keeps re-rendering as any of them updates.
+function maybeRenderProcurementKpis() {
+  if (user.role !== 'procurement') return;
+  const r = window.__reqStats, q = window.__quoteStats, p = window.__poStats;
+  if (!r || q === undefined || p === undefined) return;
+  renderKpis([
+    ['dash-kpi-1', ICONS.doc, r.total, 'Requirements Posted'],
+    ['dash-kpi-3', ICONS.shield, r.open, 'Open Requirements'],
+    ['dash-kpi-2', ICONS.check, q, 'Quotations Awaiting Review'],
+    ['dash-kpi-4', ICONS.cart, p, 'Purchase Orders Issued']
+  ]);
+}
+if (user && user.role === 'procurement') {
+  const loadQuotationsKpi = async () => {
+    const res = await fetchWithAuth('/api/quotations/company');
+    if (!res) return;
+    const qs = await res.json();
+    window.__quoteStats = qs.length;
+    maybeRenderProcurementKpis();
+  };
+  pollEvery(loadQuotationsKpi, 1000, () => false);
+  const loadPOsKpi = async () => {
+    const res = await fetchWithAuth('/api/purchase-orders/mine');
+    if (!res) return;
+    const pos = await res.json();
+    window.__poStats = pos.length;
+    maybeRenderProcurementKpis();
+  };
+  pollEvery(loadPOsKpi, 1000, () => false);
 }
 
 // Invoices awaiting payment — Finance only now (Company Admin no longer has API
@@ -84,7 +182,18 @@ if (user && user.role === 'finance') {
   const loadPayments = async () => {
     const res = await fetchWithAuth('/api/invoices/company');
     if (!res) return;
-    const invs = (await res.json()).filter(i => i.status !== 'paid');
+    const all = await res.json();
+    const invs = all.filter(i => i.status !== 'paid');
+    const paid = all.filter(i => i.status === 'paid');
+    const needsReview = invs.filter(i => i.final_decision !== 'auto_approved');
+    const payable = invs.reduce((sum, i) => sum + invoiceTotal(i), 0);
+    const totalPaid = paid.reduce((sum, i) => sum + invoiceTotal(i), 0);
+    renderKpis([
+      ['dash-kpi-1', ICONS.doc, invs.length, 'Invoices Awaiting Payment'],
+      ['dash-kpi-2', ICONS.cash, `₹${payable.toLocaleString('en-IN')}`, 'Amount Payable'],
+      ['dash-kpi-6', ICONS.flag, needsReview.length, 'Needs Review'],
+      ['dash-kpi-3', ICONS.cash, `₹${totalPaid.toLocaleString('en-IN')}`, 'Total Paid']
+    ]);
     const section = document.getElementById('paymentsSection');
     if (!invs.length) { section.style.display = 'none'; return; }
     section.style.display = 'block';
@@ -119,7 +228,16 @@ if (user && user.role === 'warehouse') {
   const loadDeliveries = async () => {
     const res = await fetchWithAuth('/api/purchase-orders/mine');
     if (!res) return;
-    const pending = (await res.json()).filter(po => po.fulfillment_status !== 'fulfilled');
+    const pos = await res.json();
+    const pending = pos.filter(po => po.fulfillment_status !== 'fulfilled');
+    const fulfilled = pos.filter(po => po.fulfillment_status === 'fulfilled').length;
+    const partial = pos.filter(po => po.fulfillment_status === 'partially_fulfilled').length;
+    renderKpis([
+      ['dash-kpi-1', ICONS.truck, pending.length, 'POs Awaiting Delivery'],
+      ['dash-kpi-3', ICONS.check, fulfilled, 'Fully Delivered'],
+      ['dash-kpi-2', ICONS.flag, partial, 'Partially Delivered'],
+      ['dash-kpi-4', ICONS.cart, pos.length, 'Total Purchase Orders']
+    ]);
     const section = document.getElementById('deliverySection');
     if (!pending.length) { section.style.display = 'none'; return; }
     section.style.display = 'block';
@@ -135,6 +253,40 @@ if (user && user.role === 'warehouse') {
   // Poll every second so a delivery just recorded (in this tab or another) drops off
   // this "awaiting delivery" list live.
   pollEvery(loadDeliveries, 1000, () => pollBlockedBy('deliveryCards'));
+}
+
+// Company Admin — team + company profile, both real fetches already used on their
+// own dedicated pages (Team, Company Profile), summarized here instead of just link cards.
+if (user && user.role === 'company_admin') {
+  const loadCompanyAdminKpis = async () => {
+    const [teamRes, profileRes] = await Promise.all([
+      fetchWithAuth('/api/company/team'),
+      fetchWithAuth('/api/company/profile')
+    ]);
+    if (!teamRes || !profileRes) return;
+    const teamData = await teamRes.json();
+    const profile = await profileRes.json();
+    const activeMembers = teamData.team.filter(m => m.is_active).length;
+    const pendingInvites = teamData.pending_invitations.length;
+    renderKpis([
+      ['dash-kpi-1', ICONS.people, activeMembers, 'Team Members'],
+      ['dash-kpi-2', ICONS.mail, pendingInvites, 'Pending Invites'],
+      ['dash-kpi-3', ICONS.shield, (profile.approval_status || '—').replace(/^./, c => c.toUpperCase()), 'Company Status'],
+      ['dash-kpi-4', ICONS.building, profile.gstin ? 'Verified' : 'Missing', 'GSTIN Status']
+    ]);
+    document.getElementById('teamCountLabel').textContent = `${activeMembers} active`;
+    const section = document.getElementById('teamSection');
+    if (!teamData.team.length) { section.style.display = 'none'; return; }
+    section.style.display = 'block';
+    document.getElementById('teamOverviewRows').innerHTML = teamData.team.slice(0, 6).map(m => `
+      <tr>
+        <td>${m.name}</td>
+        <td>${m.email}</td>
+        <td><span class="badge bg-secondary">${m.role}</span></td>
+        <td>${m.is_active ? '<span class="badge bg-success">Active</span>' : '<span class="badge bg-secondary">Removed</span>'}</td>
+      </tr>`).join('');
+  };
+  pollEvery(loadCompanyAdminKpis, 1000, () => pollBlockedBy('teamOverviewRows'));
 }
 </script>
 </body>

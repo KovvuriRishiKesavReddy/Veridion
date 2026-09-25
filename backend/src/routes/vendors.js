@@ -6,6 +6,27 @@ const { syncVendorNode } = require('../utils/neo4jSync');
 
 const router = express.Router();
 
+// GET /api/vendors/:id/platform-summary — Flow 5, Part 5.8's read-only, verified-only
+// aggregate (the vendor_platform_summary view). Left as requireAuth only, no role
+// restriction: both the vendor's own dashboard AND Procurement/Finance on the
+// Quotation Comparison page (viewing a vendor they have no history with) need this,
+// and it is pure aggregate reputation data, never a per-company breakdown — it is
+// never read by any agent or fed into any company's own Context Gate (that stays
+// scoped to the (company_id, vendor_id) vendor_risk_scores row everywhere else, e.g.
+// rankQuotations.js). Falls back to an explicit zeroed object rather than 404 for a
+// vendor with no platform-verified activity yet, since "not yet established" is a
+// normal state here, not an error.
+router.get('/:id/platform-summary', requireAuth, async (req, res) => {
+  const result = await db.query(`SELECT * FROM vendor_platform_summary WHERE vendor_id = $1`, [req.params.id]);
+  res.json(result.rows[0] || {
+    vendor_id: Number(req.params.id),
+    total_platform_verified_events: 0,
+    aggregate_on_time_pct: null,
+    num_companies_worked_with: 0,
+    last_updated: null
+  });
+});
+
 // GET /api/vendors/me — the vendor's own profile, including bank/address details they
 // don't see anywhere else on the platform right now.
 router.get('/me', requireAuth, requireRole('vendor'), async (req, res) => {

@@ -5,11 +5,62 @@
 <title>Vendor Dashboard — Veridion</title>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
 <link href="/shared/style.css" rel="stylesheet">
+<link href="/shared/dashboard.css" rel="stylesheet">
 </head>
 <body>
 <div id="navbar-root"></div>
 <div class="container">
-  <h3 class="mb-4">Welcome, <span id="vendorName"></span></h3>
+  <div class="dash-hero">
+    <div>
+      <h3>Welcome back, <span id="vendorName"></span> 👋</h3>
+      <div class="dash-hero-sub">Here's what's happening across your requirements, quotes, and invoices today.</div>
+    </div>
+    <span class="dash-role-chip"><span class="dot"></span> Vendor</span>
+  </div>
+
+  <div class="dash-kpi-grid">
+    <div class="dash-kpi-card dash-kpi-1">
+      <div class="dash-kpi-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h10"/></svg></div>
+      <div class="dash-kpi-value" id="kpiOpenReqs">—</div>
+      <div class="dash-kpi-label">Open Requirements</div>
+    </div>
+    <div class="dash-kpi-card dash-kpi-2">
+      <div class="dash-kpi-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h18M3 7l2 12h14l2-12M8 7V4h8v3"/></svg></div>
+      <div class="dash-kpi-value" id="kpiPOs">—</div>
+      <div class="dash-kpi-label">Purchase Orders</div>
+      <div class="dash-kpi-sub" id="kpiPOsSub"></div>
+    </div>
+    <div class="dash-kpi-card dash-kpi-3">
+      <div class="dash-kpi-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v16H4z"/><path d="M8 9h8M8 13h5"/></svg></div>
+      <div class="dash-kpi-value" id="kpiReadyInvoice">—</div>
+      <div class="dash-kpi-label">Ready to Invoice</div>
+    </div>
+    <div class="dash-kpi-card dash-kpi-4">
+      <div class="dash-kpi-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 4h12"/><path d="M6 8h12"/><path d="M9 4v8"/><path d="M9 4c3.5 0 6 1.2 6 4s-2.5 4-6 4"/><path d="M9 12l7 8"/></svg></div>
+      <div class="dash-kpi-value" id="kpiPaid">—</div>
+      <div class="dash-kpi-label">Total Payments Received</div>
+    </div>
+  </div>
+
+  <div class="dash-carousel" id="vendorTips">
+    <div class="dash-carousel-track">
+      <div class="dash-carousel-slide dcs-slide-warm" style="background:linear-gradient(120deg,#14532d,#1f9d5c);">
+        <div class="dcs-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z"/></svg></div>
+        <div><h4>Tip: faster delivery quotes win more often</h4><p>Vendors quoting a realistic, quick delivery window tend to get accepted more often.</p></div>
+      </div>
+      <div class="dash-carousel-slide" style="background:linear-gradient(120deg,#0f766e,#20c997);">
+        <div class="dcs-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg></div>
+        <div><h4>Clean invoices clear faster</h4><p>Make sure your invoice amount matches the agreed PO price and quantity exactly — mismatches get flagged for review.</p></div>
+      </div>
+      <div class="dash-carousel-slide" style="background:linear-gradient(120deg,#b8860b,#e0a72e);">
+        <div class="dcs-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="9"/></svg></div>
+        <div><h4>Keep your profile up to date</h4><p>An accurate profile and verified documents help buyers trust your quotations.</p></div>
+      </div>
+    </div>
+    <button class="dash-carousel-nav prev" onclick="DashCarousel.go('vendorTips',-1)">‹</button>
+    <button class="dash-carousel-nav next" onclick="DashCarousel.go('vendorTips',1)">›</button>
+    <div class="dash-carousel-dots" id="dots-vendorTips"></div>
+  </div>
 
   <div id="readyToInvoiceSection" class="mb-4" style="display:none;">
     <h5 class="mb-2">Ready to Invoice <span class="badge bg-success">Fully Delivered</span></h5>
@@ -22,12 +73,15 @@
   <div id="reqCards" class="row g-3 mb-2"></div>
   <a href="/vendor/requirements.html" class="btn-glass-link">Browse all &rarr;</a>
 
-  <h5 class="mt-5">Recent Purchase Orders</h5>
+  <div class="dash-section-heading"><h5>Recent Purchase Orders</h5><span>Last 5</span></div>
   <table class="table table-centered table-sm bg-white">
     <thead><tr><th>PO #</th><th>Price</th><th>Agreed Delivery Date</th><th>Status</th><th>Fulfillment</th></tr></thead>
     <tbody id="poRows"><tr><td colspan="5" class="text-muted">Loading...</td></tr></tbody>
   </table>
   <a href="/vendor/purchase-orders.html" class="btn-glass-link">View all purchase orders &rarr;</a>
+
+  <div class="dash-section-heading"><h5>Frequently Asked Questions</h5><span>For vendors</span></div>
+  <div class="dash-faq-list" id="vendorFaq"></div>
 </div>
 
 <div class="modal fade" id="quoteModal" tabindex="-1">
@@ -48,16 +102,23 @@
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script src="/shared/api.js"></script>
 <script src="/shared/navbar.js"></script>
+<script src="/shared/dashboard-widgets.js"></script>
 <script>
 const user = requireLogin(['vendor']);
 document.getElementById('vendorName').textContent = user ? user.name : '';
 let quoteModal;
 document.addEventListener('DOMContentLoaded', () => { quoteModal = new bootstrap.Modal(document.getElementById('quoteModal')); });
 
+DashCarousel.init('vendorTips');
+renderDashFaq('vendorFaq', 'vendor');
+
 async function loadRecentPOs() {
   const res = await fetchWithAuth('/api/purchase-orders/mine');
   if (!res) return;
   const pos = await res.json();
+  document.getElementById('kpiPOs').textContent = pos.length;
+  const fulfilled = pos.filter(po => po.fulfillment_status === 'fulfilled').length;
+  document.getElementById('kpiPOsSub').textContent = pos.length ? `${fulfilled} fully delivered` : '';
   const rows = document.getElementById('poRows');
   if (!pos.length) { rows.innerHTML = '<tr><td colspan="5" class="text-muted">No purchase orders yet.</td></tr>'; return; }
   rows.innerHTML = pos.slice(0, 5).map(po => `
@@ -75,6 +136,7 @@ async function loadReadyToInvoice() {
   const res = await fetchWithAuth('/api/invoices/eligible-pos');
   if (!res) return;
   const pos = await res.json();
+  document.getElementById('kpiReadyInvoice').textContent = pos.length;
   const section = document.getElementById('readyToInvoiceSection');
   if (!pos.length) { section.style.display = 'none'; return; }
   section.style.display = 'block';
@@ -93,6 +155,7 @@ async function loadRequirements() {
   const res = await fetchWithAuth('/api/requirements');
   if (!res) return;
   const reqs = await res.json();
+  document.getElementById('kpiOpenReqs').textContent = reqs.length;
   const cards = document.getElementById('reqCards');
   if (!reqs.length) { cards.innerHTML = '<p class="text-muted">No open requirements right now.</p>'; return; }
   cards.innerHTML = reqs.slice(0, 4).map(r => `
@@ -109,6 +172,16 @@ async function loadRequirements() {
 // from other companies all show up live. None of these touch the quote modal's own
 // inputs, which live in a separate part of the page.
 pollEvery(loadRequirements, 1000, () => pollBlockedBy('reqCards'));
+
+async function loadPaymentsTotal() {
+  const res = await fetchWithAuth('/api/invoices/mine');
+  if (!res) return;
+  const invs = await res.json();
+  const paid = invs.filter(i => i.status === 'paid');
+  const total = paid.reduce((sum, i) => sum + invoiceTotal(i), 0);
+  document.getElementById('kpiPaid').textContent = paid.length ? `₹${total.toLocaleString('en-IN')}` : '₹0';
+}
+pollEvery(loadPaymentsTotal, 1000, () => false);
 
 function openQuoteModal(id) {
   document.getElementById('requirement_id').value = id;

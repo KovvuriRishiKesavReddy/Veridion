@@ -1,0 +1,103 @@
+/* ============================================================================
+   Dashboard extras — KPI cards, tip carousel, FAQ accordion.
+   Used only by vendor/dashboard.html, company/dashboard.html, admin/dashboard.html.
+   Reuses the --navy/--amber/--amber-dark/--accept-green variables already defined
+   in style.css rather than introducing a new palette.
+   ============================================================================ */
+
+.dash-hero { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; margin-bottom: 1.5rem; }
+.dash-hero h3 { margin-bottom: 0.2rem !important; }
+.dash-hero-sub { color: #5b6b60; font-size: 0.92rem; }
+.dash-role-chip {
+  background: linear-gradient(135deg, var(--navy), var(--navy-light));
+  color: #eafff2; font-weight: 600; font-size: 0.78rem;
+  padding: 0.4rem 0.9rem; border-radius: 999px; letter-spacing: 0.02em;
+  display: inline-flex; align-items: center; gap: 0.4rem; white-space: nowrap;
+}
+.dash-role-chip .dot { width: 7px; height: 7px; border-radius: 50%; background: #6ee7b7; box-shadow: 0 0 0 3px rgba(110,231,183,0.35); }
+
+/* ---------- KPI cards ---------- */
+.dash-kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 1.75rem; }
+@media (max-width: 900px) { .dash-kpi-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 560px) { .dash-kpi-grid { grid-template-columns: 1fr; } }
+.dash-kpi-card {
+  border-radius: 20px; padding: 1.1rem 1.2rem; color: #fff; position: relative; overflow: hidden;
+  box-shadow: 0 14px 28px -12px rgba(6,32,18,0.35);
+  transition: transform 0.25s ease, box-shadow 0.25s ease;
+}
+.dash-kpi-card:hover { transform: translateY(-4px); box-shadow: 0 20px 36px -14px rgba(6,32,18,0.42); }
+.dash-kpi-card::after { content: ''; position: absolute; right: -18px; top: -18px; width: 90px; height: 90px; border-radius: 50%; background: rgba(255,255,255,0.14); }
+.dash-kpi-icon { width: 36px; height: 36px; border-radius: 11px; background: rgba(255,255,255,0.22); display: flex; align-items: center; justify-content: center; margin-bottom: 0.6rem; }
+.dash-kpi-icon svg { width: 19px; height: 19px; stroke: #fff; }
+.dash-kpi-value { font-size: 1.5rem; font-weight: 800; line-height: 1; }
+.dash-kpi-label { font-size: 0.77rem; opacity: 0.92; margin-top: 0.35rem; font-weight: 500; }
+.dash-kpi-sub { font-size: 0.71rem; margin-top: 0.5rem; opacity: 0.95; font-weight: 600; }
+.dash-kpi-1 { background: linear-gradient(135deg, #14532d, #1f9d5c); }
+.dash-kpi-2 { background: linear-gradient(135deg, #b8860b, #e0a72e); }
+.dash-kpi-3 { background: linear-gradient(135deg, #0f766e, #20c997); }
+.dash-kpi-4 { background: linear-gradient(135deg, #4c1d95, #8b5cf6); }
+.dash-kpi-5 { background: linear-gradient(135deg, #1d4ed8, #3b82f6); }
+.dash-kpi-6 { background: linear-gradient(135deg, #b91c1c, #f97066); }
+
+/* ---------- tip carousel ---------- */
+.dash-carousel { position: relative; border-radius: 20px; overflow: hidden; margin-bottom: 1.75rem; box-shadow: 0 16px 34px -16px rgba(6,32,18,0.35); }
+.dash-carousel-track { display: flex; transition: transform 0.5s cubic-bezier(.65,0,.35,1); }
+.dash-carousel-slide { min-width: 100%; padding: 1.4rem 1.8rem; display: flex; align-items: center; gap: 1.1rem; color: #fff; min-height: 100px; }
+.dash-carousel-slide .dcs-icon { width: 48px; height: 48px; border-radius: 15px; background: rgba(255,255,255,0.2); flex: 0 0 auto; display: flex; align-items: center; justify-content: center; }
+.dash-carousel-slide .dcs-icon svg { width: 24px; height: 24px; stroke: #fff; }
+.dash-carousel-slide h4 { font-size: 1rem; font-weight: 700; margin: 0; color: #ffffff !important; }
+.dash-carousel-slide p { font-size: 0.83rem; opacity: 0.92; margin-top: 0.15rem; color: #ffffff; }
+/* The green-gradient slide (used as the first slide on every dashboard) gets a
+   warmer, gold-tinted text color instead of plain white — better contrast against
+   the darker end of that particular gradient, and a nicer pairing with emerald. */
+.dash-carousel-slide.dcs-slide-warm h4 { color: #ffe9b3 !important; }
+.dash-carousel-slide.dcs-slide-warm p { color: #fdf3dd !important; }
+.dash-carousel-nav { position: absolute; top: 50%; transform: translateY(-50%); width: 32px; height: 32px; border-radius: 50%; background: rgba(255,255,255,0.28); border: none; color: #fff; display: flex; align-items: center; justify-content: center; cursor: pointer; backdrop-filter: blur(6px); transition: background 0.2s ease; font-size: 1rem; }
+.dash-carousel-nav:hover { background: rgba(255,255,255,0.45); }
+.dash-carousel-nav.prev { left: 12px; } .dash-carousel-nav.next { right: 12px; }
+.dash-carousel-dots { position: absolute; bottom: 10px; left: 0; right: 0; display: flex; justify-content: center; gap: 6px; }
+.dash-carousel-dots button { width: 7px; height: 7px; border-radius: 50%; border: none; background: rgba(255,255,255,0.5); cursor: pointer; padding: 0; transition: all 0.2s ease; }
+.dash-carousel-dots button.active { width: 18px; border-radius: 4px; background: #fff; }
+
+/* ---------- section heading ---------- */
+.dash-section-heading { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 0.8rem; margin-top: 2rem; }
+.dash-section-heading h5 { margin-bottom: 0 !important; }
+.dash-section-heading span { font-size: 0.8rem; color: #5b6b60; }
+
+/* ---------- FAQ accordion ---------- */
+.dash-faq-list { display: flex; flex-direction: column; gap: 0.65rem; }
+.dash-faq-item {
+  border: 1px solid rgba(20,83,45,0.12); border-left: 3px solid transparent; border-radius: 14px;
+  overflow: hidden; background: rgba(255,255,255,0.78);
+  box-shadow: 0 6px 16px -12px rgba(6,32,18,0.25);
+  transition: border-color 0.25s ease, box-shadow 0.25s ease, background 0.25s ease;
+}
+.dash-faq-item:hover { background: rgba(255,255,255,0.94); box-shadow: 0 10px 20px -12px rgba(6,32,18,0.3); }
+.dash-faq-item.open { border-left-color: var(--amber); background: rgba(255,255,255,0.96); box-shadow: 0 12px 26px -14px rgba(6,32,18,0.35); }
+.dash-faq-q {
+  width: 100%; text-align: left; background: none; border: none; cursor: pointer;
+  padding: 0.95rem 1.1rem; display: flex; align-items: center; gap: 0.85rem; font-weight: 600; font-size: 0.9rem; color: #0f2417;
+}
+.dash-faq-q .dfq-num {
+  flex: 0 0 auto; width: 28px; height: 28px; border-radius: 9px;
+  background: linear-gradient(135deg, var(--navy), var(--accept-green)); color: #eafff2;
+  display: flex; align-items: center; justify-content: center; font-size: 0.75rem; font-weight: 800;
+  transition: transform 0.25s ease;
+}
+.dash-faq-item.open .dfq-num { background: linear-gradient(135deg, var(--amber-dark), var(--amber)); transform: scale(1.08); }
+.dash-faq-q .dfq-text { flex: 1; line-height: 1.35; }
+.dash-faq-q .dfq-chev { flex: 0 0 auto; width: 22px; height: 22px; border-radius: 50%; background: rgba(20,83,45,0.08); color: var(--navy); display: flex; align-items: center; justify-content: center; transition: transform 0.3s ease, background 0.3s ease; }
+.dash-faq-q .dfq-chev svg { width: 11px; height: 11px; }
+.dash-faq-item.open .dfq-chev { background: var(--navy); color: #fff; transform: rotate(180deg); }
+.dash-faq-a { max-height: 0; opacity: 0; overflow: hidden; transition: max-height 0.35s ease, opacity 0.3s ease; }
+.dash-faq-a-inner { padding: 0 1.1rem 1rem 2.9rem; font-size: 0.84rem; color: #5b6b60; line-height: 1.55; }
+.dash-faq-item.open .dash-faq-a { max-height: 260px; opacity: 1; }
+
+/* ---------- role sub-tabs (company dashboard) ---------- */
+.dash-subtabs { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1.4rem; }
+.dash-subtab-btn {
+  border: 1px solid rgba(20,83,45,0.18); background: rgba(255,255,255,0.55); color: var(--navy);
+  font-weight: 600; font-size: 0.82rem; padding: 0.42rem 0.95rem; border-radius: 999px; cursor: pointer; transition: all 0.2s ease;
+}
+.dash-subtab-btn.active { background: var(--navy); color: #eafff2; border-color: var(--navy); box-shadow: 0 8px 16px -8px rgba(20,83,45,0.5); }
+.dash-subtab-btn:not(.active):hover { background: rgba(255,255,255,0.85); }

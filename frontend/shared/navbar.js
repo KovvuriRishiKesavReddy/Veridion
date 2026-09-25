@@ -30,6 +30,7 @@ const DOCK_ICONS = {
   'Disputes': 'bi-chat-left-text',
   'Payment Status': 'bi-cash-coin',
   'My Profile': 'bi-person-circle',
+  'Vendor Directory': 'bi-diagram-3',
   'Team': 'bi-people',
   'Company Profile': 'bi-building',
   'Post Requirement': 'bi-plus-square',
@@ -71,6 +72,7 @@ function renderNavbar() {
     company_admin: [
       ['/company/dashboard.html', 'Dashboard'],
       ['/company/team.html', 'Team'],
+      ['/company/vendor-directory.html', 'Vendor Directory'],
       ['/company/profile.html', 'Company Profile']
     ],
     procurement: [
@@ -78,7 +80,8 @@ function renderNavbar() {
       ['/company/post-requirement.html', 'Post Requirement'],
       ['/company/quotation-comparison.html', 'Quotations'],
       ['/company/purchase-orders.html', 'Purchase Orders'],
-      ['/company/grn-documents.html', 'GRN Documents']
+      ['/company/grn-documents.html', 'GRN Documents'],
+      ['/company/vendor-directory.html', 'Vendor Directory']
     ],
     finance: [
       ['/company/dashboard.html', 'Dashboard'],
@@ -287,6 +290,12 @@ function startVendorNotifications() {
   const SEEN_ORDER_KEY = 'veridion_seen_selected_quotation_count';
   const SEEN_DISPUTE_KEY = 'veridion_seen_sent_dispute_count';
   const SEEN_MESSAGE_KEY = 'veridion_seen_finance_message_count';
+  // Separate from the SEEN_* keys above: those advance every 5-second poll purely
+  // to avoid repeat toasts. These only advance when the vendor actually opens the
+  // relevant page, so the dot stays lit until it's genuinely been looked at —
+  // not just for one poll cycle.
+  const DOT_SEEN_ORDER_KEY = 'veridion_dot_seen_selected_quotation_count';
+  const DOT_SEEN_DISPUTE_KEY = 'veridion_dot_seen_sent_dispute_count';
 
   async function checkOrders() {
     try {
@@ -294,8 +303,13 @@ function startVendorNotifications() {
       if (!res || !res.ok) return;
       const all = await res.json();
       const accepted = all.filter(q => q.status === 'selected');
+
+      if (window.location.pathname.endsWith('/vendor/purchase-orders.html')) {
+        sessionStorage.setItem(DOT_SEEN_ORDER_KEY, String(accepted.length));
+      }
+      const dotSeen = Number(sessionStorage.getItem(DOT_SEEN_ORDER_KEY) || 0);
       const dot = document.getElementById('dockOrderDot');
-      if (dot) dot.style.display = accepted.length > 0 ? 'block' : 'none';
+      if (dot) dot.style.display = accepted.length > dotSeen ? 'block' : 'none';
 
       const seenRaw = sessionStorage.getItem(SEEN_ORDER_KEY);
       if (seenRaw !== null) {
@@ -319,8 +333,13 @@ function startVendorNotifications() {
       const all = await res.json();
       const sent = all.filter(d => d.status === 'sent');
       const unresolved = sent.filter(d => !d.resolved);
+
+      if (window.location.pathname.endsWith('/vendor/disputes.html')) {
+        sessionStorage.setItem(DOT_SEEN_DISPUTE_KEY, String(unresolved.length));
+      }
+      const dotSeen = Number(sessionStorage.getItem(DOT_SEEN_DISPUTE_KEY) || 0);
       const dot = document.getElementById('dockDisputeDot');
-      if (dot) dot.style.display = unresolved.length > 0 ? 'block' : 'none';
+      if (dot) dot.style.display = unresolved.length > dotSeen ? 'block' : 'none';
 
       const seenDisputeRaw = sessionStorage.getItem(SEEN_DISPUTE_KEY);
       if (seenDisputeRaw !== null) {
@@ -366,6 +385,9 @@ function startCompanyNotifications() {
 
   const SEEN_PENDING_KEY = 'veridion_seen_pending_dispute_count';
   const SEEN_VENDOR_MESSAGE_KEY = 'veridion_seen_vendor_message_count';
+  // Same reasoning as DOT_SEEN_* in startVendorNotifications — only advances when
+  // Finance actually opens Disputes, not on every 5-second poll.
+  const DOT_SEEN_KEY = 'veridion_dot_seen_finance_dispute_count';
 
   async function check() {
     try {
@@ -374,8 +396,14 @@ function startCompanyNotifications() {
       const all = await res.json();
       const pending = all.filter(d => d.status === 'pending_send');
       const unresolvedSent = all.filter(d => d.status === 'sent' && !d.resolved);
+      const needsAttention = pending.length + unresolvedSent.length;
+
+      if (window.location.pathname.endsWith('/company/disputes.html')) {
+        sessionStorage.setItem(DOT_SEEN_KEY, String(needsAttention));
+      }
+      const dotSeen = Number(sessionStorage.getItem(DOT_SEEN_KEY) || 0);
       const dot = document.getElementById('dockDisputeDot');
-      if (dot) dot.style.display = (pending.length > 0 || unresolvedSent.length > 0) ? 'block' : 'none';
+      if (dot) dot.style.display = needsAttention > dotSeen ? 'block' : 'none';
 
       const seenPendingRaw = sessionStorage.getItem(SEEN_PENDING_KEY);
       if (seenPendingRaw !== null) {

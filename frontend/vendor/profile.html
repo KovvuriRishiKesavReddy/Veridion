@@ -9,6 +9,11 @@
 <body>
 <div id="navbar-root"></div>
 <div class="container" style="max-width:520px;">
+  <div class="card p-4 mb-3">
+    <h5 class="mb-1">My Platform Trust Score</h5>
+    <p class="text-muted small mb-2">One honest, platform-wide reliability figure, aggregated across every company you've worked with on Veridion — rather than several fragmented private company scores. Each company also keeps its own private view of your reliability with them specifically; this is the transparent, verified-only summary across all of them.</p>
+    <div id="trustScoreContent"><p class="text-muted small mb-0">Loading...</p></div>
+  </div>
   <div class="card p-4">
     <h4 class="mb-1">My Profile</h4>
     <p class="text-muted small">Company name, GSTIN, and PAN were verified by Platform Admin against your proof document and can't be self-edited here. Bank and address details can be updated any time — every change is re-checked against other vendors on the platform.</p>
@@ -43,6 +48,39 @@
 <script src="/shared/navbar.js"></script>
 <script>
 requireLogin(['vendor']);
+const me = getUser();
+
+async function loadTrustScore() {
+  const res = await fetchWithAuth(`/api/vendors/${me.vendor_id}/platform-summary`);
+  const box = document.getElementById('trustScoreContent');
+  if (!res) return;
+  const s = await res.json();
+  if (!res.ok) { box.innerHTML = `<p class="text-danger small mb-0">${s.error || 'Could not load your trust score.'}</p>`; return; }
+
+  if (!s.total_platform_verified_events) {
+    box.innerHTML = `<p class="text-muted small mb-0">No platform-verified activity yet across any company. This builds automatically as GRNs are confirmed and invoices are decided on your purchase orders.</p>`;
+    return;
+  }
+
+  box.innerHTML = `
+    <div class="row text-center g-2">
+      <div class="col-4">
+        <div class="fs-4 fw-bold">${s.total_platform_verified_events}</div>
+        <div class="small text-muted">Verified transactions</div>
+      </div>
+      <div class="col-4">
+        <div class="fs-4 fw-bold">${s.aggregate_on_time_pct != null ? Number(s.aggregate_on_time_pct).toFixed(1) + '%' : '—'}</div>
+        <div class="small text-muted">On-time delivery</div>
+      </div>
+      <div class="col-4">
+        <div class="fs-4 fw-bold">${s.num_companies_worked_with}</div>
+        <div class="small text-muted">Companies worked with</div>
+      </div>
+    </div>
+    <p class="small text-muted mt-2 mb-0">Only counts real, platform-verified events — never a company's self-reported legacy-import history.</p>
+  `;
+}
+loadTrustScore();
 
 async function load() {
   const res = await fetchWithAuth('/api/vendors/me');

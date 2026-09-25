@@ -25,7 +25,7 @@ const { runMatchingAgent } = require('./agents/matching');
 const { runComplianceAgent } = require('./agents/compliance');
 const { runDecisionAgent } = require('./agents/decide');
 const { runFraudAgent } = require('./agents/fraud');
-const { onGrnConfirmed, onDisputeResolved, onInvoiceDecisionFinalised } = require('./agents/vendorRisk');
+const { onGrnConfirmed, onDisputeResolved, onInvoiceDecisionFinalised, legacyImport } = require('./agents/vendorRisk');
 const { runRankQuotationsAgent } = require('./agents/rankQuotations');
 const { runVendorCommunicationAgent } = require('./agents/vendorCommunication');
 
@@ -139,6 +139,24 @@ app.post('/agents/vendor-risk/on-decision-overridden', async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /agents/vendor-risk/legacy-import — Flow 5. Called by the backend's
+// POST /api/company/vendors/:vendorId/legacy-import (company_admin only there; this
+// route itself stays unauthenticated like every other ai-service route — the backend
+// is the only caller and owns the RBAC check). Returns 409 (propagated via err.status)
+// when a vendor_risk_scores row already exists for this (company_id, vendor_id) pair,
+// per Part 5.7.1's one-time-only rule. See vendorRisk.js's legacyImport for the
+// halve-and-cap discount logic and the exact-counter seeding.
+app.post('/agents/vendor-risk/legacy-import', async (req, res) => {
+  try {
+    const { company_id, vendor_id, imported_by, reported } = req.body;
+    const result = await legacyImport(company_id, vendor_id, imported_by, reported);
+    res.status(201).json(result);
+  } catch (err) {
+    console.error(err);
+    res.status(err.status || 500).json({ error: err.message });
   }
 });
 

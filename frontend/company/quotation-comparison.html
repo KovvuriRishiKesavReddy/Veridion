@@ -35,6 +35,30 @@
 requireLogin(['procurement']);
 let getAllSortState = () => ({ sortBy: 'newest' });
 
+// Flow 5: vendorDirectoryMap gives us, per vendor, whether this company has its OWN
+// history with them (data_volume) plus the read-only, cross-company platform aggregate
+// — both already joined in one query by GET /api/company/vendors. Refreshed on its own
+// slower interval (not the tight 1-second quotations poll) since this is purely
+// informational context, never re-fetched per row. Never sent to rankQuotations.js or
+// used in scoring — that stays scoped to this company's own vendor_risk_scores row,
+// exactly as before; this is display-only, matching Part 5.8's isolation principle.
+let vendorDirectoryMap = {};
+async function loadVendorDirectoryMap() {
+  const res = await fetchWithAuth('/api/company/vendors');
+  if (!res) return;
+  const list = await res.json();
+  vendorDirectoryMap = {};
+  list.forEach(v => { vendorDirectoryMap[v.id] = v; });
+}
+function platformContextFor(vendorId) {
+  const v = vendorDirectoryMap[vendorId];
+  if (!v || v.data_volume != null) return ''; // has its own history with this company — no context text needed
+  if (!v.total_platform_verified_events) return '';
+  const pct = v.aggregate_on_time_pct != null ? `${Number(v.aggregate_on_time_pct).toFixed(1)}% on-time` : 'on-time rate not available';
+  const companies = v.num_companies_worked_with === 1 ? '1 other company' : `${v.num_companies_worked_with} other companies`;
+  return `No history with your company yet — has completed ${v.total_platform_verified_events} verified transactions across ${companies}, ${pct}. Informational only — never used in this vendor's ranking above.`;
+}
+
 async function loadAll() {
   const res = await fetchWithAuth('/api/quotations/company');
   if (!res) return;
@@ -111,6 +135,11 @@ async function loadQuotations(rerank = true) {
           <p class="mb-0 mt-1">${q.ai_rank_reasoning}</p>
         </details>
       </td>
+    </tr>` : ''}
+    ${platformContextFor(q.vendor_id) ? `
+    <tr class="table-light">
+      <td></td>
+      <td colspan="7"><p class="small text-muted mb-0 fst-italic">${platformContextFor(q.vendor_id)}</p></td>
     </tr>` : ''}`).join('');
 }
 
@@ -148,6 +177,7 @@ getAllSortState = renderSortToolbar('allSortToolbar', loadAll, {
 });
 pollEvery(loadAll, 1000, () => pollBlockedBy('allRows'));
 pollEvery(loadRequirements);
+pollEvery(loadVendorDirectoryMap, 5000);
 setInterval(() => {
   if (document.getElementById('reqSelect').value && !pollBlockedBy('rows')) loadQuotations(false);
 }, 1000);
