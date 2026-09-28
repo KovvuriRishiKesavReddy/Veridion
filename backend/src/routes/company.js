@@ -13,27 +13,64 @@ router.post('/invite', requireAuth, requireRole('company_admin'), requireApprove
   if (!invited_email || !['procurement', 'finance', 'warehouse'].includes(invited_role)) {
     return res.status(400).json({ error: 'invited_email and a valid invited_role are required' });
   }
-  const token = crypto.randomBytes(24).toString('hex');
-  const result = await db.query(
-    `INSERT INTO invitations (company_id, invited_email, invited_role, invited_by, token)
-     VALUES ($1,$2,$3,$4,$5) RETURNING *`,
-    [req.user.company_id, invited_email, invited_role, req.user.id, token]
+
+  // Reuse a still-pending invitation for this email instead of creating a duplicate
+  // with a brand-new token every time "Send Invite" is clicked — the token never
+  // expires, so there's no reason to rotate it, and rotating it would silently
+  // invalidate any copy of the link the admin already shared (see 014_pending_
+  // invite_unique.sql). Only the role gets refreshed in place, in case the admin
+  // is correcting a mistake before it's accepted.
+  const existing = await db.query(
+    `SELECT * FROM invitations WHERE company_id = $1 AND invited_email = $2 AND status = 'pending'`,
+    [req.user.company_id, invited_email]
   );
+  let invitation;
+  if (existing.rows[0]) {
+    const updated = await db.query(
+      `UPDATE invitations SET invited_role = $1 WHERE id = $2 RETURNING *`,
+      [invited_role, existing.rows[0].id]
+    );
+    invitation = updated.rows[0];
+  } else {
+    const token = crypto.randomBytes(24).toString('hex');
+    try {
+      const inserted = await db.query(
+        `INSERT INTO invitations (company_id, invited_email, invited_role, invited_by, token)
+         VALUES ($1,$2,$3,$4,$5) RETURNING *`,
+        [req.user.company_id, invited_email, invited_role, req.user.id, token]
+      );
+      invitation = inserted.rows[0];
+    } catch (err) {
+      // 23505 = unique_violation on idx_invitations_pending_unique — two rapid
+      // clicks both passed the SELECT above before either INSERT landed. Whoever
+      // lost the race just reuses the row the winner created, instead of failing.
+      if (err.code === '23505') {
+        const raceWinner = await db.query(
+          `SELECT * FROM invitations WHERE company_id = $1 AND invited_email = $2 AND status = 'pending'`,
+          [req.user.company_id, invited_email]
+        );
+        invitation = raceWinner.rows[0];
+      } else {
+        throw err;
+      }
+    }
+  }
   // In a real deploy this would email the link; for now, return it directly.
   res.status(201).json({
-    invitation: result.rows[0],
-    accept_url: `/accept-invite.html?token=${token}`
+    invitation,
+    accept_url: `/accept-invite.html?token=${invitation.token}`,
+    reused: !!existing.rows[0]
   });
 });
 
 // GET /api/company/team (company_admin) — list current team + pending invites
 router.get('/team', requireAuth, requireRole('company_admin'), async (req, res) => {
   const users = await db.query(
-    `SELECT id, name, email, role, is_active FROM users WHERE company_id = $1 ORDER BY role`,
+    `SELECT id, name, email, role, is_active FROM users WHERE company_id = $1 AND deleted_at IS NULL ORDER BY role, name`,
     [req.user.company_id]
   );
   const invites = await db.query(
-    `SELECT id, invited_email, invited_role, status, created_at FROM invitations
+    `SELECT id, invited_email, invited_role, status, created_at, token FROM invitations
      WHERE company_id = $1 AND status = 'pending' ORDER BY created_at DESC`,
     [req.user.company_id]
   );
@@ -86,6 +123,51 @@ router.post('/team/:userId/reactivate', requireAuth, requireRole('company_admin'
   );
   if (!result.rows[0]) return res.status(404).json({ error: 'Team member not found' });
   res.json({ reactivated: result.rows[0] });
+});
+
+// DELETE /api/company/team/:userId/permanent (company_admin) — permanently erases a
+// team member, but ONLY once their access has already been removed (is_active =
+// false). Two-step on purpose: Remove is reversible, this is not, so it can never be
+// hit on someone who still has working access. Tries a real row DELETE first; if the
+// person has linked business records (requirements posted, GRNs recorded, invoice
+// overrides...) Postgres refuses with a foreign-key violation (23503), and we instead
+// erase their personal details in place and keep the row as "Deleted user" so those
+// records — an audit trail — stay intact. See db/015_user_permanent_delete.sql.
+router.delete('/team/:userId/permanent', requireAuth, requireRole('company_admin'), async (req, res) => {
+  const targetId = Number(req.params.userId);
+  if (targetId === req.user.id) {
+    return res.status(400).json({ error: 'You cannot delete your own account.' });
+  }
+  const found = await db.query(
+    `SELECT id, name, email, is_active FROM users
+     WHERE id = $1 AND company_id = $2 AND role != 'company_admin' AND deleted_at IS NULL`,
+    [targetId, req.user.company_id]
+  );
+  const target = found.rows[0];
+  if (!target) return res.status(404).json({ error: 'No deletable team member found with that id.' });
+  if (target.is_active) {
+    return res.status(409).json({ error: 'Remove this member\'s access first — only removed members can be permanently deleted.' });
+  }
+
+  // Their accepted-invitation record also holds their email — erase it too.
+  await db.query(
+    `DELETE FROM invitations WHERE company_id = $1 AND lower(invited_email) = lower($2) AND status <> 'pending'`,
+    [req.user.company_id, target.email]
+  );
+
+  try {
+    await db.query(`DELETE FROM users WHERE id = $1 AND company_id = $2`, [targetId, req.user.company_id]);
+    return res.json({ deleted: true, mode: 'deleted', name: target.name });
+  } catch (err) {
+    if (err.code !== '23503') throw err; // only "still referenced" falls through to erasure
+  }
+
+  await db.query(
+    `UPDATE users SET name = 'Deleted user', email = $1, password_hash = '!', is_active = false, deleted_at = now()
+     WHERE id = $2 AND company_id = $3`,
+    [`deleted-${targetId}@deleted.invalid`, targetId, req.user.company_id]
+  );
+  res.json({ deleted: true, mode: 'anonymized', name: target.name });
 });
 
 // GET /api/company/profile — the company's own editable profile fields.

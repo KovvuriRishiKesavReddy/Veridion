@@ -14,17 +14,28 @@
     <button class="btn btn-amber" data-bs-toggle="modal" data-bs-target="#inviteModal">Invite Team Member</button>
   </div>
 
-  <h6>Current Team</h6>
-  <table class="table table-centered bg-white mb-4">
+  <div class="d-flex justify-content-between align-items-center mb-2">
+    <h6 class="mb-0">Team Members</h6>
+    <div class="seg-toggle" id="segToggle">
+      <span class="seg-thumb" id="segThumb"></span>
+      <button type="button" class="seg-btn active" id="segActive" onclick="setTeamView('active')">Active <span class="seg-count" id="segActiveCount">0</span></button>
+      <button type="button" class="seg-btn" id="segRemoved" onclick="setTeamView('removed')">Removed <span class="seg-count" id="segRemovedCount">0</span></button>
+    </div>
+  </div>
+  <div class="team-wrap" id="teamWrap">
+  <table class="table table-centered bg-white mb-0" id="teamTable">
     <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>Action</th></tr></thead>
     <tbody id="teamRows"><tr><td colspan="5" class="text-muted">Loading...</td></tr></tbody>
   </table>
+  </div>
 
+  <div id="inviteSection" class="inv-fade">
   <h6>Pending Invitations</h6>
   <table class="table table-centered bg-white">
-    <thead><tr><th>Email</th><th>Invited Role</th><th>Status</th><th>Sent</th></tr></thead>
-    <tbody id="inviteRows"><tr><td colspan="4" class="text-muted">Loading...</td></tr></tbody>
+    <thead><tr><th>Email</th><th>Invited Role</th><th>Status</th><th>Sent</th><th>Link</th></tr></thead>
+    <tbody id="inviteRows"><tr><td colspan="5" class="text-muted">Loading...</td></tr></tbody>
   </table>
+  </div>
 </div>
 
 <div class="modal fade" id="inviteModal" tabindex="-1">
@@ -54,11 +65,81 @@
 requireLogin(['company_admin']);
 const me = getUser();
 
-async function loadTeam() {
-  const res = await fetchWithAuth('/api/company/team');
-  if (!res) return;
-  const data = await res.json();
-  document.getElementById('teamRows').innerHTML = data.team.map(u => `
+// Every time the modal is opened — whether this is the very first invite or a
+// follow-up right after a previous one — it should start from a clean slate, not
+// whatever email/role/result box was left over from last time.
+document.getElementById('inviteModal').addEventListener('show.bs.modal', () => {
+  document.getElementById('invited_email').value = '';
+  document.getElementById('invited_role').selectedIndex = 0;
+  const box = document.getElementById('linkBox');
+  box.classList.add('d-none');
+  box.innerHTML = '';
+});
+
+let teamView = 'active';
+let lastTeam = [];
+let lastTeamHtml = null;
+
+// Moves the sliding thumb under whichever option is active. Measured from the real
+// button (its width changes with the count digits), so it always fits exactly.
+function updateToggle() {
+  const btn = document.getElementById(teamView === 'active' ? 'segActive' : 'segRemoved');
+  const thumb = document.getElementById('segThumb');
+  document.getElementById('segActive').classList.toggle('active', teamView === 'active');
+  document.getElementById('segRemoved').classList.toggle('active', teamView === 'removed');
+  thumb.style.width = btn.offsetWidth + 'px';
+  thumb.style.transform = `translateX(${btn.offsetLeft}px)`;
+  // First placement must not animate in from x=0, so only enable the slide after it.
+  if (!thumb.classList.contains('ready')) requestAnimationFrame(() => thumb.classList.add('ready'));
+}
+window.addEventListener('resize', updateToggle);
+
+let swapTimer = null;
+let swapPending = false; // true during the fade-out, so a poll tick can't swap rows mid-fade
+function setTeamView(view) {
+  if (view === teamView) return;
+  const table = document.getElementById('teamTable');
+  const wrap = document.getElementById('teamWrap');
+  const startH = wrap.offsetHeight;
+  wrap.style.height = startH + 'px'; // pin the current height so it can animate
+  teamView = view;
+  updateToggle(); // the thumb starts gliding immediately...
+  table.classList.remove('team-swap-in');
+  table.classList.add('team-swap-out'); // ...while the whole table (header too) fades out,
+  document.getElementById('inviteSection').classList.add('inv-out');
+  clearTimeout(swapTimer);
+  swapPending = true;
+  swapTimer = setTimeout(() => {
+    swapPending = false;
+    lastTeamHtml = null;
+    table.classList.toggle('team-table-removed', teamView === 'removed');
+    renderTeam(); // swap content + layout while invisible,
+    // Pending Invitations is only shown in the Active view.
+    const inv = document.getElementById('inviteSection');
+    inv.style.display = teamView === 'removed' ? 'none' : '';
+    void inv.offsetHeight; // (force reflow so the fade-in below actually animates)
+    if (teamView === 'active') inv.classList.remove('inv-out');
+    wrap.style.height = 'auto';
+    const endH = wrap.offsetHeight; // measure the new natural height,
+    wrap.style.height = startH + 'px';
+    void wrap.offsetHeight; // (force reflow so the change below animates)
+    wrap.style.height = endH + 'px'; // glide the page content to its new position,
+    table.classList.remove('team-swap-out');
+    table.classList.add('team-swap-in'); // and let the new rows rise in.
+    setTimeout(() => { wrap.style.height = ''; table.classList.remove('team-swap-in'); }, 800);
+  }, 280);
+}
+
+// Splits the team into Active / Removed so the table only ever shows one group —
+// removed people no longer clutter the list of people who actually have access.
+function renderTeam() {
+  const active = lastTeam.filter(u => u.is_active);
+  const removed = lastTeam.filter(u => !u.is_active);
+  document.getElementById('segActiveCount').textContent = active.length;
+  document.getElementById('segRemovedCount').textContent = removed.length;
+  updateToggle();
+  const list = teamView === 'active' ? active : removed;
+  const html = list.map(u => `
     <tr>
       <td>${u.name}</td>
       <td>${u.email}</td>
@@ -67,24 +148,64 @@ async function loadTeam() {
       <td>${
         u.id === me.id ? '<span class="small text-muted">This is you</span>' :
         u.role === 'company_admin' ? '<span class="small text-muted">Contact platform to change admins</span>' :
-        u.is_active ? `<button class="btn btn-sm btn-outline-danger" onclick="removeMember(${u.id}, '${u.name}')">Remove</button>` :
-        `<button class="btn btn-sm btn-outline-secondary" onclick="reactivateMember(${u.id})">Reactivate</button>`
+        u.is_active ? `<button class="btn btn-sm btn-outline-danger" onclick="removeMember(${u.id})">Remove</button>` :
+        `<div class="team-actions">
+           <button class="btn btn-sm btn-outline-secondary" onclick="reactivateMember(${u.id})">Reactivate</button>
+           <button class="btn btn-sm btn-outline-danger" onclick="deleteMember(${u.id})"><i class="bi bi-trash3"></i>Delete</button>
+         </div>`
       }</td>
-    </tr>`
-  ).join('') || '<tr><td colspan="5" class="text-muted">No team members yet.</td></tr>';
-  document.getElementById('inviteRows').innerHTML = data.pending_invitations.map(i =>
-    `<tr><td>${i.invited_email}</td><td>${i.invited_role}</td><td><span class="badge bg-warning text-dark">${i.status}</span></td><td>${new Date(i.created_at).toLocaleDateString()}</td></tr>`
-  ).join('') || '<tr><td colspan="4" class="text-muted">No pending invitations.</td></tr>';
+    </tr>`).join('') || `<tr><td colspan="5" class="text-muted">${teamView === 'active' ? 'No active team members yet.' : 'No removed members. Anyone whose access you remove will appear here.'}</td></tr>`;
+  if (!swapPending && html !== lastTeamHtml) { lastTeamHtml = html; document.getElementById('teamRows').innerHTML = html; }
 }
-// Poll every second so newly accepted invites / role changes show up live.
-pollEvery(loadTeam, 1000, () => pollBlockedBy('teamRows', 'inviteRows'));
 
-async function removeMember(id, name) {
-  if (!confirm(`Remove ${name} from the team? They will lose access immediately. You can reactivate them later.`)) return;
+async function loadTeam() {
+  const res = await fetchWithAuth('/api/company/team');
+  if (!res) return;
+  const data = await res.json();
+  lastTeam = data.team;
+  renderTeam();
+  const inviteHtml = data.pending_invitations.map(i =>
+    `<tr><td>${i.invited_email}</td><td>${i.invited_role}</td><td><span class="badge bg-warning text-dark">${i.status}</span></td><td>${new Date(i.created_at).toLocaleDateString()}</td><td>${copyLinkButtonHtml(i.token)}</td></tr>`
+  ).join('') || '<tr><td colspan="5" class="text-muted">No pending invitations.</td></tr>';
+  // This runs every second (live polling). Only touch the DOM when something actually
+  // changed, so a button mid-"Copied!" isn't torn down and rebuilt under the user.
+  if (inviteHtml !== lastInviteHtml) {
+    lastInviteHtml = inviteHtml;
+    document.getElementById('inviteRows').innerHTML = inviteHtml;
+  }
+}
+let lastInviteHtml = null;
+
+async function removeMember(id) {
+  const u = lastTeam.find(x => x.id === id);
+  const ok = await confirmDialog({
+    title: 'Remove this team member?',
+    message: `${u ? u.name : 'This person'} will lose access immediately. You can reactivate them later from the Removed tab.`,
+    confirmText: 'Remove', danger: true
+  });
+  if (!ok) return;
   const res = await fetchWithAuth(`/api/company/team/${id}`, { method: 'DELETE' });
   if (!res) return;
   const data = await res.json();
   if (!res.ok) { alert(data.error || 'Failed'); return; }
+  loadTeam();
+}
+
+async function deleteMember(id) {
+  const u = lastTeam.find(x => x.id === id);
+  const ok = await confirmDialog({
+    title: 'Permanently delete this member?',
+    message: `Are you sure you want to delete ${u ? u.name : 'this person'}? Their account details will be erased from the database and this cannot be undone. If they have posted records (requirements, deliveries, etc.), those records are kept for your audit trail but will show "Deleted user" instead of their name.`,
+    confirmText: 'Yes, delete permanently', danger: true
+  });
+  if (!ok) return;
+  const res = await fetchWithAuth(`/api/company/team/${id}/permanent`, { method: 'DELETE' });
+  if (!res) return;
+  const data = await res.json();
+  if (!res.ok) { alert(data.error || 'Failed'); return; }
+  showToast(data.mode === 'deleted'
+    ? `${data.name} was permanently deleted.`
+    : `${data.name}'s personal details were erased. Their past records now show "Deleted user".`);
   loadTeam();
 }
 
@@ -96,6 +217,93 @@ async function reactivateMember(id) {
   loadTeam();
 }
 
+// --- Copy-link button: reused both in the Pending Invitations table and in the
+// modal's own linkBox right after an invite is created, so there's exactly one
+// implementation of "copy this link" to get right. The token is passed via a data
+// attribute rather than embedded in the onclick string, so there's no risk of the
+// token's characters ever breaking the generated HTML.
+// Copied-state lives in a map keyed by token (token -> expiry timestamp), NOT on the
+// button element: the table re-renders whenever the invite list changes (and the
+// button is rebuilt from scratch), so state stored on the element would be lost.
+const COPY_CONFIRM_MS = 30000; // "Copied!" stays visible for 30 seconds, as requested.
+const copiedUntil = new Map();
+const copyRevertTimers = new Map();
+
+function isCopied(token) {
+  const until = copiedUntil.get(token);
+  return !!until && until > Date.now();
+}
+
+function copyLinkButtonHtml(token) {
+  const copied = isCopied(token);
+  return `<button type="button" class="copy-link-btn${copied ? ' copied' : ''}" data-token="${token}" onclick="copyInviteLink(this)">
+    <svg class="copy-link-icon copy-link-icon-plain" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 012-2h10"/></svg>
+    <svg class="copy-link-icon copy-link-icon-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg>
+    <span class="copy-link-label">${copied ? 'Copied!' : 'Copy'}</span>
+  </button>`;
+}
+
+// Applies the copied/idle look to EVERY button for this token currently on the page
+// (the table row and the modal box can both show the same invite).
+function paintCopyButtons(token, copied) {
+  document.querySelectorAll(`.copy-link-btn[data-token="${token}"]`).forEach(b => {
+    b.classList.toggle('copied', copied);
+    b.querySelector('.copy-link-label').textContent = copied ? 'Copied!' : 'Copy';
+  });
+}
+
+function setButtonCopied(btn) {
+  const token = btn.dataset.token;
+  clearTimeout(copyRevertTimers.get(token)); // re-click restarts the full 30s
+  copiedUntil.set(token, Date.now() + COPY_CONFIRM_MS);
+  paintCopyButtons(token, true);
+  copyRevertTimers.set(token, setTimeout(() => {
+    copiedUntil.delete(token);
+    paintCopyButtons(token, false);
+  }, COPY_CONFIRM_MS));
+}
+
+async function copyToClipboard(link, btn) {
+  try {
+    if (!navigator.clipboard || !window.isSecureContext) throw new Error('Clipboard API unavailable');
+    await navigator.clipboard.writeText(link);
+    setButtonCopied(btn);
+  } catch (err) {
+    // Fallback for browsers/contexts where the Clipboard API isn't available — a
+    // temporary, invisible textarea + the older execCommand('copy') still works
+    // essentially everywhere, so a real copy still happens instead of silently
+    // doing nothing.
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = link;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      setButtonCopied(btn);
+    } catch (fallbackErr) {
+      // Last resort — at least show it so it can still be copied by hand.
+      prompt('Copy this invitation link:', link);
+    }
+  }
+}
+
+// copyInviteLink: for when the link shown once at invite-creation time (see
+// sendInvite's linkBox below) has since been lost — invitations never expire (no
+// expires_at on the table, see 014_pending_invite_unique.sql), so the same token is
+// always still valid to re-send. Reads the token from the button itself (see
+// copyLinkButtonHtml above) rather than taking it as an argument straight from the
+// row's own render — the two are equivalent today, but this way there is exactly
+// one source of truth (the button that was actually clicked) no matter how the
+// button ended up on the page.
+function copyInviteLink(btn) {
+  const link = `${window.location.origin}/accept-invite.html?token=${btn.dataset.token}`;
+  copyToClipboard(link, btn);
+}
+
 async function sendInvite() {
   const body = { invited_email: document.getElementById('invited_email').value, invited_role: document.getElementById('invited_role').value };
   const res = await fetchWithAuth('/api/company/invite', { method: 'POST', body: JSON.stringify(body) });
@@ -104,9 +312,15 @@ async function sendInvite() {
   if (!res.ok) { alert(data.error || 'Failed'); return; }
   const box = document.getElementById('linkBox');
   box.classList.remove('d-none');
-  box.innerHTML = `Invite created. Local accept link: <br><code>${window.location.origin}${data.accept_url}</code>`;
+  box.innerHTML = `${data.reused ? 'This person already has a pending invite — here is the same link again:' : 'Invite created:'}
+    <div class="d-flex align-items-center gap-2 mt-2">
+      <code class="flex-grow-1 text-break">${window.location.origin}${data.accept_url}</code>
+      ${copyLinkButtonHtml(data.invitation.token)}
+    </div>`;
   loadTeam();
 }
+// Started last, after every const above is initialised. Polls every second so newly accepted invites / role changes show up live.
+pollEvery(loadTeam, 1000, () => pollBlockedBy('teamRows', 'inviteRows'));
 </script>
 </body>
 </html>

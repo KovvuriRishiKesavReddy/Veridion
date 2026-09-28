@@ -450,3 +450,109 @@ body.has-dock-nav > .container.auth-container .alert {
 .step-nav { display: flex; gap: 0.75rem; margin-top: 0.5rem; }
 .step-nav > .hbg { flex: 1; }
 .step-nav .hbg-outline .hbg-core { font-weight: 600; }
+
+/* ============================================================================
+   Copy-link button — an invite link (or any copyable link/token) with a pill
+   button that visibly confirms the copy. Idle state matches the app's existing
+   frosted-glass outline-button language; a successful copy swaps the icon for a
+   checkmark and turns the button to --accept-green (the same teal already used
+   elsewhere for positive/accept actions), with a smooth color transition rather
+   than an abrupt flip, then holds that state for a while so the confirmation is
+   impossible to miss before reverting to idle on its own.
+   ============================================================================ */
+.copy-link-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border-radius: 999px;
+  padding: 0.32rem 1rem;
+  font-weight: 600;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  border: 1px solid rgba(20, 83, 45, 0.35);
+  background-color: rgba(214, 245, 224, 0.55);
+  color: #0f5132;
+  backdrop-filter: blur(8px) saturate(160%);
+  -webkit-backdrop-filter: blur(8px) saturate(160%);
+  transition: background-color 0.4s ease, border-color 0.4s ease, color 0.4s ease, transform 0.15s ease, box-shadow 0.4s ease;
+  cursor: pointer;
+}
+.copy-link-btn:hover {
+  transform: translateY(-1px);
+  background-color: rgba(20, 83, 45, 0.92);
+  border-color: rgba(20, 83, 45, 0.92);
+  color: #fff;
+}
+.copy-link-btn:active { transform: translateY(0); }
+.copy-link-btn .copy-link-icon {
+  width: 14px; height: 14px; flex-shrink: 0;
+  transition: transform 0.4s ease;
+}
+.copy-link-btn .copy-link-icon.copy-link-icon-check { display: none; }
+.copy-link-btn.copied {
+  background-color: var(--accept-green);
+  border-color: var(--accept-green-dark);
+  color: #04342c;
+  box-shadow: 0 6px 16px -6px rgba(32, 201, 151, 0.55);
+}
+.copy-link-btn.copied:hover {
+  background-color: var(--accept-green-dark);
+  border-color: var(--accept-green-dark);
+  color: #04342c;
+}
+.copy-link-btn.copied .copy-link-icon-plain { display: none; }
+.copy-link-btn.copied .copy-link-icon-check {
+  display: inline-block;
+  transform: scale(1.15);
+}
+
+/* Segmented Active / Removed toggle (Team page).
+   One soft "thumb" glides between the two options. The easing is a gentle
+   decelerate (fast start, long soft landing) rather than a symmetric ease-in-out,
+   and the label colours fade over the same duration, so nothing snaps. */
+.seg-toggle { position: relative; display: inline-flex; padding: 4px; border-radius: 999px; background: rgba(20, 83, 45, 0.07); border: 1px solid rgba(20, 83, 45, 0.14); isolation: isolate; }
+.seg-thumb {
+  position: absolute; top: 4px; bottom: 4px; left: 0; width: 0; z-index: 0; border-radius: 999px;
+  background: linear-gradient(135deg, #1a6b3a, #2a8f52);
+  box-shadow: 0 4px 12px -5px rgba(20, 83, 45, 0.45);
+  opacity: 0; will-change: transform, width;
+}
+.seg-thumb.ready { opacity: 1; transition: transform 0.53s cubic-bezier(0.32, 0.72, 0, 1), width 0.53s cubic-bezier(0.32, 0.72, 0, 1); }
+.seg-btn {
+  position: relative; z-index: 1; border: 0; background: transparent; color: #0f5132; font-weight: 600; font-size: 0.82rem;
+  padding: 0.35rem 1.05rem; border-radius: 999px; display: inline-flex; align-items: center; gap: 0.45rem;
+  transition: color 0.53s cubic-bezier(0.32, 0.72, 0, 1);
+}
+.seg-btn:not(.active):hover { color: #14532d; }
+.seg-btn.active { color: #fff; }
+.seg-count { font-size: 0.72rem; min-width: 1.35rem; text-align: center; padding: 0 0.35rem; border-radius: 999px; background: rgba(20, 83, 45, 0.12); transition: background-color 0.53s cubic-bezier(0.32, 0.72, 0, 1); }
+.seg-btn.active .seg-count { background: rgba(255, 255, 255, 0.24); }
+
+/* Team table. The ACTIVE view keeps the table's normal (auto) layout. The REMOVED
+   view is switched to a fixed layout with set column widths (class added by JS). */
+.team-table-removed { table-layout: fixed; width: 100%; }
+.team-table-removed th:nth-child(1) { width: 20%; }
+.team-table-removed th:nth-child(2) { width: 26%; }
+.team-table-removed th:nth-child(3) { width: 15%; }
+.team-table-removed th:nth-child(4) { width: 11%; }
+.team-table-removed th:nth-child(5) { width: 28%; }
+.team-table-removed td, .team-table-removed th { word-break: break-word; vertical-align: middle; }
+.team-actions { display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem; flex-wrap: wrap; }
+.team-actions .btn { display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem; min-width: 104px; }
+
+/* Wrapper that animates its own height between views (5 rows -> 2 rows) so the
+   content below glides instead of jumping. Padding/negative margin give the table's
+   soft shadow room, since overflow:hidden would otherwise clip it. */
+.team-wrap { overflow: hidden; padding: 16px; margin: -16px -16px 8px -16px; transition: height 0.55s cubic-bezier(0.32, 0.72, 0, 1); }
+#teamTable { transition: opacity 0.28s ease; }
+#teamTable.team-swap-out { opacity: 0; }
+#teamTable.team-swap-in tbody tr { animation: teamRowIn 0.55s cubic-bezier(0.32, 0.72, 0, 1) both; }
+#teamTable.team-swap-in tbody tr:nth-child(2) { animation-delay: 0.06s; }
+#teamTable.team-swap-in tbody tr:nth-child(3) { animation-delay: 0.12s; }
+#teamTable.team-swap-in tbody tr:nth-child(4) { animation-delay: 0.18s; }
+#teamTable.team-swap-in tbody tr:nth-child(n+5) { animation-delay: 0.24s; }
+@keyframes teamRowIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+/* Pending Invitations only belongs to the Active view: it fades with the view switch. */
+.inv-fade { transition: opacity 0.28s ease; }
+.inv-fade.inv-out { opacity: 0; }

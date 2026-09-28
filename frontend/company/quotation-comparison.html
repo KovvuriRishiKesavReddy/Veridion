@@ -22,6 +22,7 @@
     <label class="form-label">Requirement</label>
     <select class="form-select" id="reqSelect" style="max-width:420px" onchange="loadQuotations()"></select>
   </div>
+  <div id="reqDeadlineWarning" style="display:none;" class="alert alert-warning py-2 px-3 mb-3"></div>
   <table class="table table-centered bg-white">
     <thead><tr><th>Rank</th><th>Vendor</th><th>Verification</th><th>Price</th><th>Delivery (days)</th><th>AI Score</th><th>Status</th><th>Action</th></tr></thead>
     <tbody id="rows"><tr><td colspan="8" class="text-muted">Select a requirement above.</td></tr></tbody>
@@ -59,11 +60,38 @@ function platformContextFor(vendorId) {
   return `No history with your company yet — has completed ${v.total_platform_verified_events} verified transactions across ${companies}, ${pct}. Informational only — never used in this vendor's ranking above.`;
 }
 
+// isPastDeadline: projects when this delivery would actually land if accepted right
+// now — today + the vendor's quoted delivery_days — using the exact same date math
+// as the accept endpoint itself (see routes/quotations.js's accept handler), so the
+// warning here can never disagree with what actually gets written to the PO once
+// accepted. Purely informational (never blocks accepting) — see routes/rankQuotations.js
+// for the same "deadline overrun is a nudge, not a disqualifier" posture.
+function isPastDeadline(q) {
+  if (!q.requirement_deadline) return false;
+  const projected = new Date();
+  projected.setDate(projected.getDate() + Number(q.delivery_days));
+  projected.setHours(0, 0, 0, 0);
+  const deadline = new Date(q.requirement_deadline);
+  deadline.setHours(0, 0, 0, 0);
+  return projected > deadline;
+}
+function deadlineBadge(q) {
+  return isPastDeadline(q)
+    ? ` <span class="badge bg-warning text-dark" title="Accepting now would land this delivery after the requirement's deadline (${new Date(q.requirement_deadline).toLocaleDateString()})">Past deadline</span>`
+    : '';
+}
+
+// Kept from the last render so accept()/acceptFromAll() can look up the specific
+// quotation being accepted (for its deadline-overrun status) without a second fetch.
+let lastAllQuotations = [];
+let lastQuotations = [];
+
 async function loadAll() {
   const res = await fetchWithAuth('/api/quotations/company');
   if (!res) return;
   let qs = await res.json();
   qs = sortAndFilterItems(qs, getAllSortState(), { dateField: 'submitted_at', numberField: 'id', searchFields: ['requirement_title', 'vendor_name', 'verification_status'] });
+  lastAllQuotations = qs;
   const rows = document.getElementById('allRows');
   if (!qs.length) { rows.innerHTML = '<tr><td colspan="7" class="text-muted">No open quotations right now.</td></tr>'; return; }
   rows.innerHTML = qs.map(q => `
@@ -72,16 +100,19 @@ async function loadAll() {
       <td>${q.vendor_name}</td>
       <td><span class="badge status-badge ${statusBadgeClass(q.verification_status)}">${q.verification_status}</span></td>
       <td>₹${q.price}</td>
-      <td>${q.delivery_days}</td>
+      <td>${q.delivery_days}${deadlineBadge(q)}</td>
       <td>${new Date(q.submitted_at).toLocaleDateString()}</td>
       <td><span class="hbg d-inline-block"><button class="hbg-core" style="padding:6px 14px;font-size:0.85rem;" onclick="withButtonState(this, () => acceptFromAll(${q.id}))">Accept</button></span></td>
     </tr>`).join('');
 }
 
 async function acceptFromAll(quotationId) {
+  const q = lastAllQuotations.find(x => x.id === quotationId);
   const ok = await confirmDialog({
     title: 'Accept this quotation?',
-    message: 'This generates a Purchase Order and closes the requirement to further quotes — the vendor is notified immediately.',
+    message: (q && isPastDeadline(q)
+      ? `Heads up: this vendor's ${q.delivery_days}-day delivery would land after the requirement's deadline (${new Date(q.requirement_deadline).toLocaleDateString()}). `
+      : '') + 'This generates a Purchase Order and closes the requirement to further quotes — the vendor is notified immediately.',
     confirmText: 'Accept & Generate PO'
   });
   if (!ok) return null;
@@ -109,19 +140,30 @@ async function loadRequirements() {
 async function loadQuotations(rerank = true) {
   const id = document.getElementById('reqSelect').value;
   const rows = document.getElementById('rows');
+  const warning = document.getElementById('reqDeadlineWarning');
+  warning.style.display = 'none';
   if (!id) { rows.innerHTML = '<tr><td colspan="8" class="text-muted">Select a requirement above.</td></tr>'; return; }
   if (rerank) rows.innerHTML = '<tr><td colspan="8" class="text-muted">Ranking quotations...</td></tr>';
   const res = await fetchWithAuth(`/api/requirements/${id}/quotations${rerank ? '' : '?rerank=false'}`);
   if (!res) return;
   const qs = await res.json();
+  lastQuotations = qs;
   if (!qs.length) { rows.innerHTML = '<tr><td colspan="8" class="text-muted">No quotations yet for this requirement.</td></tr>'; return; }
+  // If every still-open quotation would deliver after the deadline, a per-row badge
+  // alone doesn't say anything useful — the ranking still finds a "best of the worst",
+  // but Procurement should know upfront that none of them will actually make it.
+  const pending = qs.filter(q => q.status === 'submitted');
+  if (pending.length > 0 && pending.every(isPastDeadline)) {
+    warning.style.display = 'block';
+    warning.innerHTML = `<i class="bi bi-exclamation-triangle-fill me-1"></i> All ${pending.length} open quotation${pending.length > 1 ? 's' : ''} for this requirement would deliver after your deadline (${new Date(pending[0].requirement_deadline).toLocaleDateString()}) — none of them will hit it. Consider extending the deadline, or accept the best available option knowing it'll be late.`;
+  }
   rows.innerHTML = qs.map((q, i) => `
     <tr>
       <td>${q.ai_rank_score != null ? '#' + (i + 1) : '—'}</td>
       <td>${q.vendor_name}</td>
       <td><span class="badge status-badge ${statusBadgeClass(q.verification_status)}">${q.verification_status}</span></td>
       <td>₹${q.price}</td>
-      <td>${q.delivery_days}</td>
+      <td>${q.delivery_days}${deadlineBadge(q)}</td>
       <td>${q.ai_rank_score != null ? Number(q.ai_rank_score).toFixed(2) : '—'}</td>
       <td><span class="badge status-badge ${statusBadgeClass(q.status)}">${q.status}</span></td>
       <td>${q.status === 'submitted' ? `<span class="hbg d-inline-block"><button class="hbg-core" style="padding:6px 14px;font-size:0.85rem;" onclick="withButtonState(this, () => accept(${q.id}))">Accept</button></span>` : '—'}</td>
@@ -144,9 +186,12 @@ async function loadQuotations(rerank = true) {
 }
 
 async function accept(quotationId) {
+  const q = lastQuotations.find(x => x.id === quotationId);
   const ok = await confirmDialog({
     title: 'Accept this quotation?',
-    message: 'This generates a Purchase Order — the vendor is notified immediately.',
+    message: (q && isPastDeadline(q)
+      ? `Heads up: this vendor's ${q.delivery_days}-day delivery would land after the requirement's deadline (${new Date(q.requirement_deadline).toLocaleDateString()}). `
+      : '') + 'This generates a Purchase Order — the vendor is notified immediately.',
     confirmText: 'Accept & Generate PO'
   });
   if (!ok) return null;

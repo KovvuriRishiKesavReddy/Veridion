@@ -19,22 +19,22 @@
   </div>
 
   <div class="dash-kpi-grid" id="adminKpis">
-    <div class="dash-kpi-card dash-kpi-1">
+    <div class="dash-kpi-card dash-kpi-1" style="cursor:pointer" onclick="window.location.href='/admin/vendor-verification.html'">
       <div class="dash-kpi-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 20v-2a4 4 0 00-4-4H7a4 4 0 00-4 4v2M17 8a4 4 0 100-8 4 4 0 000 8z"/></svg></div>
       <div class="dash-kpi-value" id="kpiVendors">—</div>
       <div class="dash-kpi-label">Total Vendors</div>
     </div>
-    <div class="dash-kpi-card dash-kpi-2">
+    <div class="dash-kpi-card dash-kpi-2" style="cursor:pointer" onclick="window.location.href='/admin/vendor-verification.html'">
       <div class="dash-kpi-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg></div>
       <div class="dash-kpi-value" id="kpiPendingVendors">—</div>
       <div class="dash-kpi-label">Pending Vendor Approvals</div>
     </div>
-    <div class="dash-kpi-card dash-kpi-3">
+    <div class="dash-kpi-card dash-kpi-3" style="cursor:pointer" onclick="window.location.href='/admin/company-verification.html'">
       <div class="dash-kpi-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18M6 21V7l6-4 6 4v14M9 9h1m4 0h1m-6 4h1m4 0h1m-6 4h1m4 0h1"/></svg></div>
       <div class="dash-kpi-value" id="kpiCompanies">—</div>
       <div class="dash-kpi-label">Total Companies</div>
     </div>
-    <div class="dash-kpi-card dash-kpi-6">
+    <div class="dash-kpi-card dash-kpi-6" style="cursor:pointer" onclick="window.location.href='/admin/fraud-review.html'">
       <div class="dash-kpi-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4m0 4h.01M10.3 3.9L2.6 18a1 1 0 00.9 1.5h17a1 1 0 00.9-1.5L13.7 3.9a1 1 0 00-1.7 0z"/></svg></div>
       <div class="dash-kpi-value" id="kpiFraud">—</div>
       <div class="dash-kpi-label">Open Fraud Flags</div>
@@ -61,27 +61,6 @@
     <div class="dash-carousel-dots" id="dots-adminTips"></div>
   </div>
 
-  <h3 class="mb-1">Vendor Verification</h3>
-  <p class="text-muted">Every vendor that has registered on the platform. A vendor can't act on the platform (quote, invoice, etc.) until approved here — this is the human-gated step described in the onboarding flow. Expand a row to see everything they submitted before deciding.</p>
-  <table class="table table-centered bg-white">
-    <thead><tr><th></th><th>Company</th><th>Contact</th><th>Phone</th><th>Email</th><th>GSTIN</th><th>Status</th><th>Registered</th><th>Action</th></tr></thead>
-    <tbody id="rows"><tr><td colspan="9" class="text-muted">Loading...</td></tr></tbody>
-  </table>
-
-  <h3 class="mb-1 mt-5">Company Verification</h3>
-  <p class="text-muted">Every company that has registered on the platform. A company_admin gets a valid login immediately, but nobody on their team can post requirements, invite teammates, accept quotations, record deliveries, or approve payments until the company is approved here.</p>
-  <table class="table table-centered bg-white">
-    <thead><tr><th>Company</th><th>Admin</th><th>GSTIN</th><th>Address</th><th>Industry</th><th>Status</th><th>Registered</th><th>Proof</th><th>Action</th></tr></thead>
-    <tbody id="companyRows"><tr><td colspan="9" class="text-muted">Loading...</td></tr></tbody>
-  </table>
-
-  <h3 class="mb-1 mt-5">Fraud Review Queue</h3>
-  <p class="text-muted">Invoices marked 'suspicious' by the Context Gate — a high-severity fraud signal (shell company, split billing) bypasses the normal weighted decision entirely and lands here for cross-company review.</p>
-  <table class="table table-centered bg-white">
-    <thead><tr><th>Vendor</th><th>Invoice</th><th>Flag Type</th><th>Severity</th><th>Status</th><th>Action</th></tr></thead>
-    <tbody id="fraudRows"><tr><td colspan="6" class="text-muted">Loading...</td></tr></tbody>
-  </table>
-
   <div class="dash-section-heading"><h5>Frequently Asked Questions</h5><span>For platform admins</span></div>
   <div class="dash-faq-list" id="adminFaq"></div>
 </div>
@@ -90,163 +69,35 @@
 <script src="/shared/dashboard-widgets.js"></script>
 <script>
 requireLogin(['platform_admin']);
-let expandedId = null;
 
 DashCarousel.init('adminTips');
 renderDashFaq('adminFaq', 'admin');
 
-async function load() {
-  const res = await fetchWithAuth('/api/admin/vendors');
-  if (!res) return;
-  const vendors = await res.json();
-  document.getElementById('kpiVendors').textContent = vendors.length;
-  document.getElementById('kpiPendingVendors').textContent = vendors.filter(v => v.verification_status === 'pending').length;
-  const rows = document.getElementById('rows');
-  if (!vendors.length) { rows.innerHTML = '<tr><td colspan="9" class="text-muted">No vendors registered yet.</td></tr>'; return; }
-  rows.innerHTML = vendors.map(v => `
-    <tr>
-      <td><button class="btn btn-sm btn-outline-secondary btn-icon" onclick="toggleDetail(${v.id})">${expandedId === v.id ? '▾' : '▸'}</button></td>
-      <td>${v.company_name}</td>
-      <td>${v.contact_name}</td>
-      <td>${v.phone_number || '—'}</td>
-      <td>${v.email}</td>
-      <td>${v.gstin || '—'}</td>
-      <td><span class="badge status-badge ${statusBadgeClass(v.verification_status)}">${v.verification_status}</span></td>
-      <td>${new Date(v.created_at).toLocaleDateString()}</td>
-      <td>
-        ${v.verification_status === 'pending' ? `
-          <div class="d-inline-flex flex-wrap justify-content-center gap-2">
-            <button class="btn btn-sm btn-outline-secondary" onclick="verify(${v.id}, 'verified')">Approve</button>
-            <button class="btn btn-sm btn-outline-danger" onclick="verify(${v.id}, 'rejected')">Reject</button>
-          </div>
-        ` : v.verification_status === 'verified' ? `
-          <button class="btn btn-sm btn-outline-danger" onclick="verify(${v.id}, 'rejected')">Revoke</button>
-        ` : `
-          <button class="btn btn-sm btn-outline-secondary" onclick="verify(${v.id}, 'verified')">Re-approve</button>
-        `}
-      </td>
-    </tr>
-    ${expandedId === v.id ? `
-    <tr><td colspan="9" class="bg-light text-start">
-      <div class="p-2">
-        <p class="mb-1 small"><strong>PAN:</strong> ${v.pan || '—'} &nbsp; <strong>Address:</strong> ${v.address || '—'}</p>
-        <p class="mb-1 small"><strong>Bank Account:</strong> ${v.bank_account_number || '—'} &nbsp; <strong>IFSC:</strong> ${v.bank_ifsc || '—'}</p>
-        <div class="d-flex gap-2 mt-2">
-          ${v.business_reg_proof_path ? `<button class="btn btn-sm btn-outline-secondary" onclick="viewProof(${v.id})">View Business Reg. Proof</button>` : '<span class="small text-muted">No business reg. proof</span>'}
-          ${v.pan_proof_path ? `<button class="btn btn-sm btn-outline-secondary" onclick="viewPanProof(${v.id})">View PAN Proof</button>` : '<span class="small text-muted">No PAN proof</span>'}
-        </div>
-      </div>
-    </td></tr>` : ''}`).join('');
+// Overview counts only now — Vendor Verification, Company Verification, and Fraud
+// Review Queue each moved to their own page (see the dock nav) so this dashboard is
+// just a quick at-a-glance summary; click a card to jump to the page that acts on it.
+async function loadKpis() {
+  const [vendorsRes, companiesRes, fraudRes] = await Promise.all([
+    fetchWithAuth('/api/admin/vendors'),
+    fetchWithAuth('/api/admin/companies'),
+    fetchWithAuth('/api/admin/fraud-flags')
+  ]);
+  if (vendorsRes && vendorsRes.ok) {
+    const vendors = await vendorsRes.json();
+    document.getElementById('kpiVendors').textContent = vendors.length;
+    document.getElementById('kpiPendingVendors').textContent = vendors.filter(v => v.verification_status === 'pending').length;
+  }
+  if (companiesRes && companiesRes.ok) {
+    const companies = await companiesRes.json();
+    document.getElementById('kpiCompanies').textContent = companies.length;
+  }
+  if (fraudRes && fraudRes.ok) {
+    const flags = await fraudRes.json();
+    document.getElementById('kpiFraud').textContent = flags.filter(f => !f.resolved).length;
+  }
 }
 
-function toggleDetail(id) {
-  expandedId = expandedId === id ? null : id;
-  load();
-}
-
-async function viewProof(id) {
-  const res = await fetchWithAuth(`/api/admin/vendors/${id}/proof-document`);
-  if (!res || !res.ok) { alert('No proof document on file for this vendor.'); return; }
-  const blob = await res.blob();
-  window.open(URL.createObjectURL(blob), '_blank');
-}
-
-async function viewPanProof(id) {
-  const res = await fetchWithAuth(`/api/admin/vendors/${id}/pan-proof-document`);
-  if (!res || !res.ok) { alert('No PAN proof document on file for this vendor.'); return; }
-  const blob = await res.blob();
-  window.open(URL.createObjectURL(blob), '_blank');
-}
-
-async function verify(id, status) {
-  const res = await fetchWithAuth(`/api/admin/vendors/${id}/verify`, { method: 'POST', body: JSON.stringify({ status }) });
-  if (!res) return;
-  const data = await res.json();
-  if (!res.ok) { alert(data.error || 'Failed'); return; }
-  load();
-}
-
-// Poll all three sections every second so a newly registered vendor/company, or a
-// freshly raised fraud flag, appears live without the admin needing to refresh. Each
-// pauses itself while its expanded detail panel is open or its text is being
-// selected/copied, so reviewing or copying a vendor's PAN/bank details never gets
-// yanked away mid-read.
-pollEvery(load, 1000, () => pollBlockedBy('rows'));
-pollEvery(loadCompanies, 1000, () => pollBlockedBy('companyRows'));
-pollEvery(loadFraudFlags, 1000, () => pollBlockedBy('fraudRows'));
-
-async function loadCompanies() {
-  const res = await fetchWithAuth('/api/admin/companies');
-  if (!res) return;
-  const companies = await res.json();
-  document.getElementById('kpiCompanies').textContent = companies.length;
-  const rows = document.getElementById('companyRows');
-  if (!companies.length) { rows.innerHTML = '<tr><td colspan="9" class="text-muted">No companies registered yet.</td></tr>'; return; }
-  rows.innerHTML = companies.map(c => `
-    <tr>
-      <td>${c.name}</td>
-      <td>${c.admin_name || '—'} (${c.admin_email || '—'})</td>
-      <td>${c.gstin || '—'}</td>
-      <td>${c.address || '—'}</td>
-      <td>${c.industry_type || '—'}</td>
-      <td><span class="badge status-badge ${statusBadgeClass(c.approval_status)}">${c.approval_status}</span></td>
-      <td>${new Date(c.created_at).toLocaleDateString()}</td>
-      <td>${c.registration_proof_path ? `<button class="btn btn-sm btn-outline-secondary" onclick="viewCompanyProof(${c.id})">View Proof</button>` : '<span class="small text-muted">None</span>'}</td>
-      <td>
-        ${c.approval_status === 'pending' ? `
-          <div class="d-inline-flex flex-wrap justify-content-center gap-2">
-            <button class="btn btn-sm btn-outline-secondary" onclick="approveCompany(${c.id}, 'approved')">Approve</button>
-            <button class="btn btn-sm btn-outline-danger" onclick="approveCompany(${c.id}, 'rejected')">Reject</button>
-          </div>
-        ` : c.approval_status === 'approved' ? `
-          <button class="btn btn-sm btn-outline-danger" onclick="approveCompany(${c.id}, 'rejected')">Revoke</button>
-        ` : `
-          <button class="btn btn-sm btn-outline-secondary" onclick="approveCompany(${c.id}, 'approved')">Re-approve</button>
-        `}
-      </td>
-    </tr>`).join('');
-}
-
-async function approveCompany(id, status) {
-  const res = await fetchWithAuth(`/api/admin/companies/${id}/approve`, { method: 'POST', body: JSON.stringify({ status }) });
-  if (!res) return;
-  const data = await res.json();
-  if (!res.ok) { alert(data.error || 'Failed'); return; }
-  loadCompanies();
-}
-
-async function viewCompanyProof(id) {
-  const res = await fetchWithAuth(`/api/admin/companies/${id}/proof-document`);
-  if (!res || !res.ok) { alert('No proof document on file.'); return; }
-  const blob = await res.blob();
-  window.open(URL.createObjectURL(blob), '_blank');
-}
-
-async function loadFraudFlags() {
-  const res = await fetchWithAuth('/api/admin/fraud-flags');
-  if (!res) return;
-  const flags = await res.json();
-  document.getElementById('kpiFraud').textContent = flags.filter(f => !f.resolved).length;
-  const rows = document.getElementById('fraudRows');
-  if (!flags.length) { rows.innerHTML = '<tr><td colspan="6" class="text-muted">No fraud flags raised yet.</td></tr>'; return; }
-  rows.innerHTML = flags.map(f => `
-    <tr>
-      <td>${f.vendor_name}</td>
-      <td>${f.invoice_number || (f.invoice_id ? '#' + f.invoice_id : '—')}</td>
-      <td>${f.flag_type}</td>
-      <td><span class="badge ${f.severity === 'high' ? 'bg-danger' : f.severity === 'medium' ? 'bg-warning text-dark' : 'bg-secondary'}">${f.severity}</span></td>
-      <td>${f.resolved ? '<span class="badge bg-success">Resolved</span>' : '<span class="badge bg-warning text-dark">Open</span>'}</td>
-      <td>${f.resolved ? '—' : `<button class="btn btn-sm btn-outline-secondary" onclick="resolveFlag(${f.id})">Mark Resolved</button>`}</td>
-    </tr>`).join('');
-}
-
-async function resolveFlag(id) {
-  const res = await fetchWithAuth(`/api/admin/fraud-flags/${id}/resolve`, { method: 'POST' });
-  if (!res) return;
-  const data = await res.json();
-  if (!res.ok) { alert(data.error || 'Failed'); return; }
-  loadFraudFlags();
-}
+pollEvery(loadKpis, 5000);
 </script>
 </body>
 </html>

@@ -38,7 +38,43 @@ const DOCK_ICONS = {
   'GRN Documents': 'bi-clipboard-check',
   'Invoices': 'bi-receipt',
   'Payments': 'bi-cash-coin',
-  'GRN Entry': 'bi-box-seam'
+  'GRN Entry': 'bi-box-seam',
+  'Vendor Verification': 'bi-person-check-fill',
+  'Company Verification': 'bi-building-check',
+  'Fraud Review Queue': 'bi-shield-exclamation'
+};
+
+// Which dock links get a red notification dot, per role — keyed by [role][label]
+// rather than by label alone, since several roles share a label (e.g. "Purchase
+// Orders", "GRN Documents") but only some of them actually have something new to be
+// notified about on that page. Adding a new notification anywhere is two steps: add
+// an entry here (picks the dot's DOM id), then a matching watcher function below
+// that calls updateDot(...) with that same id.
+const DOCK_DOT_IDS = {
+  vendor: {
+    'Browse Requirements': 'dockNewReqDot',
+    'Purchase Orders': 'dockOrderDot',
+    'Deliveries (GRN)': 'dockGrnDot',
+    'My Invoices': 'dockInvoiceDot',
+    'Disputes': 'dockDisputeDot',
+    'Payment Status': 'dockPaymentDot'
+  },
+  procurement: {
+    'Quotations': 'dockQuotationDot',
+    'GRN Documents': 'dockGrnDocDot'
+  },
+  finance: {
+    'Invoices': 'dockInvoiceReviewDot',
+    'Disputes': 'dockDisputeDot'
+  },
+  warehouse: {
+    'GRN Entry': 'dockGrnEntryDot'
+  },
+  platform_admin: {
+    'Vendor Verification': 'dockVendorVerifyDot',
+    'Company Verification': 'dockCompanyVerifyDot',
+    'Fraud Review Queue': 'dockFraudDot'
+  }
 };
 
 function renderNavbar() {
@@ -98,7 +134,10 @@ function renderNavbar() {
       ['/company/grn-documents.html', 'GRN Documents']
     ],
     platform_admin: [
-      ['/admin/dashboard.html', 'Dashboard']
+      ['/admin/dashboard.html', 'Dashboard'],
+      ['/admin/vendor-verification.html', 'Vendor Verification'],
+      ['/admin/company-verification.html', 'Company Verification'],
+      ['/admin/fraud-review.html', 'Fraud Review Queue']
     ]
   };
 
@@ -107,9 +146,8 @@ function renderNavbar() {
     .map(([href, label]) => {
       const icon = DOCK_ICONS[label] || 'bi-circle';
       const active = currentPath === href ? ' active' : '';
-      let dot = '';
-      if (label === 'Disputes') dot = '<span class="dock-dot" id="dockDisputeDot" style="display:none;"></span>';
-      if (label === 'Purchase Orders') dot = '<span class="dock-dot" id="dockOrderDot" style="display:none;"></span>';
+      const dotId = DOCK_DOT_IDS[user.role]?.[label];
+      const dot = dotId ? `<span class="dock-dot" id="${dotId}" style="display:none;"></span>` : '';
       return `<a class="dock-item${active}" href="${href}" data-title="${label}"><i class="bi ${icon}"></i>${dot}</a>`;
     })
     .join('');
@@ -260,7 +298,54 @@ document.addEventListener('DOMContentLoaded', () => {
   enforceCompanyApproval();
   startVendorNotifications();
   startCompanyNotifications();
+  startProcurementNotifications();
+  startWarehouseNotifications();
+  startAdminNotifications();
 });
+
+// --- Persistent "seen" state for dock notification dots ---------------------
+// Dot-seen baselines live in localStorage, namespaced per user id — not
+// sessionStorage. sessionStorage is scoped to a single tab and is gone the moment
+// that tab closes, so a dot that had already been cleared by opening its page would
+// come back the next time the app was opened in a new tab/window (including a
+// "Remember Me" login being picked up fresh in a brand-new tab) — nothing new had
+// actually happened, but the dot had no memory of already being seen. localStorage
+// persists at the browser/device level, exactly like the "Remember Me" login itself
+// (see setSession in api.js), so a cleared dot now STAYS cleared across every kind
+// of reload — soft navigation, a hard refresh, closing and reopening the tab, even a
+// full browser restart — until something genuinely new shows up. Namespacing by
+// user id keeps one account's read-state from leaking onto another's dots on a
+// shared browser.
+//
+// This is separate from the toast SEEN_* keys still used below, which stay in
+// sessionStorage on purpose — a toast is a one-time pop-in, not a persistent unread
+// indicator, so it's fine (arguably correct) for it to be able to announce itself
+// again in a fresh tab.
+function dotSeenKey(user, key) {
+  return `veridion_dot_seen:${user.id}:${key}`;
+}
+function getDotSeen(user, key) {
+  return Number(localStorage.getItem(dotSeenKey(user, key)) || 0);
+}
+function setDotSeen(user, key, value) {
+  localStorage.setItem(dotSeenKey(user, key), String(value));
+}
+
+// updateDot: the shared logic behind every dock notification dot below.
+//   user      - the logged-in user (for namespacing the persisted baseline)
+//   key       - a stable string identifying this particular notification stream
+//   elementId - the <span class="dock-dot"> id to show/hide
+//   count     - how many "notification-worthy" items exist right now
+//   onOwnPage - true when the user is currently sitting on the page this dot
+//               points to; marks everything as seen immediately (every poll tick,
+//               so it stays clear while they remain there) rather than waiting for
+//               them to navigate there some other time.
+function updateDot(user, key, elementId, count, onOwnPage) {
+  if (onOwnPage) setDotSeen(user, key, count);
+  const seen = getDotSeen(user, key);
+  const dot = document.getElementById(elementId);
+  if (dot) dot.style.display = count > seen ? 'block' : 'none';
+}
 
 // startVendorNotifications: runs on EVERY page (not just the page each of these
 // events would naturally show up on), so a vendor finds out immediately no matter
@@ -270,19 +355,24 @@ document.addEventListener('DOMContentLoaded', () => {
 // live-refresh used on content pages — this is a background check, not a page's
 // main data).
 //
-// Covers three separate events, each compared against its own last-seen baseline
-// in sessionStorage:
-//   1. A quotation being accepted (status='selected') — the order is confirmed.
-//   2. A new dispute being raised (status='sent' — the point it actually becomes
+// Covers, each against its own last-seen baseline:
+//   1. A new open requirement appearing to browse (Browse Requirements).
+//   2. A quotation being accepted (status='selected') — the order is confirmed
+//      (Purchase Orders).
+//   3. A new GRN recorded against one of their POs — a delivery was logged
+//      (Deliveries (GRN)).
+//   4. An invoice's AI decision being reached (My Invoices).
+//   5. An invoice being marked paid (Payment Status).
+//   6. A new dispute being raised (status='sent' — the point it actually becomes
 //      visible to the vendor; a still-drafting 'pending_send' dispute isn't
-//      something they'd ever see).
-//   3. A new message arriving in a dispute they're ALREADY in (Finance replying to
-//      an ongoing conversation) — distinct from #2, which only fires once per
-//      dispute, when it first appears.
-// Every one of these follows the same pattern: the first check after login only
-// records the current count as a baseline and never toasts — otherwise every
-// pre-existing item from before this session would incorrectly announce itself as
-// "new" the moment the vendor logs in.
+//      something they'd ever see) and new messages in an existing dispute
+//      (Disputes).
+// Every toast baseline follows the same pattern: the first check after login only
+// records the current count and never toasts — otherwise every pre-existing item
+// from before this session would incorrectly announce itself as "new" the moment
+// the vendor logs in. Dot baselines (see updateDot) don't need that same guard —
+// showing a dot for genuinely pre-existing unseen items is correct, not a
+// false positive.
 function startVendorNotifications() {
   const user = getUser();
   if (!user || user.role !== 'vendor') return;
@@ -290,12 +380,18 @@ function startVendorNotifications() {
   const SEEN_ORDER_KEY = 'veridion_seen_selected_quotation_count';
   const SEEN_DISPUTE_KEY = 'veridion_seen_sent_dispute_count';
   const SEEN_MESSAGE_KEY = 'veridion_seen_finance_message_count';
-  // Separate from the SEEN_* keys above: those advance every 5-second poll purely
-  // to avoid repeat toasts. These only advance when the vendor actually opens the
-  // relevant page, so the dot stays lit until it's genuinely been looked at —
-  // not just for one poll cycle.
-  const DOT_SEEN_ORDER_KEY = 'veridion_dot_seen_selected_quotation_count';
-  const DOT_SEEN_DISPUTE_KEY = 'veridion_dot_seen_sent_dispute_count';
+
+  async function checkRequirements() {
+    try {
+      const res = await fetchWithAuth('/api/requirements');
+      if (!res || !res.ok) return;
+      const open = await res.json();
+      updateDot(user, 'new_requirements', 'dockNewReqDot', open.length,
+        window.location.pathname.endsWith('/vendor/requirements.html'));
+    } catch (err) {
+      // Silent and non-critical — the next check five seconds later will catch up.
+    }
+  }
 
   async function checkOrders() {
     try {
@@ -304,12 +400,8 @@ function startVendorNotifications() {
       const all = await res.json();
       const accepted = all.filter(q => q.status === 'selected');
 
-      if (window.location.pathname.endsWith('/vendor/purchase-orders.html')) {
-        sessionStorage.setItem(DOT_SEEN_ORDER_KEY, String(accepted.length));
-      }
-      const dotSeen = Number(sessionStorage.getItem(DOT_SEEN_ORDER_KEY) || 0);
-      const dot = document.getElementById('dockOrderDot');
-      if (dot) dot.style.display = accepted.length > dotSeen ? 'block' : 'none';
+      updateDot(user, 'selected_quotations', 'dockOrderDot', accepted.length,
+        window.location.pathname.endsWith('/vendor/purchase-orders.html'));
 
       const seenRaw = sessionStorage.getItem(SEEN_ORDER_KEY);
       if (seenRaw !== null) {
@@ -326,6 +418,35 @@ function startVendorNotifications() {
     }
   }
 
+  async function checkGrn() {
+    try {
+      const res = await fetchWithAuth('/api/grn/vendor');
+      if (!res || !res.ok) return;
+      const all = await res.json();
+      updateDot(user, 'grn_deliveries', 'dockGrnDot', all.length,
+        window.location.pathname.endsWith('/vendor/grn-documents.html'));
+    } catch (err) {
+      // Silent and non-critical.
+    }
+  }
+
+  async function checkInvoices() {
+    try {
+      const res = await fetchWithAuth('/api/invoices/mine');
+      if (!res || !res.ok) return;
+      const all = await res.json();
+      const decided = all.filter(inv => inv.final_decision);
+      const paid = all.filter(inv => inv.status === 'paid');
+
+      updateDot(user, 'invoice_decisions', 'dockInvoiceDot', decided.length,
+        window.location.pathname.endsWith('/vendor/my-invoices.html'));
+      updateDot(user, 'invoices_paid', 'dockPaymentDot', paid.length,
+        window.location.pathname.endsWith('/vendor/payments.html'));
+    } catch (err) {
+      // Silent and non-critical.
+    }
+  }
+
   async function checkDisputes() {
     try {
       const res = await fetchWithAuth('/api/vendor-communications/mine');
@@ -334,12 +455,8 @@ function startVendorNotifications() {
       const sent = all.filter(d => d.status === 'sent');
       const unresolved = sent.filter(d => !d.resolved);
 
-      if (window.location.pathname.endsWith('/vendor/disputes.html')) {
-        sessionStorage.setItem(DOT_SEEN_DISPUTE_KEY, String(unresolved.length));
-      }
-      const dotSeen = Number(sessionStorage.getItem(DOT_SEEN_DISPUTE_KEY) || 0);
-      const dot = document.getElementById('dockDisputeDot');
-      if (dot) dot.style.display = unresolved.length > dotSeen ? 'block' : 'none';
+      updateDot(user, 'sent_disputes', 'dockDisputeDot', unresolved.length,
+        window.location.pathname.endsWith('/vendor/disputes.html'));
 
       const seenDisputeRaw = sessionStorage.getItem(SEEN_DISPUTE_KEY);
       if (seenDisputeRaw !== null) {
@@ -368,28 +485,31 @@ function startVendorNotifications() {
     }
   }
 
+  checkRequirements();
   checkOrders();
+  checkGrn();
+  checkInvoices();
   checkDisputes();
+  setInterval(checkRequirements, 5000);
   setInterval(checkOrders, 5000);
+  setInterval(checkGrn, 5000);
+  setInterval(checkInvoices, 5000);
   setInterval(checkDisputes, 5000);
 }
 
 // startCompanyNotifications: the Finance-side mirror of startVendorNotifications
 // above — same reasoning (runs globally so Finance finds out immediately
-// regardless of which page they're on, not just while already on Disputes;
-// baseline-first-check so pre-existing items never falsely announce themselves as
-// new on login). Finance-only; a no-op for every other role.
+// regardless of which page they're on, not just while already on Disputes/
+// Invoices; dot baselines persist via updateDot so pre-existing unseen items
+// correctly still show a dot). Finance-only; a no-op for every other role.
 function startCompanyNotifications() {
   const user = getUser();
   if (!user || user.role !== 'finance') return;
 
   const SEEN_PENDING_KEY = 'veridion_seen_pending_dispute_count';
   const SEEN_VENDOR_MESSAGE_KEY = 'veridion_seen_vendor_message_count';
-  // Same reasoning as DOT_SEEN_* in startVendorNotifications — only advances when
-  // Finance actually opens Disputes, not on every 5-second poll.
-  const DOT_SEEN_KEY = 'veridion_dot_seen_finance_dispute_count';
 
-  async function check() {
+  async function checkDisputes() {
     try {
       const res = await fetchWithAuth('/api/vendor-communications');
       if (!res || !res.ok) return;
@@ -398,12 +518,8 @@ function startCompanyNotifications() {
       const unresolvedSent = all.filter(d => d.status === 'sent' && !d.resolved);
       const needsAttention = pending.length + unresolvedSent.length;
 
-      if (window.location.pathname.endsWith('/company/disputes.html')) {
-        sessionStorage.setItem(DOT_SEEN_KEY, String(needsAttention));
-      }
-      const dotSeen = Number(sessionStorage.getItem(DOT_SEEN_KEY) || 0);
-      const dot = document.getElementById('dockDisputeDot');
-      if (dot) dot.style.display = needsAttention > dotSeen ? 'block' : 'none';
+      updateDot(user, 'finance_disputes', 'dockDisputeDot', needsAttention,
+        window.location.pathname.endsWith('/company/disputes.html'));
 
       const seenPendingRaw = sessionStorage.getItem(SEEN_PENDING_KEY);
       if (seenPendingRaw !== null) {
@@ -430,8 +546,148 @@ function startCompanyNotifications() {
       // Same posture as startVendorNotifications — silent and non-critical.
     }
   }
+
+  // New invoice reaching a point that needs Finance's action: the AI decision has
+  // landed (final_decision is set) but it hasn't been paid yet — an
+  // auto_approved invoice waiting on "Approve Payment", or a flagged/suspicious
+  // one waiting on review + override. An invoice still mid-pipeline (no decision
+  // yet) isn't actionable, so it isn't counted here.
+  async function checkInvoices() {
+    try {
+      const res = await fetchWithAuth('/api/invoices/company');
+      if (!res || !res.ok) return;
+      const all = await res.json();
+      const needsAction = all.filter(inv => inv.final_decision && inv.status !== 'paid');
+      updateDot(user, 'finance_invoices', 'dockInvoiceReviewDot', needsAction.length,
+        window.location.pathname.endsWith('/company/invoices.html'));
+    } catch (err) {
+      // Silent and non-critical.
+    }
+  }
+
+  checkDisputes();
+  checkInvoices();
+  setInterval(checkDisputes, 5000);
+  setInterval(checkInvoices, 5000);
+}
+
+// startProcurementNotifications: procurement's own dots — a new quotation waiting
+// to be compared/accepted (Quotations), and a new GRN recorded against one of
+// their POs (GRN Documents). Procurement-only; a no-op for every other role.
+function startProcurementNotifications() {
+  const user = getUser();
+  if (!user || user.role !== 'procurement') return;
+
+  async function checkQuotations() {
+    try {
+      const res = await fetchWithAuth('/api/quotations/company');
+      if (!res || !res.ok) return;
+      const submitted = await res.json(); // already submitted-only, see routes/quotations.js
+      updateDot(user, 'procurement_quotations', 'dockQuotationDot', submitted.length,
+        window.location.pathname.endsWith('/company/quotation-comparison.html'));
+    } catch (err) {
+      // Silent and non-critical.
+    }
+  }
+
+  async function checkGrn() {
+    try {
+      const res = await fetchWithAuth('/api/grn/company');
+      if (!res || !res.ok) return;
+      const all = await res.json();
+      updateDot(user, 'procurement_grn', 'dockGrnDocDot', all.length,
+        window.location.pathname.endsWith('/company/grn-documents.html'));
+    } catch (err) {
+      // Silent and non-critical.
+    }
+  }
+
+  checkQuotations();
+  checkGrn();
+  setInterval(checkQuotations, 5000);
+  setInterval(checkGrn, 5000);
+}
+
+// startWarehouseNotifications: a dot on GRN Entry for any PO that still needs a
+// delivery recorded against it (fulfillment_status != 'fulfilled') — this is
+// warehouse's actual job queue, not just "something changed". Warehouse-only; a
+// no-op for every other role.
+function startWarehouseNotifications() {
+  const user = getUser();
+  if (!user || user.role !== 'warehouse') return;
+
+  async function check() {
+    try {
+      const res = await fetchWithAuth('/api/purchase-orders/mine');
+      if (!res || !res.ok) return;
+      const all = await res.json();
+      const pending = all.filter(po => po.fulfillment_status !== 'fulfilled');
+      updateDot(user, 'warehouse_pending_pos', 'dockGrnEntryDot', pending.length,
+        window.location.pathname.endsWith('/company/grn-entry.html'));
+    } catch (err) {
+      // Silent and non-critical.
+    }
+  }
+
   check();
   setInterval(check, 5000);
+}
+
+// startAdminNotifications: three independent dots, one per platform_admin page —
+// Vendor Verification (a new pending vendor), Company Verification (a new pending
+// company), Fraud Review Queue (a new unresolved fraud flag). Each clears only when
+// its own page is opened, not when any of the others are — that's the whole point
+// of splitting them out of the single combined Dashboard dot they replaced.
+// platform_admin-only; a no-op for every other role.
+function startAdminNotifications() {
+  const user = getUser();
+  if (!user || user.role !== 'platform_admin') return;
+
+  async function checkVendors() {
+    try {
+      const res = await fetchWithAuth('/api/admin/vendors');
+      if (!res || !res.ok) return;
+      const vendors = await res.json();
+      const pending = vendors.filter(v => v.verification_status === 'pending').length;
+      updateDot(user, 'admin_pending_vendors', 'dockVendorVerifyDot', pending,
+        window.location.pathname.endsWith('/admin/vendor-verification.html'));
+    } catch (err) {
+      // Silent and non-critical.
+    }
+  }
+
+  async function checkCompanies() {
+    try {
+      const res = await fetchWithAuth('/api/admin/companies');
+      if (!res || !res.ok) return;
+      const companies = await res.json();
+      const pending = companies.filter(c => c.approval_status === 'pending').length;
+      updateDot(user, 'admin_pending_companies', 'dockCompanyVerifyDot', pending,
+        window.location.pathname.endsWith('/admin/company-verification.html'));
+    } catch (err) {
+      // Silent and non-critical.
+    }
+  }
+
+  async function checkFraud() {
+    try {
+      const res = await fetchWithAuth('/api/admin/fraud-flags');
+      if (!res || !res.ok) return;
+      const flags = await res.json();
+      const unresolved = flags.filter(f => !f.resolved).length;
+      updateDot(user, 'admin_unresolved_fraud', 'dockFraudDot', unresolved,
+        window.location.pathname.endsWith('/admin/fraud-review.html'));
+    } catch (err) {
+      // Silent and non-critical.
+    }
+  }
+
+  checkVendors();
+  checkCompanies();
+  checkFraud();
+  setInterval(checkVendors, 5000);
+  setInterval(checkCompanies, 5000);
+  setInterval(checkFraud, 5000);
 }
 
 // Backend routes already reject an unverified vendor's API calls (see

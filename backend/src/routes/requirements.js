@@ -63,7 +63,7 @@ router.get('/mine', requireAuth, requireRole('procurement', 'finance'), async (r
 // other AI-optional path in this codebase (Neo4j, Groq).
 router.get('/:id/quotations', requireAuth, requireRole('procurement'), async (req, res) => {
   const reqCheck = await db.query(
-    `SELECT id FROM requirements WHERE id = $1 AND company_id = $2`,
+    `SELECT id, deadline FROM requirements WHERE id = $1 AND company_id = $2`,
     [req.params.id, req.user.company_id]
   );
   if (!reqCheck.rows[0]) return res.status(404).json({ error: 'Requirement not found' });
@@ -86,7 +86,11 @@ router.get('/:id/quotations', requireAuth, requireRole('procurement'), async (re
      ORDER BY q.ai_rank_score DESC NULLS LAST, q.price ASC`,
     [req.params.id]
   );
-  res.json(result.rows);
+  // requirement_deadline attached to every row (not part of the JOIN above, which
+  // is quotations+vendors only) — this is what lets the frontend flag a quotation
+  // whose promised delivery would land after the requirement's own deadline.
+  const requirementDeadline = reqCheck.rows[0].deadline;
+  res.json(result.rows.map(r => ({ ...r, requirement_deadline: requirementDeadline })));
 });
 
 module.exports = router;

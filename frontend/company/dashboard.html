@@ -93,8 +93,8 @@ if (user) {
 }
 
 function renderKpis(cards) {
-  document.getElementById('companyKpis').innerHTML = cards.map(([cls, icon, value, label]) => `
-    <div class="dash-kpi-card ${cls}">
+  document.getElementById('companyKpis').innerHTML = cards.map(([cls, icon, value, label, href]) => `
+    <div class="dash-kpi-card ${cls}"${href ? ` style="cursor:pointer" onclick="window.location.href='${href}'"` : ''}>
       <div class="dash-kpi-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${icon}</svg></div>
       <div class="dash-kpi-value">${value}</div>
       <div class="dash-kpi-label">${label}</div>
@@ -153,8 +153,8 @@ function maybeRenderProcurementKpis() {
   renderKpis([
     ['dash-kpi-1', ICONS.doc, r.total, 'Requirements Posted'],
     ['dash-kpi-3', ICONS.shield, r.open, 'Open Requirements'],
-    ['dash-kpi-2', ICONS.check, q, 'Quotations Awaiting Review'],
-    ['dash-kpi-4', ICONS.cart, p, 'Purchase Orders Issued']
+    ['dash-kpi-2', ICONS.check, q, 'Quotations Awaiting Review', '/company/quotation-comparison.html'],
+    ['dash-kpi-4', ICONS.cart, p, 'Purchase Orders Issued', '/company/purchase-orders.html']
   ]);
 }
 if (user && user.role === 'procurement') {
@@ -189,10 +189,10 @@ if (user && user.role === 'finance') {
     const payable = invs.reduce((sum, i) => sum + invoiceTotal(i), 0);
     const totalPaid = paid.reduce((sum, i) => sum + invoiceTotal(i), 0);
     renderKpis([
-      ['dash-kpi-1', ICONS.doc, invs.length, 'Invoices Awaiting Payment'],
-      ['dash-kpi-2', ICONS.cash, `₹${payable.toLocaleString('en-IN')}`, 'Amount Payable'],
-      ['dash-kpi-6', ICONS.flag, needsReview.length, 'Needs Review'],
-      ['dash-kpi-3', ICONS.cash, `₹${totalPaid.toLocaleString('en-IN')}`, 'Total Paid']
+      ['dash-kpi-1', ICONS.doc, invs.length, 'Invoices Awaiting Payment', '/company/invoices.html'],
+      ['dash-kpi-2', ICONS.cash, `₹${payable.toLocaleString('en-IN')}`, 'Amount Payable', '/company/invoices.html'],
+      ['dash-kpi-6', ICONS.flag, needsReview.length, 'Needs Review', '/company/invoices.html'],
+      ['dash-kpi-3', ICONS.cash, `₹${totalPaid.toLocaleString('en-IN')}`, 'Total Paid', '/company/invoices.html']
     ]);
     const section = document.getElementById('paymentsSection');
     if (!invs.length) { section.style.display = 'none'; return; }
@@ -233,10 +233,10 @@ if (user && user.role === 'warehouse') {
     const fulfilled = pos.filter(po => po.fulfillment_status === 'fulfilled').length;
     const partial = pos.filter(po => po.fulfillment_status === 'partially_fulfilled').length;
     renderKpis([
-      ['dash-kpi-1', ICONS.truck, pending.length, 'POs Awaiting Delivery'],
-      ['dash-kpi-3', ICONS.check, fulfilled, 'Fully Delivered'],
-      ['dash-kpi-2', ICONS.flag, partial, 'Partially Delivered'],
-      ['dash-kpi-4', ICONS.cart, pos.length, 'Total Purchase Orders']
+      ['dash-kpi-1', ICONS.truck, pending.length, 'POs Awaiting Delivery', '/company/grn-entry.html'],
+      ['dash-kpi-3', ICONS.check, fulfilled, 'Fully Delivered', '/company/purchase-orders.html'],
+      ['dash-kpi-2', ICONS.flag, partial, 'Partially Delivered', '/company/purchase-orders.html'],
+      ['dash-kpi-4', ICONS.cart, pos.length, 'Total Purchase Orders', '/company/purchase-orders.html']
     ]);
     const section = document.getElementById('deliverySection');
     if (!pending.length) { section.style.display = 'none'; return; }
@@ -269,10 +269,10 @@ if (user && user.role === 'company_admin') {
     const activeMembers = teamData.team.filter(m => m.is_active).length;
     const pendingInvites = teamData.pending_invitations.length;
     renderKpis([
-      ['dash-kpi-1', ICONS.people, activeMembers, 'Team Members'],
-      ['dash-kpi-2', ICONS.mail, pendingInvites, 'Pending Invites'],
-      ['dash-kpi-3', ICONS.shield, (profile.approval_status || '—').replace(/^./, c => c.toUpperCase()), 'Company Status'],
-      ['dash-kpi-4', ICONS.building, profile.gstin ? 'Verified' : 'Missing', 'GSTIN Status']
+      ['dash-kpi-1', ICONS.people, activeMembers, 'Team Members', '/company/team.html'],
+      ['dash-kpi-2', ICONS.mail, pendingInvites, 'Pending Invites', '/company/team.html'],
+      ['dash-kpi-3', ICONS.shield, (profile.approval_status || '—').replace(/^./, c => c.toUpperCase()), 'Company Status', '/company/profile.html'],
+      ['dash-kpi-4', ICONS.building, profile.gstin ? 'Verified' : 'Missing', 'GSTIN Status', '/company/profile.html']
     ]);
     document.getElementById('teamCountLabel').textContent = `${activeMembers} active`;
     const section = document.getElementById('teamSection');

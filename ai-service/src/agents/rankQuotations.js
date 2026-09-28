@@ -68,11 +68,19 @@ async function runRankQuotationsAgent(requirementId) {
 
     // --- Signal 2: Delivery fit ---
     // Lower delivery_days = higher score, same min-max normalization. A deadline
-    // overrun (deliveryDate > requirement.deadline) applies a penalty on top — still
-    // informational, never a hard block.
+    // overrun applies a GRADUATED penalty on top — not a flat cut — since a vendor
+    // missing the deadline by a day is a genuinely different situation from one
+    // missing it by three weeks, and a flat penalty couldn't tell the two apart.
+    // Multiplier ranges from 0.9 (barely over) down to a floor of 0.4 (10+ days
+    // over — beyond that point the exact number stops being a useful distinction,
+    // it's just clearly not going to work). Still purely informational, never a
+    // hard block — Procurement always makes the final call (Part 3.6).
     let deliveryScore = maxDays === minDays ? 1 : (maxDays - Number(q.delivery_days)) / (maxDays - minDays);
+    let deadlineOverrunDays = null;
     if (deadlineDays !== null && Number(q.delivery_days) > deadlineDays) {
-      deliveryScore *= 0.5;
+      deadlineOverrunDays = Number(q.delivery_days) - deadlineDays;
+      const severity = Math.min(1, deadlineOverrunDays / 10);
+      deliveryScore *= 0.9 - severity * 0.5;
     }
 
     // --- Signal 3: Past performance ---
@@ -120,7 +128,7 @@ async function runRankQuotationsAgent(requirementId) {
       finalScore += w * s.score;
     });
 
-    ranked.push({ quotation: q, gateWeights, finalScore, hasHistory, dataVolume: pastPerformanceDataVolume });
+    ranked.push({ quotation: q, gateWeights, finalScore, hasHistory, dataVolume: pastPerformanceDataVolume, deadlineOverrunDays });
   }
 
   ranked.sort((a, b) => b.finalScore - a.finalScore);
@@ -137,12 +145,13 @@ async function runRankQuotationsAgent(requirementId) {
     final_score: r.finalScore.toFixed(2),
     weights: { price: r.gateWeights.price.toFixed(2), delivery: r.gateWeights.delivery.toFixed(2), past_performance: r.gateWeights.past_performance.toFixed(2) },
     has_history: r.hasHistory,
-    successful_deals: r.dataVolume
+    successful_deals: r.dataVolume,
+    deadline_overrun_days: r.deadlineOverrunDays
   }));
 
   let reasoningByVendor = {};
   try {
-    const systemPrompt = `You write a one-to-two sentence plain-English ranking explanation for EACH vendor quotation in a JSON array, addressed to a non-technical Procurement reviewer. Explicitly mention when a vendor's ranking leaned heavily on Price or Delivery because it has few or no successful deals with this company yet (not because it lacks activity — a vendor can have plenty of history and still have few successes in it). Respond ONLY with a JSON object: {"reasonings": [{"vendor_name": "...", "reasoning": "..."}, ...]}, one entry per input vendor, in the same order.`;
+    const systemPrompt = `You write a one-to-two sentence plain-English ranking explanation for EACH vendor quotation in a JSON array, addressed to a non-technical Procurement reviewer. Explicitly mention when a vendor's ranking leaned heavily on Price or Delivery because it has few or no successful deals with this company yet (not because it lacks activity — a vendor can have plenty of history and still have few successes in it). When deadline_overrun_days is not null, explicitly say this vendor's delivery would land that many days after the requirement's deadline and that this lowered its Delivery score — don't omit it even if the vendor still ranks well overall on price or past performance. Respond ONLY with a JSON object: {"reasonings": [{"vendor_name": "...", "reasoning": "..."}, ...]}, one entry per input vendor, in the same order.`;
     const groqResult = await callGroqStructured(systemPrompt, JSON.stringify(reasoningInput));
     if (Array.isArray(groqResult?.reasonings)) {
       groqResult.reasonings.forEach(r => { reasoningByVendor[r.vendor_name] = r.reasoning; });
@@ -153,16 +162,20 @@ async function runRankQuotationsAgent(requirementId) {
 
   const results = [];
   for (const r of ranked) {
-    const fallbackReasoning = r.dataVolume > 0
+    const overrunNote = r.deadlineOverrunDays != null
+      ? ` This delivery would land ${r.deadlineOverrunDays} day(s) after the requirement's deadline, which lowered its Delivery score.`
+      : '';
+    const fallbackReasoning = (r.dataVolume > 0
       ? `Ranked with a final score of ${r.finalScore.toFixed(2)} — Price ${(r.gateWeights.price * 100).toFixed(0)}%, Delivery ${(r.gateWeights.delivery * 100).toFixed(0)}%, Past Performance ${(r.gateWeights.past_performance * 100).toFixed(0)}% weighted (${r.dataVolume} successful deal(s) with this company).`
-      : `Ranked with a final score of ${r.finalScore.toFixed(2)}, leaning almost entirely on Price (${(r.gateWeights.price * 100).toFixed(0)}%) and Delivery (${(r.gateWeights.delivery * 100).toFixed(0)}%) — this vendor has ${r.hasHistory ? 'a track record with too few successes yet to trust' : 'no track record with your company yet'}, so Past Performance carried no real weight.`;
+      : `Ranked with a final score of ${r.finalScore.toFixed(2)}, leaning almost entirely on Price (${(r.gateWeights.price * 100).toFixed(0)}%) and Delivery (${(r.gateWeights.delivery * 100).toFixed(0)}%) — this vendor has ${r.hasHistory ? 'a track record with too few successes yet to trust' : 'no track record with your company yet'}, so Past Performance carried no real weight.`
+    ) + overrunNote;
     const reasoning = reasoningByVendor[r.quotation.vendor_name] || fallbackReasoning;
 
     await db.query(
       `UPDATE quotations SET ai_rank_score = $1, ai_rank_reasoning = $2 WHERE id = $3`,
       [r.finalScore, reasoning, r.quotation.id]
     );
-    results.push({ ...r.quotation, ai_rank_score: r.finalScore, ai_rank_reasoning: reasoning, gate_weights: r.gateWeights });
+    results.push({ ...r.quotation, ai_rank_score: r.finalScore, ai_rank_reasoning: reasoning, gate_weights: r.gateWeights, deadline_overrun_days: r.deadlineOverrunDays });
   }
 
   return results;

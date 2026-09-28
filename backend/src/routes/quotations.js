@@ -121,7 +121,7 @@ router.post('/:id/accept', requireAuth, requireRole('procurement'), requireAppro
 // act on what's waiting without picking a requirement first each time.
 router.get('/company', requireAuth, requireRole('procurement'), async (req, res) => {
   const result = await db.query(
-    `SELECT q.*, r.title as requirement_title, r.category,
+    `SELECT q.*, r.title as requirement_title, r.category, r.deadline as requirement_deadline,
             v.company_name as vendor_name, v.verification_status
      FROM quotations q
      JOIN requirements r ON r.id = q.requirement_id
