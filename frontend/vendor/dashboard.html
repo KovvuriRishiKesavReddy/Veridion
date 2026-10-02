@@ -144,7 +144,7 @@ async function loadReadyToInvoice() {
     <div class="col-md-6">
       <div class="card p-3">
         <h6 class="mb-1">PO #${po.id} — ${po.requirement_title}</h6>
-        <p class="small text-muted mb-2">Price: ₹${po.agreed_price} · Quantity: ${po.agreed_quantity}</p>
+        <p class="small text-muted mb-2">Price: ₹${po.agreed_price} · Quantity: ${qtyWithUnit(po.agreed_quantity, po.unit)}</p>
         <a href="/vendor/my-invoices.html" class="btn btn-sm btn-amber">Submit Invoice</a>
       </div>
     </div>`).join('');

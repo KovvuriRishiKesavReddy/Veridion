@@ -245,7 +245,7 @@ if (user && user.role === 'warehouse') {
       <div class="col-md-6">
         <div class="card p-3">
           <h6 class="mb-1">${po.requirement_title}</h6>
-          <p class="small text-muted mb-1">Vendor: ${po.vendor_name} · Received: ${po.received_so_far}/${po.agreed_quantity}</p>
+          <p class="small text-muted mb-1">Vendor: ${po.vendor_name} · Received: ${qtyWithUnit(po.received_so_far, po.unit)}/${qtyWithUnit(po.agreed_quantity, po.unit)}</p>
           <span class="badge status-badge ${statusBadgeClass(po.fulfillment_status)}">${po.fulfillment_status}</span>
         </div>
       </div>`).join('');

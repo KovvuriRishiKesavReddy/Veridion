@@ -108,8 +108,9 @@ router.post('/', requireAuth, requireRole('warehouse'), requireApprovedCompany, 
 // GET /api/grn/mine (warehouse) — this role's own submission history
 router.get('/mine', requireAuth, requireRole('warehouse'), async (req, res) => {
   const result = await db.query(
-    `SELECT g.*, po.agreed_quantity FROM goods_receipt_notes g
+    `SELECT g.*, po.agreed_quantity, r.unit FROM goods_receipt_notes g
      JOIN purchase_orders po ON po.id = g.po_id
+     JOIN requirements r ON r.id = po.requirement_id
      WHERE po.company_id = $1 AND g.recorded_by = $2
      ORDER BY g.received_date DESC`,
     [req.user.company_id, req.user.id]
@@ -122,7 +123,7 @@ router.get('/mine', requireAuth, requireRole('warehouse'), async (req, res) => {
 router.get('/company', requireAuth, requireRole('procurement', 'finance', 'warehouse'), async (req, res) => {
   const result = await db.query(
     `SELECT g.*, po.agreed_quantity, po.fulfillment_status, po.requirement_id,
-            v.company_name as vendor_name, r.title as requirement_title,
+            v.company_name as vendor_name, r.title as requirement_title, r.unit,
             u.name as recorded_by_name,
             SUM(g.received_quantity) OVER (PARTITION BY g.po_id ORDER BY g.received_date ASC, g.id ASC) as cumulative_received
      FROM goods_receipt_notes g
@@ -148,7 +149,7 @@ router.get('/company', requireAuth, requireRole('procurement', 'finance', 'wareh
 router.get('/vendor', requireAuth, requireRole('vendor'), requireVerifiedVendor, async (req, res) => {
   const result = await db.query(
     `SELECT g.*, po.agreed_quantity, po.fulfillment_status, po.company_id,
-            c.name as company_name, r.title as requirement_title,
+            c.name as company_name, r.title as requirement_title, r.unit,
             SUM(g.received_quantity) OVER (PARTITION BY g.po_id ORDER BY g.received_date ASC, g.id ASC) as cumulative_received
      FROM goods_receipt_notes g
      JOIN purchase_orders po ON po.id = g.po_id

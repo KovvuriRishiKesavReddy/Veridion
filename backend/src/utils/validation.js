@@ -13,4 +13,16 @@ function isValidPan(pan) {
   return typeof pan === 'string' && PAN_REGEX.test(pan.trim().toUpperCase());
 }
 
-module.exports = { isValidGstin, isValidPan, GSTIN_REGEX, PAN_REGEX };
+// Password policy, enforced identically on the server as on the two registration
+// pages (frontend/vendor/register.html, frontend/company/register.html) — the
+// frontend check is for a good experience, this one is what's actually trusted,
+// since a request can always bypass the browser.
+const PASSWORD_MIN_LENGTH = 8;
+function isStrongPassword(password) {
+  return typeof password === 'string'
+    && password.length >= PASSWORD_MIN_LENGTH
+    && /[A-Z]/.test(password)
+    && /[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?`~]/.test(password);
+}
+
+module.exports = { isValidGstin, isValidPan, GSTIN_REGEX, PAN_REGEX, isStrongPassword, PASSWORD_MIN_LENGTH };

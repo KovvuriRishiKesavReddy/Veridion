@@ -117,33 +117,16 @@
 const TOTAL_STEPS = 3;
 let currentStep = 1;
 
-// Same show/hide pattern as login.html, wired up for both password fields.
-function wireEyeToggle(inputId, buttonId) {
-  const input = document.getElementById(inputId);
-  const btn = document.getElementById(buttonId);
-  btn.addEventListener('click', () => {
-    const showing = input.type === 'text';
-    input.type = showing ? 'password' : 'text';
-    btn.innerHTML = showing ? '<i class="bi bi-eye-slash"></i>' : '<i class="bi bi-eye"></i>';
-    btn.setAttribute('aria-label', showing ? 'Show password' : 'Hide password');
-  });
-}
+// wireEyeToggle now lives in shared/api.js — one implementation for every page.
 wireEyeToggle('password', 'togglePassword');
 wireEyeToggle('confirmPassword', 'toggleConfirmPassword');
 
-// Confirm Password uses the browser's own required-field validation (already looped
-// over by validateStep below) rather than a separate check — setCustomValidity makes
-// checkValidity() fail and reportValidity() show the message natively, right on the
-// field, the same way an empty required field would.
-const passwordEl = document.getElementById('password');
-const confirmPasswordEl = document.getElementById('confirmPassword');
-function checkPasswordsMatch() {
-  confirmPasswordEl.setCustomValidity(
-    confirmPasswordEl.value && confirmPasswordEl.value !== passwordEl.value ? 'Passwords do not match' : ''
-  );
-}
-passwordEl.addEventListener('input', checkPasswordsMatch);
-confirmPasswordEl.addEventListener('input', checkPasswordsMatch);
+// Live rule checklist + match indicator, and keeps Confirm Password disabled until
+// Password is strong — see wirePasswordStrength() in shared/api.js. Both fields'
+// `required` attribute plus the setCustomValidity calls inside it mean validateStep
+// below (which just calls checkValidity() on every required field) automatically
+// enforces strength + match too, with no extra code needed here.
+wirePasswordStrength('password', 'confirmPassword');
 
 function goToStep(n) {
   currentStep = n;

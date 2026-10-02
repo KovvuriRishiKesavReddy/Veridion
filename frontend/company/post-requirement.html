@@ -16,12 +16,27 @@
       <div class="mb-3"><label class="form-label">Title</label><input class="form-control" id="title" required></div>
       <div class="mb-3"><label class="form-label">Description</label><textarea class="form-control" id="description"></textarea></div>
       <div class="row">
-        <div class="col mb-3"><label class="form-label">Category</label><input class="form-control" id="category"></div>
-        <div class="col mb-3"><label class="form-label">Unit</label><input class="form-control" id="unit" placeholder="bags, units, kg..."></div>
+        <div class="col mb-3"><label class="form-label">Category</label><input class="form-control" id="category" required></div>
+        <div class="col mb-3">
+          <label class="form-label">Unit</label>
+          <select class="form-select" id="unit" required>
+            <option value="" disabled selected>Select a unit</option>
+            <option value="kgs">Kilograms (kgs)</option>
+            <option value="tonnes">Tonnes</option>
+            <option value="litres">Litres</option>
+            <option value="units">Units</option>
+            <option value="pieces">Pieces</option>
+            <option value="boxes">Boxes</option>
+            <option value="bags">Bags</option>
+            <option value="meters">Meters</option>
+            <option value="__custom__">Other (specify)</option>
+          </select>
+          <input class="form-control mt-2 d-none" id="unitCustom" placeholder="Enter custom unit">
+        </div>
       </div>
       <div class="row">
         <div class="col mb-3"><label class="form-label">Quantity</label><input type="number" class="form-control" id="quantity" required></div>
-        <div class="col mb-3"><label class="form-label">Deadline</label><input type="date" class="form-control" id="deadline"></div>
+        <div class="col mb-3"><label class="form-label">Deadline</label><input type="date" class="form-control" id="deadline" required></div>
       </div>
       <button type="submit" class="btn btn-primary w-100">Post Requirement</button>
     </form>
@@ -31,11 +46,25 @@
 <script src="/shared/navbar.js"></script>
 <script>
 requireLogin(['procurement']);
+
+// "Other (specify)" reveals a plain text input for a unit not in the preset list —
+// that input becomes required in its place, so the form can't be submitted with the
+// picker left on "Other" and nothing actually typed.
+const unitSelect = document.getElementById('unit');
+const unitCustom = document.getElementById('unitCustom');
+unitSelect.addEventListener('change', () => {
+  const isCustom = unitSelect.value === '__custom__';
+  unitCustom.classList.toggle('d-none', !isCustom);
+  unitCustom.required = isCustom;
+  if (isCustom) unitCustom.focus(); else unitCustom.value = '';
+});
+
 document.getElementById('form').addEventListener('submit', async (e) => {
   e.preventDefault();
+  const unitValue = unitSelect.value === '__custom__' ? unitCustom.value.trim() : unitSelect.value;
   const body = {
     title: title.value, description: description.value, category: category.value,
-    unit: unit.value, quantity: quantity.value, deadline: deadline.value
+    unit: unitValue, quantity: quantity.value, deadline: deadline.value
   };
   const res = await fetchWithAuth('/api/requirements', { method: 'POST', body: JSON.stringify(body) });
   if (!res) return;
@@ -45,6 +74,8 @@ document.getElementById('form').addEventListener('submit', async (e) => {
   if (!res.ok) { box.className = 'alert alert-danger'; box.textContent = data.error || 'Failed'; return; }
   box.className = 'alert alert-success'; box.textContent = `Requirement #${data.id} posted.`;
   document.getElementById('form').reset();
+  unitCustom.classList.add('d-none'); // form.reset() alone leaves a custom unit's input still shown
+  unitCustom.required = false;
 });
 </script>
 </body>

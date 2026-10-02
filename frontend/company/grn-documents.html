@@ -34,7 +34,7 @@ async function load() {
     <tr>
       <td>#${g.po_id} — ${g.requirement_title}</td>
       <td>${g.vendor_name}</td>
-      <td>${g.cumulative_received} / ${g.agreed_quantity}${varianceBadge(g.variance_quantity)}<div class="small text-muted">this delivery: ${g.received_quantity}</div></td>
+      <td>${qtyWithUnit(g.cumulative_received, g.unit)} / ${qtyWithUnit(g.agreed_quantity, g.unit)}${varianceBadge(g.variance_quantity)}<div class="small text-muted">this delivery: ${qtyWithUnit(g.received_quantity, g.unit)}</div></td>
       <td>${g.received_date}</td>
       <td><span class="badge status-badge ${statusBadgeClass(g.fulfillment_status)}">${g.fulfillment_status}</span></td>
       <td>${g.recorded_by_name}</td>

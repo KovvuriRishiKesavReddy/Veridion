@@ -5,7 +5,7 @@ const crypto = require('crypto');
 const db = require('../db');
 const upload = require('../utils/upload');
 const { syncVendorNode } = require('../utils/neo4jSync');
-const { isValidGstin, isValidPan } = require('../utils/validation');
+const { isValidGstin, isValidPan, isStrongPassword } = require('../utils/validation');
 const { requireAuth } = require('../middleware/auth');
 const { requireRole } = require('../middleware/roles');
 
@@ -24,6 +24,9 @@ router.post('/register/vendor', upload.fields([{ name: 'business_reg_proof', max
   const { name, email, password, company_name, gstin, pan, phone_number, bank_account_number, bank_ifsc, address } = req.body;
   if (!name || !email || !password || !company_name || !phone_number || !address) {
     return res.status(400).json({ error: 'name, email, password, company_name, phone_number, and address are all required' });
+  }
+  if (!isStrongPassword(password)) {
+    return res.status(400).json({ error: 'Password must be at least 8 characters and include an uppercase letter and a special character.' });
   }
   if (!gstin || !isValidGstin(gstin)) {
     return res.status(400).json({ error: 'A valid 15-character GSTIN is required (format: 2 digits, 5 letters, 4 digits, 1 letter, 1 alphanumeric, Z, 1 alphanumeric).' });
@@ -82,6 +85,9 @@ router.post('/register/company', upload.single('registration_proof'), async (req
   const { name, email, password, company_name, gstin, address, industry_type } = req.body;
   if (!name || !email || !password || !company_name || !address || !industry_type) {
     return res.status(400).json({ error: 'name, email, password, company_name, address, and industry_type are all required' });
+  }
+  if (!isStrongPassword(password)) {
+    return res.status(400).json({ error: 'Password must be at least 8 characters and include an uppercase letter and a special character.' });
   }
   if (!gstin || !isValidGstin(gstin)) {
     return res.status(400).json({ error: 'A valid 15-character GSTIN is required (format: 2 digits, 5 letters, 4 digits, 1 letter, 1 alphanumeric, Z, 1 alphanumeric).' });
@@ -177,6 +183,9 @@ router.post('/accept-invite/:token', async (req, res) => {
   const { token } = req.params;
   const { name, password } = req.body;
   if (!name || !password) return res.status(400).json({ error: 'name and password required' });
+  if (!isStrongPassword(password)) {
+    return res.status(400).json({ error: 'Password must be at least 8 characters and include an uppercase letter and a special character.' });
+  }
 
   const invRes = await db.query(
     `SELECT * FROM invitations WHERE token = $1 AND status = 'pending'`,

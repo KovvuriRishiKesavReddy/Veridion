@@ -398,6 +398,8 @@ body.has-dock-nav > .container.auth-container .alert {
   padding: 0.3rem 0.4rem; line-height: 1; font-size: 1rem;
 }
 .auth-icon-field > .auth-eye-toggle:hover { color: #14532d; }
+.auth-icon-field > .auth-eye-toggle:disabled { color: #c3cdc7; cursor: not-allowed; }
+.auth-icon-field > .auth-eye-toggle:disabled:hover { color: #c3cdc7; }
 
 /* ============================================================================
    Multi-step registration wizard — a row of numbered circles connected by
@@ -407,7 +409,11 @@ body.has-dock-nav > .container.auth-container .alert {
    step logic lives inline on each registration page.
    ============================================================================ */
 .step-indicator { display: flex; align-items: flex-start; justify-content: center; gap: 0; margin-bottom: 1.75rem; }
-.step-item { display: flex; flex-direction: column; align-items: center; gap: 0.4rem; position: relative; }
+/* Fixed, equal width per step so the circle-to-circle gaps stay identical even
+   though the labels ("Details" / "Bank" / "Documents") are different lengths —
+   without this, a step-item's width follows its own label's text width, and a
+   wider label pushes its neighboring gaps out of alignment with the rest. */
+.step-item { display: flex; flex-direction: column; align-items: center; gap: 0.4rem; position: relative; width: 84px; flex: 0 0 auto; }
 .step-circle {
   width: 40px; height: 40px; border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
@@ -437,6 +443,7 @@ body.has-dock-nav > .container.auth-container .alert {
 }
 .step-line.done { background-color: #6ee7b7; }
 @media (max-width: 480px) {
+  .step-item { width: 64px; }
   .step-line { width: 30px; }
   .step-label { font-size: 0.66rem; }
 }
@@ -556,3 +563,21 @@ body.has-dock-nav > .container.auth-container .alert {
 /* Pending Invitations only belongs to the Active view: it fades with the view switch. */
 .inv-fade { transition: opacity 0.28s ease; }
 .inv-fade.inv-out { opacity: 0; }
+
+/* ============================================================================
+   Password strength checklist + confirm-password match indicator (registration
+   pages). Wired up by wirePasswordStrength() in shared/api.js.
+   ============================================================================ */
+.pw-rules {
+  display: flex; flex-direction: column; gap: 0.3rem;
+  margin: -0.5rem 0 1rem 0; padding: 0.6rem 0.75rem;
+  border-radius: 10px; background: rgba(20, 83, 45, 0.05); border: 1px solid rgba(20, 83, 45, 0.12);
+}
+.pw-rule { display: flex; align-items: center; gap: 0.45rem; font-size: 0.78rem; color: #6b7a70; transition: color 0.3s ease; }
+.pw-rule i { font-size: 0.85rem; color: #b7c3bb; transition: color 0.3s ease, transform 0.3s ease; }
+.pw-rule.met { color: #14532d; font-weight: 600; }
+.pw-rule.met i { color: #20c997; transform: scale(1.12); }
+
+.pw-match { display: flex; align-items: center; gap: 0.4rem; font-size: 0.78rem; font-weight: 700; margin: -0.5rem 0 1rem 0; transition: color 0.3s ease; }
+.pw-match.match { color: #0f5132; }
+.pw-match.no-match { color: #b3261e; }

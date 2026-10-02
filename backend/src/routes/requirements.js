@@ -11,7 +11,13 @@ const router = express.Router();
 // POST /api/requirements (procurement)
 router.post('/', requireAuth, requireRole('procurement'), requireApprovedCompany, async (req, res) => {
   const { title, description, category, quantity, unit, deadline } = req.body;
-  if (!title || !quantity) return res.status(400).json({ error: 'title and quantity are required' });
+  // Only description is optional — mirrors frontend/company/post-requirement.html's
+  // `required` attributes, enforced here too since a request can always bypass the
+  // browser. quantity=0 is falsy in JS but a legitimate rejection either way (no
+  // requirement should ask for zero of something), so !quantity is fine as-is.
+  if (!title || !category || !quantity || !unit || !deadline) {
+    return res.status(400).json({ error: 'title, category, quantity, unit, and deadline are all required (description is optional)' });
+  }
 
   const result = await db.query(
     `INSERT INTO requirements (company_id, title, description, category, quantity, unit, deadline, created_by)

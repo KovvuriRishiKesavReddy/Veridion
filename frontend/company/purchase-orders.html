@@ -62,7 +62,7 @@ async function load() {
             <h6 class="mb-1">PO #${po.id} — ${po.requirement_title}</h6>
             <p class="small text-muted mb-1">Vendor: ${po.vendor_name}</p>
             ${isWarehouse ? '' : `<p class="small text-muted mb-1">Agreed Price: ₹${po.agreed_price}</p>`}
-            <p class="small text-muted mb-1">Qty: ${po.agreed_quantity} · Agreed Delivery Date: <strong>${po.agreed_delivery_date ? po.agreed_delivery_date.slice(0,10) : '—'}</strong></p>
+            <p class="small text-muted mb-1">Qty: ${qtyWithUnit(po.agreed_quantity, po.unit)} · Agreed Delivery Date: <strong>${po.agreed_delivery_date ? po.agreed_delivery_date.slice(0,10) : '—'}</strong></p>
           </div>
           <div class="text-end">
             <span class="badge status-badge ${statusBadgeClass(po.status)} d-block mb-1">${po.status}</span>
@@ -87,9 +87,10 @@ async function viewDetails(id) {
   if (!res.ok) { body.innerHTML = `<p class="text-danger">${data.error}</p>`; return; }
 
   const received = data.grns.reduce((sum, g) => sum + Number(g.received_quantity), 0);
+  const unit = data.unit;
   body.innerHTML = `
-    <p><strong>PO #${data.po_id}</strong> — Agreed Quantity: ${data.agreed_quantity} · Status: <span class="badge status-badge ${statusBadgeClass(data.fulfillment_status)}">${data.fulfillment_status}</span></p>
-    <p>Total Received So Far: <strong>${received} / ${data.agreed_quantity}</strong></p>
+    <p><strong>PO #${data.po_id}</strong> — Agreed Quantity: ${qtyWithUnit(data.agreed_quantity, unit)} · Status: <span class="badge status-badge ${statusBadgeClass(data.fulfillment_status)}">${data.fulfillment_status}</span></p>
+    <p>Total Received So Far: <strong>${qtyWithUnit(received, unit)} / ${qtyWithUnit(data.agreed_quantity, unit)}</strong></p>
     ${data.grns.length ? `
     <table class="table table-centered table-sm">
       <thead><tr><th>Date</th><th>Qty Received</th><th>Recorded Notes</th><th>Next Expected</th></tr></thead>
@@ -97,7 +98,7 @@ async function viewDetails(id) {
         ${data.grns.map(g => `
           <tr>
             <td>${g.received_date}</td>
-            <td>${g.received_quantity}${varianceBadge(g.variance_quantity)}</td>
+            <td>${qtyWithUnit(g.received_quantity, unit)}${varianceBadge(g.variance_quantity)}</td>
             <td>${g.warehouse_notes || '—'}</td>
             <td>${g.expected_next_delivery_date || '—'}${g.next_delivery_notes ? `<br><span class="small text-muted">${g.next_delivery_notes}</span>` : ''}</td>
           </tr>`).join('')}

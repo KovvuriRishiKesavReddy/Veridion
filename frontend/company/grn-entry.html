@@ -21,7 +21,7 @@
       <div id="poInfo" class="alert alert-secondary small"></div>
 
       <div class="mb-3">
-        <label class="form-label">Received Quantity <span class="text-muted small">(just this delivery — not the running total)</span></label>
+        <label class="form-label">Received Quantity <span class="text-muted small">(just this delivery — not the running total)</span> <span class="text-muted small" id="qtyUnitHint"></span></label>
         <input type="number" class="form-control" id="received_quantity" required>
       </div>
       <div class="mb-3"><label class="form-label">Received Date</label><input type="date" class="form-control" id="received_date" required></div>
@@ -46,7 +46,7 @@
   <h6>My Recent Submissions</h6>
   <div id="mineSortToolbar"></div>
   <table class="table table-centered table-sm bg-white">
-    <thead><tr><th>PO</th><th>This Delivery</th><th>Date</th><th>Running Total</th></tr></thead>
+    <thead><tr><th>PO</th><th>This Delivery</th><th>Date</th><th>Running Total</th><th>Unit</th></tr></thead>
     <tbody id="rows"><tr><td colspan="4" class="text-muted">Loading...</td></tr></tbody>
   </table>
 </div>
@@ -55,6 +55,7 @@
 <script>
 requireLogin(['warehouse']);
 let remainingQty = null; // remaining BEFORE this delivery, from the server
+let currentUnit = null; // the selected PO's requirement unit, e.g. "kg" — null if none was set
 let getMineSortState = () => ({ sortBy: 'newest' });
 
 async function loadAvailable() {
@@ -69,7 +70,7 @@ async function loadAvailable() {
       <div class="card p-3">
         <h6 class="mb-1">${po.requirement_title}</h6>
         <p class="small text-muted mb-1">Vendor: ${po.vendor_name}</p>
-        <p class="small text-muted mb-1">Received so far: <strong>${po.received_so_far} / ${po.agreed_quantity}</strong> · Remaining: <strong>${po.remaining_quantity}</strong></p>
+        <p class="small text-muted mb-1">Received so far: <strong>${qtyWithUnit(po.received_so_far, po.unit)} / ${qtyWithUnit(po.agreed_quantity, po.unit)}</strong> · Remaining: <strong>${qtyWithUnit(po.remaining_quantity, po.unit)}</strong></p>
         <p class="small text-muted mb-2">Agreed Delivery Date: ${po.agreed_delivery_date || '—'}</p>
         <span class="badge status-badge ${statusBadgeClass(po.fulfillment_status)} mb-2" style="width:fit-content">${po.fulfillment_status}</span>
         <button class="btn btn-sm btn-amber" onclick="selectPo(${po.id}, '${po.requirement_title.replace(/'/g, "\\'")}')">Record Delivery</button>
@@ -87,9 +88,11 @@ async function selectPo(id, title) {
   if (!res) return;
   const po = await res.json();
   remainingQty = Number(po.remaining_quantity);
+  currentUnit = po.unit || null;
+  document.getElementById('qtyUnitHint').textContent = currentUnit ? `— in ${currentUnit}` : '';
   document.getElementById('poInfo').innerHTML =
-    `Agreed Quantity: <strong>${po.agreed_quantity}</strong> · Already Received: <strong>${po.received_so_far}</strong> · ` +
-    `<span class="text-primary">Remaining: <strong>${po.remaining_quantity}</strong></span> · Agreed Delivery Date: ${po.agreed_delivery_date || 'N/A'}`;
+    `Agreed Quantity: <strong>${qtyWithUnit(po.agreed_quantity, currentUnit)}</strong> · Already Received: <strong>${qtyWithUnit(po.received_so_far, currentUnit)}</strong> · ` +
+    `<span class="text-primary">Remaining: <strong>${qtyWithUnit(po.remaining_quantity, currentUnit)}</strong></span> · Agreed Delivery Date: ${po.agreed_delivery_date || 'N/A'}`;
   document.getElementById('received_quantity').value = po.remaining_quantity > 0 ? po.remaining_quantity : '';
   updateHints();
 }
@@ -114,7 +117,7 @@ function updateHints() {
     shortBox.classList.remove('d-none');
   } else if (val > remainingQty) {
     overBox.classList.remove('d-none');
-    overBox.textContent = `This is ${val - remainingQty} more than the remaining quantity (${remainingQty}). It will be recorded and flagged for the company to review.`;
+    overBox.textContent = `This is ${qtyWithUnit(val - remainingQty, currentUnit)} more than the remaining quantity (${qtyWithUnit(remainingQty, currentUnit)}). It will be recorded and flagged for the company to review.`;
   } else {
     exactBox.classList.remove('d-none');
     exactBox.textContent = `This exactly closes out the remaining quantity — the PO will be marked fulfilled.`;
@@ -142,10 +145,10 @@ document.getElementById('form').addEventListener('submit', async (e) => {
   box.className = 'alert alert-success';
   if (data.fulfillment_status === 'fulfilled') {
     box.textContent = data.is_overage
-      ? `GRN recorded. Total received (${data.cumulative_received}) exceeds the agreed quantity (${data.agreed_quantity}) by ${data.cumulative_received - data.agreed_quantity} — PO marked fulfilled, flagged for review.`
-      : `GRN recorded. PO fully fulfilled — total received now matches the agreed quantity (${data.agreed_quantity}).`;
+      ? `GRN recorded. Total received (${qtyWithUnit(data.cumulative_received, currentUnit)}) exceeds the agreed quantity (${qtyWithUnit(data.agreed_quantity, currentUnit)}) by ${qtyWithUnit(data.cumulative_received - data.agreed_quantity, currentUnit)} — PO marked fulfilled, flagged for review.`
+      : `GRN recorded. PO fully fulfilled — total received now matches the agreed quantity (${qtyWithUnit(data.agreed_quantity, currentUnit)}).`;
   } else {
-    box.textContent = `GRN recorded. Still ${data.remaining_quantity} short of the agreed quantity — PO remains partially_fulfilled.`;
+    box.textContent = `GRN recorded. Still ${qtyWithUnit(data.remaining_quantity, currentUnit)} short of the agreed quantity — PO remains partially_fulfilled.`;
   }
   closeForm();
   loadMine();
@@ -159,8 +162,8 @@ async function loadMine() {
   grns = sortAndFilterItems(grns, getMineSortState(), { dateField: 'received_date', numberField: 'id', searchFields: ['po_id', 'warehouse_notes'] });
   const rows = document.getElementById('rows');
   rows.innerHTML = grns.length ? grns.map(g =>
-    `<tr><td>#${g.po_id}</td><td>${g.received_quantity}</td><td>${g.received_date}</td><td>towards ${g.agreed_quantity} agreed</td></tr>`
-  ).join('') : '<tr><td colspan="4" class="text-muted">No submissions yet.</td></tr>';
+    `<tr><td>#${g.po_id}</td><td>${g.received_quantity}</td><td>${g.received_date}</td><td>towards ${g.agreed_quantity} agreed</td><td>${g.unit || '—'}</td></tr>`
+  ).join('') : '<tr><td colspan="5" class="text-muted">No submissions yet.</td></tr>';
 }
 
 getMineSortState = renderSortToolbar('mineSortToolbar', loadMine, { searchPlaceholder: 'Search by PO or notes...' });

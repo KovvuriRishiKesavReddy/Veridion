@@ -39,7 +39,7 @@ router.get('/mine', requireAuth, async (req, res) => {
   let rows;
   if (req.user.role === 'vendor') {
     const result = await db.query(
-      `SELECT po.*, r.title as requirement_title, COALESCE(grn_totals.total_received, 0) as received_so_far
+      `SELECT po.*, r.title as requirement_title, r.unit, COALESCE(grn_totals.total_received, 0) as received_so_far
        FROM purchase_orders po
        JOIN requirements r ON r.id = po.requirement_id
        ${GRN_SUM_JOIN}
@@ -49,7 +49,7 @@ router.get('/mine', requireAuth, async (req, res) => {
     rows = result.rows;
   } else if (['procurement', 'finance', 'warehouse'].includes(req.user.role)) {
     const result = await db.query(
-      `SELECT po.*, r.title as requirement_title, v.company_name as vendor_name,
+      `SELECT po.*, r.title as requirement_title, r.unit, v.company_name as vendor_name,
               COALESCE(grn_totals.total_received, 0) as received_so_far
        FROM purchase_orders po
        JOIN requirements r ON r.id = po.requirement_id
@@ -78,8 +78,10 @@ router.get('/:id', requireAuth, async (req, res) => {
   if (req.user.role === 'company_admin') return res.status(403).json({ error: 'Forbidden' });
 
   const result = await db.query(
-    `SELECT po.*, COALESCE(grn_totals.total_received, 0) as received_so_far
-     FROM purchase_orders po ${GRN_SUM_JOIN} WHERE po.id = $1`,
+    `SELECT po.*, r.title as requirement_title, r.unit, COALESCE(grn_totals.total_received, 0) as received_so_far
+     FROM purchase_orders po
+     JOIN requirements r ON r.id = po.requirement_id
+     ${GRN_SUM_JOIN} WHERE po.id = $1`,
     [req.params.id]
   );
   const po = result.rows[0];
@@ -122,7 +124,10 @@ router.get('/:id/document', requireAuth, async (req, res) => {
 router.get('/:id/grns', requireAuth, async (req, res) => {
   if (req.user.role === 'company_admin') return res.status(403).json({ error: 'Forbidden' });
 
-  const poResult = await db.query(`SELECT * FROM purchase_orders WHERE id = $1`, [req.params.id]);
+  const poResult = await db.query(
+    `SELECT po.*, r.unit FROM purchase_orders po JOIN requirements r ON r.id = po.requirement_id WHERE po.id = $1`,
+    [req.params.id]
+  );
   const po = poResult.rows[0];
   if (!po) return res.status(404).json({ error: 'Not found' });
 
@@ -147,6 +152,7 @@ router.get('/:id/grns', requireAuth, async (req, res) => {
   res.json({
     po_id: po.id,
     agreed_quantity: po.agreed_quantity,
+    unit: po.unit,
     fulfillment_status: po.fulfillment_status,
     received_so_far: running,
     remaining_quantity: Math.max(0, Number(po.agreed_quantity) - running),

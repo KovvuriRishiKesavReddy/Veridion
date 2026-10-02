@@ -454,3 +454,116 @@ function promptDialog({ title = 'Enter details', message = '', placeholder = '',
     modal.show();
   });
 }
+
+// wirePasswordStrength: attaches a live rule-checklist below a password field and a
+// live match indicator below its confirm field, and keeps Confirm Password disabled
+// until Password satisfies every rule (so the user matches against a password that's
+// actually going to be accepted, not one they'll have to go back and change).
+// Mirrors backend/src/utils/validation.js's isStrongPassword EXACTLY (length 8+, one
+// uppercase, one special character) so nothing the client accepts is ever rejected by
+// the server, and vice versa. One implementation shared by every registration page
+// rather than copy-pasted per page.
+const PASSWORD_SPECIAL_CHARS_RE = /[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?`~]/;
+function isStrongPasswordClient(password) {
+  return password.length >= 8 && /[A-Z]/.test(password) && PASSWORD_SPECIAL_CHARS_RE.test(password);
+}
+
+function wirePasswordStrength(passwordId, confirmId) {
+  const passwordEl = document.getElementById(passwordId);
+  const confirmEl = document.getElementById(confirmId);
+  if (!passwordEl || !confirmEl) return;
+
+  const rules = document.createElement('div');
+  rules.className = 'pw-rules';
+  rules.innerHTML = `
+    <div class="pw-rule" data-rule="length"><i class="bi bi-circle"></i> At least 8 characters</div>
+    <div class="pw-rule" data-rule="upper"><i class="bi bi-circle"></i> One uppercase letter (A-Z)</div>
+    <div class="pw-rule" data-rule="special"><i class="bi bi-circle"></i> One special character (e.g. ! @ # $)</div>`;
+  passwordEl.closest('.mb-3').after(rules);
+
+  const matchBox = document.createElement('div');
+  matchBox.className = 'pw-match d-none';
+  confirmEl.closest('.mb-3').after(matchBox);
+
+  confirmEl.disabled = true;
+  confirmEl.placeholder = 'Meets the requirements above first';
+  // Locked from the very start, same as confirmEl itself — updateRules() below only
+  // re-locks/unlocks this button on a Password 'input' event, so without this line
+  // it stays clickable the whole time before the user has typed anything at all.
+  const initialEyeBtn = confirmEl.closest('.auth-icon-field')?.querySelector('.auth-eye-toggle');
+  if (initialEyeBtn) initialEyeBtn.disabled = true;
+
+  function updateRules() {
+    const pw = passwordEl.value;
+    const checks = { length: pw.length >= 8, upper: /[A-Z]/.test(pw), special: PASSWORD_SPECIAL_CHARS_RE.test(pw) };
+    Object.entries(checks).forEach(([key, met]) => {
+      const row = rules.querySelector(`[data-rule="${key}"]`);
+      row.classList.toggle('met', met);
+      row.querySelector('i').className = met ? 'bi bi-check-circle-fill' : 'bi bi-circle';
+    });
+    const strong = checks.length && checks.upper && checks.special;
+    passwordEl.setCustomValidity(pw && !strong ? 'Password must be at least 8 characters and include an uppercase letter and a special character.' : '');
+    // The eye-toggle button next to Confirm Password (see the auth-icon-field
+    // markup on every registration/accept-invite page) locks in step with the
+    // field itself — otherwise it stays clickable over a disabled, empty field,
+    // which looks broken even though nothing harmful actually happens.
+    const confirmEyeBtn = confirmEl.closest('.auth-icon-field')?.querySelector('.auth-eye-toggle');
+    if (!strong) {
+      confirmEl.disabled = true;
+      confirmEl.value = '';
+      confirmEl.type = 'password'; // reset to hidden so it starts hidden again next time it unlocks
+      matchBox.classList.add('d-none');
+      confirmEl.setCustomValidity('');
+      if (confirmEyeBtn) {
+        confirmEyeBtn.disabled = true;
+        confirmEyeBtn.innerHTML = '<i class="bi bi-eye-slash"></i>';
+        confirmEyeBtn.setAttribute('aria-label', 'Show password');
+      }
+    } else {
+      confirmEl.disabled = false;
+      confirmEl.placeholder = '';
+      if (confirmEyeBtn) confirmEyeBtn.disabled = false;
+    }
+    return strong;
+  }
+
+  function updateMatch() {
+    if (confirmEl.disabled) return;
+    const cpw = confirmEl.value;
+    if (!cpw) { matchBox.classList.add('d-none'); confirmEl.setCustomValidity(''); return; }
+    const matches = passwordEl.value === cpw;
+    matchBox.classList.remove('d-none');
+    matchBox.classList.toggle('match', matches);
+    matchBox.classList.toggle('no-match', !matches);
+    matchBox.innerHTML = matches
+      ? '<i class="bi bi-check-circle-fill"></i> Passwords match'
+      : '<i class="bi bi-x-circle-fill"></i> Passwords do not match';
+    confirmEl.setCustomValidity(matches ? '' : 'Passwords do not match');
+  }
+
+  passwordEl.addEventListener('input', () => { updateRules(); updateMatch(); });
+  confirmEl.addEventListener('input', updateMatch);
+}
+
+// Shared password show/hide toggle — used on every password field across login,
+// registration, and accept-invite pages.
+function wireEyeToggle(inputId, buttonId) {
+  const input = document.getElementById(inputId);
+  const btn = document.getElementById(buttonId);
+  if (!input || !btn) return;
+  btn.addEventListener('click', () => {
+    const showing = input.type === 'text';
+    input.type = showing ? 'password' : 'text';
+    btn.innerHTML = showing ? '<i class="bi bi-eye-slash"></i>' : '<i class="bi bi-eye"></i>';
+    btn.setAttribute('aria-label', showing ? 'Show password' : 'Hide password');
+  });
+}
+
+// qtyWithUnit: formats a quantity with its requirement's unit (e.g. "500 kg"), or
+// just the bare number if no unit was set on the requirement (unit is optional —
+// see requirements.js's POST route). One helper so every GRN/PO page that shows a
+// quantity formats it identically instead of each page deciding on its own whether/
+// how to append the unit.
+function qtyWithUnit(qty, unit) {
+  return unit ? `${qty} ${unit}` : `${qty}`;
+}
