@@ -6,6 +6,8 @@ const groq = new Groq({
   apiKey: process.env.GROQ_API_KEY,
   // Retry rate-limit (429) and temporary server errors up to 6 times with growing waits
   // (about 20s in total) instead of the library default of 2, which gave up in ~1-2s.
+  // Found during the Flow 7 evaluation: one invoice hit a tokens-per-minute 429, was not retried
+  // long enough, and fell back to vendor-submitted data. Override with GROQ_MAX_RETRIES.
   maxRetries: Number(process.env.GROQ_MAX_RETRIES || 6),
 });
 
