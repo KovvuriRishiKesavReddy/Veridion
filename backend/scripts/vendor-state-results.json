@@ -1,0 +1,115 @@
+{
+  "fresh_reference": {
+    "invoice_id": 18
+  },
+  "legacy_1": {
+    "id": "legacy-1",
+    "invoice_id": 19,
+    "po_id": 19,
+    "requirement_id": 19,
+    "vendor_id": 23,
+    "expected_decision": "auto_approved",
+    "label": "reference scenario (legacy-1)",
+    "legacy_vendor_id": 23
+  },
+  "earned_history_1": {
+    "id": "earned-history-1",
+    "invoice_id": 22,
+    "po_id": 22,
+    "requirement_id": 22,
+    "vendor_id": 24,
+    "expected_decision": "auto_approved",
+    "label": "reference scenario (earned-history-1)"
+  },
+  "ranking_1": {
+    "requirement_id": 23,
+    "high_history_vendor_id": 23,
+    "fresh_vendor_id": 25,
+    "passed": false,
+    "ranked": [
+      {
+        "vendor_id": 25,
+        "ai_rank_score": "1",
+        "price": "10000",
+        "delivery_days": 5
+      },
+      {
+        "vendor_id": 23,
+        "ai_rank_score": "0.986369819844243",
+        "price": "10000",
+        "delivery_days": 5
+      }
+    ]
+  },
+  "degraded_history_1": {
+    "id": "degraded-history-1",
+    "invoice_id": 26,
+    "po_id": 26,
+    "requirement_id": 27,
+    "vendor_id": 26,
+    "expected_decision": "flagged",
+    "label": "reference scenario (degraded-history-1)"
+  },
+  "ranking_2": {
+    "requirement_id": 28,
+    "high_history_vendor_id": 23,
+    "fresh_vendor_id": 26,
+    "passed": true,
+    "ranked": [
+      {
+        "vendor_id": 23,
+        "ai_rank_score": "0.986369819844243",
+        "price": "10000",
+        "delivery_days": 5
+      },
+      {
+        "vendor_id": 26,
+        "ai_rank_score": "0.6130401234567902",
+        "price": "10000",
+        "delivery_days": 5
+      }
+    ]
+  },
+  "reputation_correction_1": {
+    "id": "reputation-correction-1",
+    "invoice_id": 27,
+    "po_id": 27,
+    "requirement_id": 29,
+    "vendor_id": 26,
+    "expected_decision": "flagged",
+    "label": "reference scenario (reputation-correction-1)",
+    "company_id": 4,
+    "risk_before": {
+      "invoice_decision_count": 4,
+      "invoice_decision_success_count": 1
+    }
+  },
+  "shell_company_1": {
+    "id": "shell-company-1",
+    "invoice_id": 28,
+    "po_id": 28,
+    "requirement_id": 30,
+    "vendor_id": 27,
+    "expected_decision": "suspicious",
+    "label": "Clean invoice from a vendor sharing a bank account",
+    "expected_flag_type": "shell_company_shared_bank_account"
+  },
+  "compound_mismatch_1": {
+    "id": "compound-mismatch-1",
+    "invoice_id": 29,
+    "po_id": 29,
+    "requirement_id": 31,
+    "vendor_id": 29,
+    "expected_decision": "flagged",
+    "label": "Quantity mismatch AND GST-rate mismatch together"
+  },
+  "boundary_1": {
+    "id": "boundary-1",
+    "invoice_id": 32,
+    "po_id": 32,
+    "requirement_id": 34,
+    "vendor_id": 30,
+    "expected_decision": null,
+    "label": "reference scenario (boundary-1)"
+  }
+}

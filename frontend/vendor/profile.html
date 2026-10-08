@@ -34,11 +34,12 @@
       <div class="mb-3">
         <label class="form-label">Preferred Notification Channel</label>
         <select class="form-select" id="preferred_notification_channel">
+          <option value="voice_call">Voice Call (automated call when your quotation is accepted)</option>
           <option value="sms">SMS</option>
-          <option value="voice_call">Voice Call</option>
           <option value="whatsapp">WhatsApp</option>
           <option value="app_only">App Only</option>
         </select>
+        <div class="form-text">Veridion currently notifies you in-app only: the bell icon in the top bar keeps every notification until you read it, and a pop-up appears live if you're online. Voice, SMS and WhatsApp aren't automated yet, and new purchase orders always appear on your dashboard. Include your country code in the phone number (e.g. +91 98765 43210).</div>
       </div>
       <button type="submit" class="btn btn-primary w-100">Save Changes</button>
     </form>
@@ -81,6 +82,8 @@ async function loadTrustScore() {
   `;
 }
 loadTrustScore();
+
+function escHtml(t) { return String(t == null ? '' : t).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 
 async function load() {
   const res = await fetchWithAuth('/api/vendors/me');

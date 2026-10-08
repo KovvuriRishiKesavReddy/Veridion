@@ -190,6 +190,21 @@ app.post('/agents/draft-dispute', async (req, res) => {
 // The full pipeline in sequence: OCR -> Matching + Compliance (run concurrently, since
 // neither depends on the other's result) -> Decision Engine. This is the same logic the
 // RabbitMQ consumer below runs automatically for every submitted invoice.
+// Tells the backend the decision is in, so it can notify Finance / the vendor / Platform
+// Admin (the ai-service has no Socket.io of its own). Never throws: a notification problem
+// must not affect the pipeline result.
+async function notifyBackendPipelineComplete(invoiceId) {
+  try {
+    const base = process.env.BACKEND_URL || 'http://localhost:4000';
+    const headers = { 'Content-Type': 'application/json' };
+    if (process.env.INTERNAL_API_SECRET) headers['x-internal-secret'] = process.env.INTERNAL_API_SECRET;
+    const res = await fetch(`${base}/api/internal/pipeline-complete`, { method: 'POST', headers, body: JSON.stringify({ invoice_id: invoiceId }), signal: AbortSignal.timeout(8000) });
+    if (!res.ok) console.error(`[pipeline] invoice ${invoiceId}: backend notify returned ${res.status}`);
+  } catch (err) {
+    console.error(`[pipeline] invoice ${invoiceId}: could not notify backend (${err.message}) — pipeline result unaffected`);
+  }
+}
+
 async function runFullPipeline(invoiceId) {
   console.log(`[pipeline] invoice ${invoiceId}: starting OCR`);
   await runOcrAgent(invoiceId);
@@ -201,6 +216,7 @@ async function runFullPipeline(invoiceId) {
   const decision = await runDecisionAgent(invoiceId);
 
   console.log(`[pipeline] invoice ${invoiceId}: DONE — ${decision.final_decision} (score ${Number(decision.final_score).toFixed(2)})`);
+  await notifyBackendPipelineComplete(invoiceId);
   return decision;
 }
 
@@ -239,6 +255,7 @@ async function runFullPipelineWithSafetyNet(invoiceId) {
         ]
       );
       await db.query(`UPDATE invoices SET status = 'flagged' WHERE id = $1`, [invoiceId]);
+      await notifyBackendPipelineComplete(invoiceId);
     } catch (innerErr) {
       // If even the safety net fails (e.g. DB is genuinely down), there is nothing more
       // we can do here — log loudly so it's visible, and let the caller's catch handle it.
@@ -261,16 +278,17 @@ app.post('/agents/run-pipeline', async (req, res) => {
 // RabbitMQ consumer — this is what actually makes the pipeline automatic. The backend
 // publishes { invoice_id } to 'invoice.submitted' the moment a vendor uploads an
 // invoice; this consumer picks it up and runs the full pipeline with no manual trigger.
+const INVOICE_QUEUE = process.env.INVOICE_QUEUE || 'invoice.submitted'; // test mode uses its own queue
 async function startConsumer() {
   try {
     const conn = await amqp.connect(process.env.RABBITMQ_URL || 'amqp://localhost');
     const channel = await conn.createChannel();
-    await channel.assertQueue('invoice.submitted', { durable: true });
+    await channel.assertQueue(INVOICE_QUEUE, { durable: true });
     channel.prefetch(1); // one invoice at a time — simple and predictable for now
 
-    console.log('RabbitMQ consumer listening on queue: invoice.submitted');
+    console.log(`RabbitMQ consumer listening on queue: ${INVOICE_QUEUE}`);
 
-    channel.consume('invoice.submitted', async (msg) => {
+    channel.consume(INVOICE_QUEUE, async (msg) => {
       if (!msg) return;
       try {
         const { invoice_id } = JSON.parse(msg.content.toString());

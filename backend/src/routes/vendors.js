@@ -3,6 +3,9 @@ const db = require('../db');
 const { requireAuth } = require('../middleware/auth');
 const { requireRole } = require('../middleware/roles');
 const { syncVendorNode } = require('../utils/neo4jSync');
+const { normalizePhoneNumber } = require('../utils/validation');
+
+const VALID_CHANNELS = ['voice_call', 'sms', 'whatsapp', 'app_only'];
 
 const router = express.Router();
 
@@ -43,6 +46,13 @@ router.get('/me', requireAuth, requireRole('vendor'), async (req, res) => {
 // next invoice, not just at registration time.
 router.put('/me', requireAuth, requireRole('vendor'), async (req, res) => {
   const { phone_number, bank_account_number, bank_ifsc, address, preferred_notification_channel } = req.body;
+
+  if (preferred_notification_channel != null && !VALID_CHANNELS.includes(preferred_notification_channel)) {
+    return res.status(400).json({ error: `preferred_notification_channel must be one of: ${VALID_CHANNELS.join(', ')}` });
+  }
+  if (phone_number != null && !normalizePhoneNumber(phone_number)) {
+    return res.status(400).json({ error: 'Enter a valid phone number (include the country code, e.g. +91 98765 43210).' });
+  }
 
   const current = await db.query(`SELECT * FROM vendors WHERE id = $1`, [req.user.vendor_id]);
   if (!current.rows[0]) return res.status(404).json({ error: 'Vendor profile not found' });

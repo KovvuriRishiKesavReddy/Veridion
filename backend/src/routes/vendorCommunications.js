@@ -4,6 +4,7 @@ const { requireAuth } = require('../middleware/auth');
 const { requireRole } = require('../middleware/roles');
 const { requireVerifiedVendor } = require('../middleware/vendorVerification');
 const { requireApprovedCompany } = require('../middleware/companyApproval');
+const { notifyVendor, notifyCompanyRole, safely } = require('../utils/notify');
 const { callAiService } = require('../utils/aiService');
 
 const router = express.Router();
@@ -117,6 +118,11 @@ router.post('/:id/send', requireAuth, requireRole('finance'), requireApprovedCom
     [req.user.id, req.params.id]
   );
   res.json(result.rows[0]);
+  safely((async () => {
+    const c = await db.query(`SELECT name FROM companies WHERE id = $1`, [comm.company_id]);
+    await notifyVendor(comm.vendor_id, 'dispute_opened',
+      `${c.rows[0]?.name || 'A company'} raised a dispute on your invoice. Please review the message and respond.`, comm.id, 'dispute');
+  })(), 'dispute_opened');
 });
 
 // POST /api/vendor-communications/:id/respond (vendor) — the vendor's message in the
@@ -147,6 +153,8 @@ router.post('/:id/respond', requireAuth, requireRole('vendor'), requireVerifiedV
     [req.params.id, senderName, response.trim()]
   );
   res.json(result.rows[0]);
+  safely(notifyCompanyRole(comm.company_id, 'finance', 'dispute_reply',
+    `${senderName} replied on dispute #${comm.id}.`, comm.id, 'dispute'), 'dispute_reply');
 });
 
 // POST /api/vendor-communications/:id/message (finance) — Finance's own side of the
@@ -178,6 +186,11 @@ router.post('/:id/message', requireAuth, requireRole('finance'), requireApproved
     [req.params.id, senderName, message.trim()]
   );
   res.json(result.rows[0]);
+  safely((async () => {
+    const c = await db.query(`SELECT name FROM companies WHERE id = $1`, [comm.company_id]);
+    await notifyVendor(comm.vendor_id, 'dispute_message',
+      `${c.rows[0]?.name || 'The company'} sent a new message on dispute #${comm.id}.`, comm.id, 'dispute');
+  })(), 'dispute_message');
 });
 
 // POST /api/vendor-communications/:id/resolve (finance) — closes out the dispute.
@@ -218,6 +231,11 @@ router.post('/:id/resolve', requireAuth, requireRole('finance'), requireApproved
   }
 
   res.json(result.rows[0]);
+  safely((async () => {
+    const c = await db.query(`SELECT name FROM companies WHERE id = $1`, [comm.company_id]);
+    await notifyVendor(comm.vendor_id, 'dispute_resolved',
+      `${c.rows[0]?.name || 'The company'} marked dispute #${comm.id} as resolved.`, comm.id, 'dispute');
+  })(), 'dispute_resolved');
 });
 
 module.exports = router;

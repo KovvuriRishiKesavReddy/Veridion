@@ -4,6 +4,8 @@ const db = require('../db');
 const { requireAuth } = require('../middleware/auth');
 const { requireRole } = require('../middleware/roles');
 
+const { notifyVendor, notifyCompanyRole, safely } = require('../utils/notify');
+
 const router = express.Router();
 
 // GET /api/admin/vendors — every vendor on the platform, for verification review.
@@ -49,6 +51,11 @@ router.post('/vendors/:id/verify', requireAuth, requireRole('platform_admin'), a
   );
   if (!result.rows[0]) return res.status(404).json({ error: 'Vendor not found' });
   res.json(result.rows[0]);
+  safely(notifyVendor(result.rows[0].id, status === 'verified' ? 'account_verified' : 'account_rejected',
+    status === 'verified'
+      ? 'Your Veridion vendor account has been verified. You can now browse requirements and submit quotations.'
+      : 'Your Veridion vendor account verification was rejected. Please review your registration details and documents.',
+    result.rows[0].id, 'account'), 'vendor verification');
 });
 
 // GET /api/admin/fraud-flags — every fraud flag raised across the whole platform,
@@ -115,6 +122,40 @@ router.post('/companies/:id/approve', requireAuth, requireRole('platform_admin')
   );
   if (!result.rows[0]) return res.status(404).json({ error: 'Company not found' });
   res.json(result.rows[0]);
+  safely(notifyCompanyRole(result.rows[0].id, 'company_admin', status === 'approved' ? 'company_approved' : 'company_rejected',
+    status === 'approved'
+      ? `${result.rows[0].name} has been approved on Veridion. You can now invite your team and start posting requirements.`
+      : `${result.rows[0].name}'s Veridion registration was rejected. Please review your company details and documents.`,
+    result.rows[0].id, 'account'), 'company approval');
+});
+
+// GET /api/admin/overrides/monthly — aggregated override count per month, platform-wide.
+// invoice_overrides already exists (005_registration_hardening.sql) and is written to by
+// invoices.js's /override-and-pay route — this just surfaces what's already being recorded,
+// per Part 2.3/3.4's "this feeds the monthly gate-tuning review" comment in that file.
+router.get('/overrides/monthly', requireAuth, requireRole('platform_admin'), async (req, res) => {
+  const result = await db.query(
+    `SELECT to_char(o.overridden_at, 'YYYY-MM') AS month,
+            COUNT(*) AS override_count,
+            COUNT(DISTINCT o.overridden_by) AS distinct_reviewers,
+            json_agg(json_build_object(
+              'invoice_id', o.invoice_id, 'reason', o.reason,
+              'overridden_by', u.name, 'overridden_at', o.overridden_at
+            ) ORDER BY o.overridden_at DESC) AS entries
+     FROM invoice_overrides o
+     JOIN users u ON u.id = o.overridden_by
+     GROUP BY to_char(o.overridden_at, 'YYYY-MM')
+     ORDER BY month DESC`
+  );
+  res.json(result.rows);
+});
+
+// GET /api/admin/overrides/count — just the running total, polled every few seconds by the
+// navbar's Override Log dot. Deliberately not the /overrides/monthly route above: that one
+// builds a full json_agg per month and is meant for the page itself, not a tight polling loop.
+router.get('/overrides/count', requireAuth, requireRole('platform_admin'), async (req, res) => {
+  const result = await db.query(`SELECT COUNT(*) AS count FROM invoice_overrides`);
+  res.json({ count: Number(result.rows[0].count) });
 });
 
 module.exports = router;

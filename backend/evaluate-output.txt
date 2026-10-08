@@ -1,0 +1,28 @@
+
+[test mode] database: veridion_test @ localhost:5432   queue: invoice.submitted.test   neo4j: OFF (graph untouched)
+[test mode] your real database ("veridion") is not used by this process.
+
+
+--- Per-invoice results ---
+✓ [gate] ✓ [equal]  Exact match, cement                                                expected=auto_approved gate=auto_approved equal=auto_approved
+✓ [gate] ✓ [equal]  Exact match, PPC cement 200 bags                                   expected=auto_approved gate=auto_approved equal=auto_approved
+✓ [gate] ✓ [equal]  Exact match, TMT steel bars                                        expected=auto_approved gate=auto_approved equal=auto_approved
+✓ [gate] ✓ [equal]  Exact match, steel rods                                            expected=auto_approved gate=auto_approved equal=auto_approved
+✓ [gate] ✓ [equal]  Exact match, clay bricks (5% GST)                                  expected=auto_approved gate=auto_approved equal=auto_approved
+✓ [gate] ✓ [equal]  Exact match, fly ash bricks (5% GST)                               expected=auto_approved gate=auto_approved equal=auto_approved
+✓ [gate] ✓ [equal]  Exact match, paint (default 18% GST)                               expected=auto_approved gate=auto_approved equal=auto_approved
+✓ [gate] ✓ [equal]  Exact match, office chairs (default 18% GST)                       expected=auto_approved gate=auto_approved equal=auto_approved
+✓ [gate] ✓ [equal]  Delivered in two GRNs (90 + 10), invoice matches cumulative total  expected=auto_approved gate=auto_approved equal=auto_approved
+✓ [gate] ✓ [equal]  Over-delivery 110 vs PO 100, billed proportionally                 expected=auto_approved gate=auto_approved equal=auto_approved
+✓ [gate] ✓ [equal]  Invoice item wording differs from requirement title                expected=auto_approved gate=auto_approved equal=auto_approved
+✓ [gate] ✓ [equal]  Billed 0.5% above PO rate (inside the 1% rounding tolerance)       expected=auto_approved gate=auto_approved equal=auto_approved
+✓ [gate] ✗ [equal]  Invoice quantity does not match GRN                                expected=flagged gate=flagged equal=auto_approved
+✓ [gate] ✗ [equal]  Invoice amount 20% above the PO price                              expected=flagged gate=flagged equal=auto_approved
+✓ [gate] ✓ [equal]  Invoice GSTIN does not match registered vendor                     expected=suspicious gate=suspicious equal=flagged
+
+--- Summary ---
+Context Gate accuracy: 15/15 (100.0%)
+Equal-weight baseline: 13/15 (86.7%)
+
+This comparison is your ablation-study result — put the table above directly in your report.
+Structural vendor-state checks are separate: npm run evaluate:vendor-states

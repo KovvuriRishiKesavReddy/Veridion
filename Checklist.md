@@ -1,4 +1,4 @@
-# Veridion — Flow 1–4 Verification Checklist
+# Veridion — Flow 1–7 Verification Checklist
 
 Login for every seeded account: password `password123`. Run `npm run seed` first if you
 want a clean slate (it truncates and re-seeds everything).
@@ -218,6 +218,61 @@ through the actual UI.
    - [ ] `finance`/`warehouse` cannot reach `/api/company/vendors` at all
    - [ ] Any authenticated role can read `GET /api/vendors/:id/platform-summary` (deliberately
          unrestricted — it's aggregate-only, never a per-company breakdown)
+
+---
+
+## FLOW 6 — Real-time & Persistent Notifications (all roles)
+
+Setup: `cd backend && npm install`, `npm run migrate` (applies `017`, `018`), add `BACKEND_URL` to
+`ai-service/.env`, restart backend + ai-service. Use separate browsers/incognito windows per role.
+
+1. **Connection & delivery**
+   - [ ] Every role shows a bell in the dock; backend log shows `[socket] <room> connected`
+         (`vendor_1`, `company_1_finance`, `platform_admin`, …)
+   - [ ] A second tab of the same account also receives the toast
+   - [ ] Close the recipient's tab BEFORE the event → reopen later → notification waiting in the bell, unread
+   - [ ] Click a notification → marked read, opens the right page for that role; read state survives reload
+   - [ ] Scrolling closes an open dropdown without clicking the bell
+2. **Quotation events**
+   - [ ] Vendor submits a quotation → Procurement gets "<Vendor> submitted a quotation for "<item>" (<Company>): ₹…"
+   - [ ] Procurement accepts → winner gets "<Company> accepted your quotation…"; every other vendor who quoted
+         gets "<Company> did not select your quotation…"; Warehouse gets "New purchase order #n … ready to receive"
+3. **Delivery events**
+   - [ ] Warehouse records a partial GRN → vendor gets "received X of Y … remaining … expected by …"; Procurement gets "Delivery recorded …"
+   - [ ] Final GRN completing the PO → vendor gets "<Company> has received the full quantity of \"<item>\" (PO #n)… please submit your invoice"; clicking it opens My Invoices
+4. **Invoice / dispute / payment**
+   - [ ] Vendor submits an invoice → once verification finishes: clean → Finance "verified, ready for payment" AND vendor "verified and approved";
+         flagged → Finance "flagged and needs review" (vendor is NOT told yet)
+   - [ ] Finance sends the dispute → vendor "<Company> raised a dispute…"; Finance messages → vendor notified; vendor replies → Finance notified
+   - [ ] Finance resolves → vendor notified; Finance marks paid (or override-and-pay) → vendor "<Company> marked your invoice … as paid (₹…)"
+5. **Admin / account events**
+   - [ ] New vendor registers / new company registers → Platform Admin notified
+   - [ ] Admin verifies or rejects a vendor → vendor notified; approves or rejects a company → Company Admin notified
+   - [ ] A fraud flag raised on an invoice → Platform Admin notified once (not repeated on reprocessing)
+6. **Security / scoping**
+   - [ ] Finance of Company A never sees Company B's notifications; Warehouse never sees Finance's; vendors never see each other's
+   - [ ] A socket with a missing/invalid token is rejected
+7. **Resilience**
+   - [ ] Stop ai-service → submit invoice → nothing breaks (no decision means no notification); restart backend with tabs open →
+         bell badge resyncs on reconnect
+
+---
+
+## FLOW 7 — Admin completion & evaluation
+
+1. **Override Log page**
+   - [ ] As Finance, run Override & Pay on a couple of flagged invoices (the synthetic finance login printed by `npm run seed:synthetic` works)
+   - [ ] As Platform Admin, the **Override Log** link in the dock shows a red dot; opening `/admin/override-log.html` clears it
+   - [ ] Page groups overrides by month ("October 2026 — 3 overrides, 1 reviewer"); the latest month is open, others collapsed; each expands to invoice / reason / overridden by / time
+   - [ ] A second admin session's dot appears within ~5s (polling, not a page event)
+   - [ ] Non-admin roles get 403 from `/api/admin/overrides/monthly` and `/count`; there is no settings page (deliberate)
+2. **Evaluation** (test mode: `npm run dev:test` in backend and ai-service, RabbitMQ running; see README Flow 7)
+   - [ ] Each test-mode process prints `[test mode] database: veridion_test`; plain `npm run seed` refuses to run on your real database
+   - [ ] After the run, row counts in your real database are unchanged
+   - [ ] `npm run migrate:test`, `npm run seed:test`, then `npm run seed:synthetic` finishes; `synthetic-dataset-results.json` has 15 entries, `vendor-state-results.json` is written
+   - [ ] `npm run evaluate` polls all 15 invoices to a decision; 8 clean → `auto_approved`; fraud case → `suspicious`
+   - [ ] Context Gate accuracy ≥ equal-weight baseline (if not, investigate and write it up honestly)
+   - [ ] `npm run evaluate:vendor-states`: legacy-1, earned-history-1, degraded-history-1, shell-company-1 (needs Neo4j), reputation-correction-1 (all three parts), compound-mismatch-1, boundary-1, ranking-2 pass; read ranking-1's note if it fails
 
 ---
 

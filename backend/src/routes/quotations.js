@@ -6,6 +6,7 @@ const { requireVerifiedVendor } = require('../middleware/vendorVerification');
 const { requireApprovedCompany } = require('../middleware/companyApproval');
 const { generatePoPdf } = require('../utils/pdf');
 const { syncPurchaseOrderNode } = require('../utils/neo4jSync');
+const { notifyVendor, notifyCompanyRole, safely } = require('../utils/notify');
 
 const router = express.Router();
 
@@ -17,7 +18,8 @@ router.post('/', requireAuth, requireRole('vendor'), requireVerifiedVendor, asyn
   }
   if (!req.user.vendor_id) return res.status(403).json({ error: 'No vendor profile for this user' });
 
-  const reqCheck = await db.query(`SELECT id, status FROM requirements WHERE id = $1`, [requirement_id]);
+  const reqCheck = await db.query(`SELECT r.id, r.status, r.title, r.company_id, c.name AS company_name
+     FROM requirements r JOIN companies c ON c.id = r.company_id WHERE r.id = $1`, [requirement_id]);
   if (!reqCheck.rows[0] || reqCheck.rows[0].status !== 'open') {
     return res.status(404).json({ error: 'Requirement not open or not found' });
   }
@@ -28,6 +30,18 @@ router.post('/', requireAuth, requireRole('vendor'), requireVerifiedVendor, asyn
     [requirement_id, req.user.vendor_id, price, delivery_days, notes || null]
   );
   res.status(201).json(result.rows[0]);
+
+  // Flow 6: tell Procurement a new quotation arrived — naming the vendor and the company
+  // the requirement belongs to, so the message is unambiguous. Fire-and-forget, after the
+  // response, so it can never fail the submission.
+  safely((async () => {
+    const reqRow = reqCheck.rows[0];
+    const vRes = await db.query(`SELECT company_name FROM vendors WHERE id = $1`, [req.user.vendor_id]);
+    const vendorName = vRes.rows[0]?.company_name || 'A vendor';
+    await notifyCompanyRole(reqRow.company_id, 'procurement', 'quotation_received',
+      `${vendorName} submitted a quotation for "${reqRow.title}" (${reqRow.company_name}): ₹${result.rows[0].price}, delivery in ${result.rows[0].delivery_days} days.`,
+      result.rows[0].id, 'quotation');
+  })(), 'quotation_received');
 });
 
 // GET /api/quotations/mine (vendor)
@@ -63,8 +77,10 @@ router.post('/:id/accept', requireAuth, requireRole('procurement'), requireAppro
     }
 
     await client.query(`UPDATE quotations SET status='selected' WHERE id=$1`, [quotation.id]);
-    await client.query(
-      `UPDATE quotations SET status='rejected' WHERE requirement_id=$1 AND id != $2 AND status='submitted'`,
+    // RETURNING so we know exactly which vendors just lost, to notify them after commit.
+    const rejectedRes = await client.query(
+      `UPDATE quotations SET status='rejected' WHERE requirement_id=$1 AND id != $2 AND status='submitted'
+       RETURNING id, vendor_id`,
       [quotation.requirement_id, quotation.id]
     );
     await client.query(`UPDATE requirements SET status='closed' WHERE id=$1`, [quotation.requirement_id]);
@@ -107,6 +123,36 @@ router.post('/:id/accept', requireAuth, requireRole('procurement'), requireAppro
 
     res.status(201).json({ ...po, po_document_path: pdfPath });
     syncPurchaseOrderNode(po);
+
+    // Flow 6: tell the vendor their quotation was accepted. Fire-and-forget, AFTER the PO is
+    // committed and the response is already sent — the notification is a courtesy layer on
+    // top of a completed action, never a dependency of it. notifyVendor() can reject (e.g. a
+    // DB hiccup), so the .catch keeps that from becoming an unhandled rejection.
+    const companyName = companyRes.rows[0]?.name || 'the company';
+    notifyVendor(
+      po.vendor_id,
+      'quotation_accepted',
+      `${companyName} accepted your quotation for "${quotation.requirement_title}"! A purchase order has been created.`,
+      po.id,
+      'po'
+    ).catch(err => console.error('[notify] quotation_accepted notification failed (PO unaffected):', err.message));
+
+    // Warehouse can now expect this delivery.
+    safely(notifyCompanyRole(po.company_id, 'warehouse', 'po_created',
+      `New purchase order #${po.id} for "${quotation.requirement_title}" from ${vendorRes.rows[0]?.company_name || 'the vendor'} — expected by ${agreedDeliveryDateStr}. Ready to receive against.`,
+      po.id, 'po'), 'po_created');
+
+    // Every other vendor who had quoted on this requirement is told they were not selected.
+    // One failure never affects the others (each call has its own .catch).
+    for (const rej of rejectedRes.rows) {
+      notifyVendor(
+        rej.vendor_id,
+        'quotation_rejected',
+        `${companyName} did not select your quotation for "${quotation.requirement_title}".`,
+        rej.id,
+        'quotation'
+      ).catch(err => console.error('[notify] quotation_rejected notification failed:', err.message));
+    }
   } catch (err) {
     await client.query('ROLLBACK');
     console.error(err);

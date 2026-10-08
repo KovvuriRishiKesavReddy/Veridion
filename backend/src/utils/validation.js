@@ -25,4 +25,22 @@ function isStrongPassword(password) {
     && /[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?`~]/.test(password);
 }
 
-module.exports = { isValidGstin, isValidPan, GSTIN_REGEX, PAN_REGEX, isStrongPassword, PASSWORD_MIN_LENGTH };
+// Vendors typed their phone number by hand at registration, so it may or may not carry a
+// country code. E.164 is required ("+" + country code). Returns the normalised
+// number, or null if it can't be made into a plausible one.
+function normalizePhoneNumber(raw, defaultCountryCode = process.env.DEFAULT_COUNTRY_CODE || '+91') {
+  if (raw === null || raw === undefined) return null;
+  let s = String(raw).trim().replace(/[\s\-().]/g, '');
+  if (!s) return null;
+  if (s.startsWith('00')) s = '+' + s.slice(2);
+  if (!s.startsWith('+')) {
+    s = s.replace(/^0+/, ''); // national trunk prefix, e.g. 09876543210
+    const cc = String(defaultCountryCode).replace(/\D/g, '');
+    // Already includes the default country code without the "+" (e.g. 919876543210)?
+    if (cc && s.startsWith(cc) && s.length >= cc.length + 10) s = '+' + s;
+    else s = '+' + cc + s;
+  }
+  return /^\+[1-9]\d{7,14}$/.test(s) ? s : null;
+}
+
+module.exports = { normalizePhoneNumber, isValidGstin, isValidPan, GSTIN_REGEX, PAN_REGEX, isStrongPassword, PASSWORD_MIN_LENGTH };

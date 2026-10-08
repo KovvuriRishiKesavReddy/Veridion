@@ -5,7 +5,25 @@ require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') }
 const bcrypt = require('bcrypt');
 const { Pool } = require('pg');
 
+// SAFETY: this script TRUNCATES every table. It refuses to run unless the database name contains
+// "test" (e.g. veridion_test) — so it can never wipe your real demo data by accident. To seed
+// the test database use `npm run seed:test`. To deliberately re-seed a NON-test dev database,
+// set FORCE_SEED=1 for that one command (this erases that database's data).
+function assertSafeToSeed() {
+  let dbName = '';
+  try { dbName = new URL(process.env.DATABASE_URL || '').pathname; } catch (_) { /* refused below */ }
+  if (/test/i.test(dbName) || process.env.FORCE_SEED === '1') return;
+  console.error(
+    `Refusing to seed: database "${dbName.replace(/^\//, '') || '(unset)'}" does not look like a test database.\n` +
+    '  This script ERASES all data in the database it points at.\n' +
+    '  - To seed the test database:            npm run seed:test\n' +
+    '  - To deliberately re-seed THIS database: FORCE_SEED=1 npm run seed   (erases its data)'
+  );
+  process.exit(1);
+}
+
 async function main() {
+  assertSafeToSeed();
   const pool = new Pool({ connectionString: process.env.DATABASE_URL });
   const passwordHash = await bcrypt.hash('password123', 10);
 

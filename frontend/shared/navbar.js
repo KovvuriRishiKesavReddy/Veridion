@@ -41,7 +41,8 @@ const DOCK_ICONS = {
   'GRN Entry': 'bi-box-seam',
   'Vendor Verification': 'bi-person-check-fill',
   'Company Verification': 'bi-building-check',
-  'Fraud Review Queue': 'bi-shield-exclamation'
+  'Fraud Review Queue': 'bi-shield-exclamation',
+  'Override Log': 'bi-arrow-repeat' // a "cycle/override" glyph, distinct from the shield used for fraud
 };
 
 // Which dock links get a red notification dot, per role — keyed by [role][label]
@@ -73,7 +74,8 @@ const DOCK_DOT_IDS = {
   platform_admin: {
     'Vendor Verification': 'dockVendorVerifyDot',
     'Company Verification': 'dockCompanyVerifyDot',
-    'Fraud Review Queue': 'dockFraudDot'
+    'Fraud Review Queue': 'dockFraudDot',
+    'Override Log': 'dockOverrideDot'
   }
 };
 
@@ -137,7 +139,8 @@ function renderNavbar() {
       ['/admin/dashboard.html', 'Dashboard'],
       ['/admin/vendor-verification.html', 'Vendor Verification'],
       ['/admin/company-verification.html', 'Company Verification'],
-      ['/admin/fraud-review.html', 'Fraud Review Queue']
+      ['/admin/fraud-review.html', 'Fraud Review Queue'],
+      ['/admin/override-log.html', 'Override Log']
     ]
   };
 
@@ -160,6 +163,7 @@ function renderNavbar() {
         <div class="dock-divider"></div>
         <div class="dock-user">
           <span class="dock-user-name">${user.name} · <span class="dock-user-role">${user.role}</span></span>
+          <button class="dock-bell" id="notificationBell" data-title="Notifications" aria-label="Notifications"><i class="bi bi-bell-fill"></i><span class="notification-badge"></span></button>
           <button class="dock-logout" data-title="Log out" onclick="logout()"><i class="bi bi-box-arrow-right"></i></button>
         </div>
       </div>
@@ -168,6 +172,15 @@ function renderNavbar() {
   initDockScrollHide();
   initDockMagnification();
   initDockTooltip();
+
+  // Flow 6: every logged-in role gets the live-notification layer (socket + bell dropdown)
+  // on every page that renders this navbar, without each page needing its own <script> tag.
+  if (!document.getElementById('notifications-js')) {
+    const s = document.createElement('script');
+    s.id = 'notifications-js';
+    s.src = '/shared/notifications.js';
+    document.body.appendChild(s);
+  }
 }
 
 // initDockMagnification: the actual "macOS dock" behavior — icons scale up
@@ -178,7 +191,7 @@ function renderNavbar() {
 // motion between updates, giving one continuous, fluid motion as the cursor
 // travels along the dock rather than a series of separate hover snaps.
 function initDockMagnification() {
-  const items = document.getElementById('dockNav')?.querySelectorAll('.dock-item, .dock-logout');
+  const items = document.getElementById('dockNav')?.querySelectorAll('.dock-item, .dock-logout, .dock-bell');
   const track = document.querySelector('#dockNav .dock-items');
   if (!items || !items.length) return;
 
@@ -247,7 +260,7 @@ function initDockTooltip() {
   }
   const dock = document.getElementById('dockNav');
   if (!dock) return;
-  const targets = dock.querySelectorAll('.dock-item, .dock-logout');
+  const targets = dock.querySelectorAll('.dock-item, .dock-logout, .dock-bell');
 
   function show(el) {
     const title = el.getAttribute('data-title');
@@ -633,9 +646,10 @@ function startWarehouseNotifications() {
   setInterval(check, 5000);
 }
 
-// startAdminNotifications: three independent dots, one per platform_admin page —
+// startAdminNotifications: four independent dots, one per platform_admin page —
 // Vendor Verification (a new pending vendor), Company Verification (a new pending
-// company), Fraud Review Queue (a new unresolved fraud flag). Each clears only when
+// company), Fraud Review Queue (a new unresolved fraud flag), Override Log (a new Finance
+// override). Each clears only when
 // its own page is opened, not when any of the others are — that's the whole point
 // of splitting them out of the single combined Dashboard dot they replaced.
 // platform_admin-only; a no-op for every other role.
@@ -682,12 +696,28 @@ function startAdminNotifications() {
     }
   }
 
+  // Overrides are append-only (no "resolved" state), so the running COUNT(*) is itself the
+  // monotonically increasing number updateDot compares against the last-seen count.
+  async function checkOverrides() {
+    try {
+      const res = await fetchWithAuth('/api/admin/overrides/count');
+      if (!res || !res.ok) return;
+      const { count } = await res.json();
+      updateDot(user, 'admin_overrides', 'dockOverrideDot', count,
+        window.location.pathname.endsWith('/admin/override-log.html'));
+    } catch (err) {
+      // Silent and non-critical.
+    }
+  }
+
   checkVendors();
   checkCompanies();
   checkFraud();
+  checkOverrides();
   setInterval(checkVendors, 5000);
   setInterval(checkCompanies, 5000);
   setInterval(checkFraud, 5000);
+  setInterval(checkOverrides, 5000);
 }
 
 // Backend routes already reject an unverified vendor's API calls (see

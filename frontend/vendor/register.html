@@ -69,6 +69,16 @@
           </div>
         </div>
         <div class="mb-3"><label class="form-label">Phone Number <span class="text-danger">*required</span></label><input class="form-control" id="phone_number" placeholder="+91..." required></div>
+        <div class="mb-3">
+          <label class="form-label">How should we notify you when a quotation is accepted?</label>
+          <select class="form-select" id="preferred_notification_channel">
+            <option value="voice_call" selected>Automated voice call</option>
+            <option value="sms">SMS</option>
+            <option value="whatsapp">WhatsApp</option>
+            <option value="app_only">App only (no call or text)</option>
+          </select>
+          <div class="form-text">Voice call is the only channel that is automated right now. You can change this later in your profile.</div>
+        </div>
         <div class="mb-3"><label class="form-label">Business Address <span class="text-danger">*required</span></label><input class="form-control" id="address" required></div>
 
         <div class="step-nav">
@@ -182,6 +192,7 @@ document.getElementById('form').addEventListener('submit', async (e) => {
   fd.append('gstin', document.getElementById('gstin').value);
   fd.append('pan', document.getElementById('pan').value);
   fd.append('phone_number', document.getElementById('phone_number').value);
+  fd.append('preferred_notification_channel', document.getElementById('preferred_notification_channel').value);
   fd.append('address', document.getElementById('address').value);
   fd.append('bank_account_number', document.getElementById('bank_account_number').value);
   fd.append('bank_ifsc', document.getElementById('bank_ifsc').value);

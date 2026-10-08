@@ -4,7 +4,7 @@
 
 Veridion automates the full B2B procurement lifecycle — from requirement posting through vendor quotation, purchase order generation, delivery confirmation, and AI-verified invoice approval — using a coordinated pipeline of specialized AI agents built around a **Context Gate**: a confidence-weighted decision engine that fuses multiple AI signals into one explainable, auditable decision rather than a black-box verdict.
 
-This README covers **Flow 1 through Flow 3** — the core lifecycle, the AI verification pipeline, and fraud/vendor-risk detection. Flows 4 onward (quotation ranking, vendor communication, multi-company isolation, voice notifications, admin tooling, deployment) build on top of this foundation.
+This README covers **Flow 1 through Flow 7**. Flows 4–5 (quotation ranking, vendor communication, legacy import, platform aggregate) are described in `Checklist.md`; Flow 6 (real-time and persistent vendor notifications) is described below. Admin completion and the synthetic evaluation (Flow 7) are described below; deployment (Flow 8) is still to come.
 
 ---
 
@@ -64,7 +64,7 @@ veridion/
 │   │   ├── routes/
 │   │   ├── middleware/
 │   │   └── utils/
-│   └── scripts/       migrate.js, seed.js
+│   └── scripts/       migrate.js, seed.js, seed-synthetic-data.js, evaluate.js, evaluate-vendor-states.js
 ├── ai-service/        The 8-agent AI pipeline
 │   ├── src/
 │   │   ├── agents/     ocr.js, matching.js, compliance.js, fraud.js, decide.js, vendorRisk.js
@@ -75,7 +75,8 @@ veridion/
 │   ├── company/          Company Profile interface (Company Admin, Procurement, Finance, Warehouse)
 │   ├── admin/            Platform Admin interface
 │   └── shared/           shared CSS/JS, navbar, API helper
-└── db/                8 migrations, applied in order
+├── docs/              Setup guides
+└── db/                18 migrations, applied in order (001–018)
 ```
 
 ### The three interfaces
@@ -154,7 +155,7 @@ psql -U postgres -c "CREATE DATABASE veridion;"
 cd backend
 npm run migrate
 ```
-This applies all 8 migrations under `db/` in order — core schema, AI/Context Gate tables, vendor risk scoring, vendor bank/address fields, registration hardening, company approval workflow, user deactivation, and multi-item requirement support.
+This applies every migration under `db/` in order (001–018) — core schema, AI/Context Gate tables, vendor risk scoring, registration hardening, company approval, user deactivation, dispute messaging, legacy import, permanent delete, and (Flow 6) `notifications`.
 
 ### 4. Seed test data (optional but recommended)
 
@@ -226,6 +227,82 @@ Open **http://localhost:8080/login.html**.
 11. Vendor risk scores (`on_time_delivery_pct`, `invoice_accuracy_pct`) update automatically and immediately after every GRN confirmation and invoice decision — an event-triggered running average, scoped per-company so one company's experience with a vendor never silently affects another's view of that same vendor.
 12. Fraud Detection runs three checks: shell-company patterns (shared bank account/address across nominally different vendors, via Neo4j), vendor identity consistency (does the invoice document's claimed GSTIN/name/bank account match the account actually uploading it?), and split-billing detection. Any high-severity match bypasses the normal weighted decision and routes straight to `suspicious`.
 13. Submit an invoice from **Vendor Four** (shares a bank account with Vendor One in the seed data) to see shell-company detection fire without any manual setup.
+
+---
+
+## Flow 7 — Admin completion & evaluation
+
+Platform Admin now has a full picture of the decision-override pattern across the whole platform, not just a per-invoice log buried in each company's own Invoice Review page.
+
+- **Override Log** (`/admin/override-log.html`, "Override Log" in the Platform Admin dock) — every time Finance overrides a flagged/suspicious invoice and approves payment anyway, the reason they gave is already recorded (`invoice_overrides`, since Flow 2). This page aggregates those by month — how many overrides, by how many distinct reviewers, with the full list of reasons (collapsible per month; invoice IDs are shown as plain text because Platform Admin has no route into a single company's Invoice Review page) — **a feedback loop for tuning the system over time**: a month with a spike in overrides is a concrete signal that the Context Gate's auto-approve threshold (currently a fixed `0.7` in `decide.js`) may be too conservative, flagging invoices Finance keeps having to manually rescue.
+  - Backend: `GET /api/admin/overrides/monthly` (the page) and `GET /api/admin/overrides/count` (a cheap running total for the dock dot). Both `platform_admin` only.
+  - A red dot appears on the Override Log icon whenever the override total is higher than the last count that admin saw, and clears when they open the page (same `updateDot` mechanism as the other three admin dots, polled every 5 seconds).
+- **No `settings.html`, on purpose.** The only candidate content was making `AUTO_APPROVE_THRESHOLD` live-editable. That constant decides every future invoice's outcome platform-wide, and a slider in a UI is a materially weaker safeguard than a code change that goes through a commit and a redeploy. Everything else in the admin section is a queue or a log, so there is nothing else to put on such a page.
+- **Synthetic evaluation harness** (`backend/scripts/seed-synthetic-data.js` + `evaluate.js`) — 15 invoices with a known-correct outcome (8 clean, 4 legitimate-variance, 2 genuine mismatch, 1 planted fraud), built end-to-end through the real API (register → admin approval → requirement → quotation → accept → GRN → real generated PDF invoice upload → async pipeline) rather than fabricated database rows, so the resulting accuracy number reflects the system as a whole, not just the downstream decision math. `evaluate.js` also re-scores the same results under flat equal-weighting instead of the Context Gate formula, as a direct ablation comparison (set `STRICT_BASELINE=1` to give the baseline no partial credit on the fraud case).
+- **Vendor-state cases** (second half of `seed-synthetic-data.js`, scored by `evaluate-vendor-states.js`) — eight *structural* checks on how the system reacts to a vendor's accumulated state: legacy-imported history, earned history, ranking between vendors with different histories, a degraded vendor, shell-company fraud (shared bank account), the reputation-only-flag correction, compounding mismatches, and the 0.70 threshold boundary. These are pass/fail checks, not extra data points averaged into the accuracy percentage.
+
+Running it — **test mode keeps it away from your real data.** The `:test` scripts (and `seed:synthetic`, `evaluate`, `evaluate:vendor-states`) all run through `backend/scripts/with-test-db.js`, which uses the database in `backend/.env.test`, refuses to start unless its name contains `test` (or if it is the same database as `backend/.env`), gives the pipeline its own RabbitMQ queue (`invoice.submitted.test`), and turns Neo4j off (set `TEST_USE_NEO4J=1` to keep it). Your `.env` files and normal `npm run dev` are never changed. `npm run seed` (which erases all tables) now refuses to run on any database whose name lacks `test`; use `FORCE_SEED=1 npm run seed` to deliberately re-seed a non-test dev database.
+
+```
+# one time
+psql -U postgres -c "CREATE DATABASE veridion_test;"
+# backend/.env.test  (see .env.test.example):  DATABASE_URL=postgres://postgres:PASSWORD@localhost:5432/veridion_test
+cd backend && npm install
+
+# stop your normal backend + ai-service (same ports), then in separate terminals:
+cd backend    && npm run dev:test        # test-mode backend
+cd ai-service && npm run dev:test        # test-mode ai-service  (RabbitMQ must be running)
+
+# third terminal, in backend/
+npm run migrate:test
+npm run seed:test                 # creates admin@veridion.dev / password123 in the TEST database
+npm run seed:synthetic            # SEED_ONLY=main | vendor-state to run half
+npm run evaluate                  # the accuracy table / ablation result
+npm run evaluate:vendor-states    # the structural checks + the three-way comparison table
+```
+
+Afterwards Ctrl+C the test-mode servers and start `npm run dev` as usual.
+
+Needs nothing new: no extra API keys or env vars beyond Flows 1–4 (it does spend your Groq free-tier quota on ~30 invoices, so avoid re-running it repeatedly). Tunables: `EVAL_BASE_URL`, `EVAL_DECISION_TIMEOUT_MS`, `EVAL_DEGRADED_WARMUPS` (default 3), `EVAL_BOUNDARY_WARMUPS` (default 1).
+
+Where the scenarios differ from the written spec, and why (these are constraints of the real routes/agents, not shortcuts):
+- **Partial-GRN variance case.** `POST /api/invoices` refuses an invoice while a PO is still `partially_fulfilled`, so "GRN 90, invoice 90 against a PO of 100" can't be built through the real API. `variance-1` is instead a delivery split over two GRNs (90 + 10) that cumulatively fulfil the PO.
+- **"Identical shortfall" for legacy / degraded vendors.** Any quantity delta sets `overall_match = false`, which hard-flags regardless of vendor trust, so history can never rescue a mismatched invoice. The reference scenario for all four vendor histories is therefore the clean two-GRN delivery; what history changes is the decision for degraded vendors (clean invoice → flagged) and the gate weight vendor risk carries.
+- **Degrading a vendor.** The Context Gate reads `invoice_accuracy_pct` for the vendor-risk verdict, not on-time delivery, so late deliveries alone cannot move a decision. The "bad" warm-ups are late **and** carry a quantity mismatch.
+- **Ranking.** A cold-start vendor's Past Performance signal has weight 0, so with Price and Delivery tied it scores exactly 1.0 and no vendor with an imperfect record can beat it. `ranking-1` (good history vs cold start, as specified) can therefore fail for an imperfect-but-good record; `ranking-2` (good vs degraded history) is the comparison the signal can actually order.
+- **Boundary case.** Steered through vendor history (any quantity delta would hard-flag), and the evaluator reports how close to 0.70 it actually landed. It is a mechanical `>=` check, not a realistic scenario.
+- **Not tested, by design:** split-billing (`fraud.js` Check 3) is dormant because Flow 1 blocks a second invoice on the same PO. Worth a sentence under "future work" in the report.
+
+---
+
+## Flow 6 — Real-time & persistent notifications (all roles)
+
+Every important event produces a notification for the right people, through two free, self-hosted layers (no external account, no browser permission prompt):
+
+1. **Persistent in-app notification** — a row in the `notifications` table, shown under the **bell icon** in the top bar (with an unread badge). It is there whenever the user next opens the app, even if their tab was closed. The dropdown closes as soon as the page is scrolled.
+2. **Real-time toast via Socket.io** — if the recipient has any page open at that moment, a toast pops up instantly, no refresh. Sockets are authenticated with the login JWT; the private room a socket joins is derived only from the verified token (`vendor_<id>`, `company_<id>_<role>`, or `platform_admin`), so no one can receive another account's notifications.
+
+Who is notified of what:
+
+| Recipient | Events |
+|---|---|
+| Vendor | quotation accepted (names the company) · quotation not selected · goods received (fully received → "please submit your invoice", naming the company and order; partial with remaining quantity and expected date / over-delivery) · invoice verified and approved · dispute raised, new dispute message, dispute resolved · invoice paid · account verified / rejected |
+| Procurement | new quotation received (names the vendor and the company) · delivery recorded |
+| Finance | invoice flagged and needs review · invoice verified and ready for payment · vendor replied on a dispute |
+| Warehouse | new purchase order ready to receive against |
+| Company Admin | company approved / rejected |
+| Platform Admin | new vendor or company waiting for verification · new fraud flag |
+
+Key properties:
+- **Non-blocking by design.** Every notification is fired after the business action has committed and the response has gone out (`safely(...)` in `utils/notify.js`). The DB write is the guaranteed layer; the socket emit is best-effort and can never throw.
+- **Reusable.** `notifyVendor`, `notifyCompanyRole(companyId, roles, ...)` and `notifyPlatformAdmins(...)` cover every recipient type; a new event is one call at the place it happens.
+- **Invoice decisions** are made in the separate ai-service process, which has no Socket.io. It calls `POST /api/internal/pipeline-complete` on the backend (idempotent per decision; optional shared secret `INTERNAL_API_SECRET`), and the backend does the notifying.
+- **Endpoints (any logged-in role, scoped to that user):** `GET /api/notifications/mine`, `GET /api/notifications/unread-count`, `POST /api/notifications/:id/read`.
+- **Read state for company roles is shared** by everyone holding that role in that company (all Finance users of a company share one bell).
+- **Frontend:** `frontend/shared/notifications.js` is loaded automatically by `navbar.js` on every page; toast/bell styles are in `shared/dock-navbar.css`.
+- Not built (deliberately): Firebase push, phone/SMS, email. The earlier OmniDimension voice-call integration was removed; its `outbound_notifications` table (migration 016) is left in place but is no longer written to.
+
+Install after pulling this change: `cd backend && npm install` (adds `socket.io`), `npm run migrate` (applies `017` and `018`), add `BACKEND_URL=http://localhost:4000` to `ai-service/.env` (see `.env.example`), then restart the backend and ai-service.
 
 ---
 

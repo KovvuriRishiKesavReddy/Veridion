@@ -4,7 +4,8 @@
   "private": true,
   "type": "commonjs",
   "scripts": {
-    "dev": "node src/server.js"
+    "dev": "node src/server.js",
+    "dev:test": "node ../backend/scripts/with-test-db.js node src/server.js"
   },
   "dependencies": {
     "amqplib": "^0.10.4",
@@ -16,5 +17,5 @@
     "pg": "^8.11.5",
     "tesseract.js": "^5.1.0"
   },
-  "_systemRequirements": "poppler-utils must be installed on the host for scanned-PDF OCR (`apt-get install -y poppler-utils` on Debian/Ubuntu; already preinstalled on most CI/sandbox images). Used via pdftoppm/pdfinfo — no native Node addon required. See src/agents/ocr.js for why canvas/@napi-rs/canvas/pdfjs-dist were removed."
+  "_systemRequirements": "poppler-utils must be installed on the host for scanned-PDF OCR (`apt-get install -y poppler-utils` on Debian/Ubuntu; already preinstalled on most CI/sandbox images). Used via pdftoppm/pdfinfo \u2014 no native Node addon required. See src/agents/ocr.js for why canvas/@napi-rs/canvas/pdfjs-dist were removed."
 }

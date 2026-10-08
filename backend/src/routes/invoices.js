@@ -4,12 +4,24 @@ const { requireAuth } = require('../middleware/auth');
 const { requireRole } = require('../middleware/roles');
 const { requireVerifiedVendor } = require('../middleware/vendorVerification');
 const { requireApprovedCompany } = require('../middleware/companyApproval');
+const { notifyVendor, safely } = require('../utils/notify');
 const upload = require('../utils/upload');
 const { publishInvoiceSubmitted } = require('../utils/queue');
 const { syncInvoiceNode } = require('../utils/neo4jSync');
 const { callAiService } = require('../utils/aiService');
 
 const router = express.Router();
+
+// Flow 6: tell the vendor their invoice was paid, naming the paying company and the amount.
+async function notifyPaid(invoice) {
+  const r = await db.query(
+    `SELECT c.name AS company_name, r.title FROM purchase_orders po
+     JOIN companies c ON c.id = po.company_id JOIN requirements r ON r.id = po.requirement_id WHERE po.id = $1`, [invoice.po_id]);
+  const i = r.rows[0];
+  const label = invoice.invoice_number ? `invoice ${invoice.invoice_number}` : `invoice #${invoice.id}`;
+  await notifyVendor(invoice.vendor_id, 'invoice_paid',
+    `${i?.company_name || 'The company'} marked your ${label}${i ? ` for "${i.title}"` : ''} as paid (₹${invoice.invoice_amount}).`, invoice.id, 'invoice');
+}
 
 // POST /api/invoices (vendor)
 // Flow 1 rule (deliberately simple, ahead of the AI verification pipeline in Flow 2):
@@ -149,6 +161,7 @@ router.post('/:id/mark-paid', requireAuth, requireRole('finance'), requireApprov
     [req.params.id]
   );
   res.json(result.rows[0]);
+  safely(notifyPaid(invoice), 'invoice_paid');
 });
 
 // POST /api/invoices/:id/override-and-pay (finance) — the human override path for a
@@ -229,6 +242,7 @@ router.post('/:id/override-and-pay', requireAuth, requireRole('finance'), requir
   }
 
   res.json(updated.rows[0]);
+  safely(notifyPaid(invoice), 'invoice_paid');
 });
 
 // GET /api/invoices/:id/review (finance) — the invoice plus everything

@@ -1,0 +1,137 @@
+[
+  {
+    "id": "clean-1",
+    "invoice_id": 1,
+    "po_id": 1,
+    "requirement_id": 1,
+    "vendor_id": 5,
+    "expected_decision": "auto_approved",
+    "label": "Exact match, cement"
+  },
+  {
+    "id": "clean-2",
+    "invoice_id": 2,
+    "po_id": 2,
+    "requirement_id": 2,
+    "vendor_id": 6,
+    "expected_decision": "auto_approved",
+    "label": "Exact match, PPC cement 200 bags"
+  },
+  {
+    "id": "clean-3",
+    "invoice_id": 3,
+    "po_id": 3,
+    "requirement_id": 3,
+    "vendor_id": 7,
+    "expected_decision": "auto_approved",
+    "label": "Exact match, TMT steel bars"
+  },
+  {
+    "id": "clean-4",
+    "invoice_id": 4,
+    "po_id": 4,
+    "requirement_id": 4,
+    "vendor_id": 8,
+    "expected_decision": "auto_approved",
+    "label": "Exact match, steel rods"
+  },
+  {
+    "id": "clean-5",
+    "invoice_id": 5,
+    "po_id": 5,
+    "requirement_id": 5,
+    "vendor_id": 9,
+    "expected_decision": "auto_approved",
+    "label": "Exact match, clay bricks (5% GST)"
+  },
+  {
+    "id": "clean-6",
+    "invoice_id": 6,
+    "po_id": 6,
+    "requirement_id": 6,
+    "vendor_id": 10,
+    "expected_decision": "auto_approved",
+    "label": "Exact match, fly ash bricks (5% GST)"
+  },
+  {
+    "id": "clean-7",
+    "invoice_id": 7,
+    "po_id": 7,
+    "requirement_id": 7,
+    "vendor_id": 11,
+    "expected_decision": "auto_approved",
+    "label": "Exact match, paint (default 18% GST)"
+  },
+  {
+    "id": "clean-8",
+    "invoice_id": 8,
+    "po_id": 8,
+    "requirement_id": 8,
+    "vendor_id": 12,
+    "expected_decision": "auto_approved",
+    "label": "Exact match, office chairs (default 18% GST)"
+  },
+  {
+    "id": "variance-1",
+    "invoice_id": 9,
+    "po_id": 9,
+    "requirement_id": 9,
+    "vendor_id": 13,
+    "expected_decision": "auto_approved",
+    "label": "Delivered in two GRNs (90 + 10), invoice matches cumulative total"
+  },
+  {
+    "id": "variance-2",
+    "invoice_id": 10,
+    "po_id": 10,
+    "requirement_id": 10,
+    "vendor_id": 14,
+    "expected_decision": "auto_approved",
+    "label": "Over-delivery 110 vs PO 100, billed proportionally"
+  },
+  {
+    "id": "variance-3",
+    "invoice_id": 11,
+    "po_id": 11,
+    "requirement_id": 11,
+    "vendor_id": 15,
+    "expected_decision": "auto_approved",
+    "label": "Invoice item wording differs from requirement title"
+  },
+  {
+    "id": "variance-4",
+    "invoice_id": 12,
+    "po_id": 12,
+    "requirement_id": 12,
+    "vendor_id": 16,
+    "expected_decision": "auto_approved",
+    "label": "Billed 0.5% above PO rate (inside the 1% rounding tolerance)"
+  },
+  {
+    "id": "mismatch-1",
+    "invoice_id": 13,
+    "po_id": 13,
+    "requirement_id": 13,
+    "vendor_id": 17,
+    "expected_decision": "flagged",
+    "label": "Invoice quantity does not match GRN"
+  },
+  {
+    "id": "mismatch-2",
+    "invoice_id": 14,
+    "po_id": 14,
+    "requirement_id": 14,
+    "vendor_id": 18,
+    "expected_decision": "flagged",
+    "label": "Invoice amount 20% above the PO price"
+  },
+  {
+    "id": "fraud-1",
+    "invoice_id": 15,
+    "po_id": 15,
+    "requirement_id": 15,
+    "vendor_id": 19,
+    "expected_decision": "suspicious",
+    "label": "Invoice GSTIN does not match registered vendor"
+  }
+]

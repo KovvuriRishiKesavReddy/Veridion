@@ -4,6 +4,7 @@ const { requireAuth } = require('../middleware/auth');
 const { requireRole } = require('../middleware/roles');
 const { requireVerifiedVendor } = require('../middleware/vendorVerification');
 const { requireApprovedCompany } = require('../middleware/companyApproval');
+const { notifyVendor, notifyCompanyRole, safely } = require('../utils/notify');
 
 const router = express.Router();
 
@@ -96,6 +97,34 @@ router.post('/', requireAuth, requireRole('warehouse'), requireApprovedCompany, 
     // (updates the vendor's running on_time_delivery_pct). Never blocks or fails the
     // GRN submission itself if ai-service happens to be down.
     notifyGrnConfirmed(po_id, grnRes.rows[0].id);
+
+    // Flow 6: tell the vendor and Procurement what was received. Names the receiving company
+    // and the vendor so each message stands on its own.
+    safely((async () => {
+      const info = await db.query(
+        `SELECT r.title, c.name AS company_name, v.company_name AS vendor_name
+         FROM purchase_orders po JOIN requirements r ON r.id = po.requirement_id
+         JOIN companies c ON c.id = po.company_id JOIN vendors v ON v.id = po.vendor_id WHERE po.id = $1`, [po_id]);
+      const i = info.rows[0];
+      if (!i) return;
+      let vendorMsg, companyMsg;
+      // fulfilled = not a shortfall (exact or over-delivery) -> the vendor may now invoice.
+      const fulfilled = !isShortfall;
+      if (isShortfall) {
+        const when = expected_next_delivery_date ? ` Remaining ${remainingAfter} expected by ${String(expected_next_delivery_date).slice(0, 10)}.` : ` ${remainingAfter} still outstanding.`;
+        vendorMsg = `${i.company_name} received ${receivedNum} of ${agreedNum} for "${i.title}" (PO #${po_id}) — partial delivery.${when}`;
+        companyMsg = `Delivery recorded from ${i.vendor_name} for "${i.title}" (PO #${po_id}): ${newTotal} of ${agreedNum} received, ${remainingAfter} outstanding.`;
+      } else if (isOverage) {
+        vendorMsg = `${i.company_name} has received your delivery for "${i.title}" (PO #${po_id}): ${newTotal} received against ${agreedNum} ordered (over-delivery, will be reviewed). The order is fulfilled — please submit your invoice for PO #${po_id}.`;
+        companyMsg = `Delivery recorded from ${i.vendor_name} for "${i.title}" (PO #${po_id}): ${newTotal} received against ${agreedNum} ordered — over-delivery.`;
+      } else {
+        vendorMsg = `${i.company_name} has received the full quantity of "${i.title}" (PO #${po_id}): ${newTotal} of ${agreedNum}. The order is fulfilled — please submit your invoice for PO #${po_id}.`;
+        companyMsg = `Delivery complete from ${i.vendor_name} for "${i.title}" (PO #${po_id}): ${newTotal} of ${agreedNum} received.`;
+      }
+      // Fulfilled orders link the vendor straight to their invoices page, others to the PO.
+      await notifyVendor(po.vendor_id, fulfilled ? 'invoice_due' : 'grn_confirmed', vendorMsg, po_id, fulfilled ? 'po_invoice' : 'po');
+      await notifyCompanyRole(po.company_id, 'procurement', 'grn_recorded', companyMsg, po_id, 'po');
+    })(), 'grn notifications');
   } catch (err) {
     await client.query('ROLLBACK');
     console.error(err);

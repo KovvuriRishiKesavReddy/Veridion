@@ -5,9 +5,12 @@ const crypto = require('crypto');
 const db = require('../db');
 const upload = require('../utils/upload');
 const { syncVendorNode } = require('../utils/neo4jSync');
+const { normalizePhoneNumber } = require('../utils/validation');
 const { isValidGstin, isValidPan, isStrongPassword } = require('../utils/validation');
 const { requireAuth } = require('../middleware/auth');
 const { requireRole } = require('../middleware/roles');
+
+const { notifyPlatformAdmins, safely } = require('../utils/notify');
 
 const router = express.Router();
 
@@ -21,12 +24,20 @@ function signToken(user, extra = {}) {
 
 // POST /api/auth/register/vendor
 router.post('/register/vendor', upload.fields([{ name: 'business_reg_proof', maxCount: 1 }, { name: 'pan_proof', maxCount: 1 }]), async (req, res) => {
-  const { name, email, password, company_name, gstin, pan, phone_number, bank_account_number, bank_ifsc, address } = req.body;
+  const { name, email, password, company_name, gstin, pan, phone_number, bank_account_number, bank_ifsc, address, preferred_notification_channel } = req.body;
   if (!name || !email || !password || !company_name || !phone_number || !address) {
     return res.status(400).json({ error: 'name, email, password, company_name, phone_number, and address are all required' });
   }
   if (!isStrongPassword(password)) {
     return res.status(400).json({ error: 'Password must be at least 8 characters and include an uppercase letter and a special character.' });
+  }
+  // Flow 6: the vendor's phone number is what the automated quotation-accepted call dials,
+  // so it has to be usable. Channel is optional here (falls back to the column default).
+  if (!normalizePhoneNumber(phone_number)) {
+    return res.status(400).json({ error: 'Enter a valid phone number (include the country code, e.g. +91 98765 43210).' });
+  }
+  if (preferred_notification_channel && !['voice_call', 'sms', 'whatsapp', 'app_only'].includes(preferred_notification_channel)) {
+    return res.status(400).json({ error: 'preferred_notification_channel must be one of: voice_call, sms, whatsapp, app_only' });
   }
   if (!gstin || !isValidGstin(gstin)) {
     return res.status(400).json({ error: 'A valid 15-character GSTIN is required (format: 2 digits, 5 letters, 4 digits, 1 letter, 1 alphanumeric, Z, 1 alphanumeric).' });
@@ -58,13 +69,14 @@ router.post('/register/vendor', upload.fields([{ name: 'business_reg_proof', max
     // token, and every subsequent vendor action (quoting, invoicing, viewing own POs)
     // silently fails until the person logs out and back in. That was a real bug: fixed.
     const vendorRes = await client.query(
-      `INSERT INTO vendors (user_id, company_name, gstin, pan, business_reg_proof_path, pan_proof_path, phone_number, bank_account_number, bank_ifsc, address)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id`,
-      [user.id, company_name, gstin.toUpperCase(), pan.toUpperCase(), proofFile.path, panProofFile.path, phone_number, bank_account_number, bank_ifsc, address]
+      `INSERT INTO vendors (user_id, company_name, gstin, pan, business_reg_proof_path, pan_proof_path, phone_number, bank_account_number, bank_ifsc, address, preferred_notification_channel)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10, COALESCE($11, 'sms')) RETURNING id`,
+      [user.id, company_name, gstin.toUpperCase(), pan.toUpperCase(), proofFile.path, panProofFile.path, phone_number, bank_account_number, bank_ifsc, address, preferred_notification_channel || null]
     );
     await client.query('COMMIT');
     const token = signToken({ ...user, company_id: null }, { vendor_id: vendorRes.rows[0].id });
     res.status(201).json({ token, user: { ...user, vendor_verification_status: 'pending' } });
+    safely(notifyPlatformAdmins('vendor_pending', `New vendor "${company_name}" registered and is waiting for verification.`, vendorRes.rows[0].id, 'vendor'), 'vendor_pending');
 
     // Fire-and-forget, after the response — a vendor registration must never fail or
     // slow down because of graph sync trouble. Real bank_account_number/address now
@@ -114,6 +126,7 @@ router.post('/register/company', upload.single('registration_proof'), async (req
     await client.query('COMMIT');
     const token = signToken(user);
     res.status(201).json({ token, user: { ...user, company_approval_status: 'pending' } });
+    safely(notifyPlatformAdmins('company_pending', `New company "${company_name}" registered and is waiting for approval.`, companyId, 'company'), 'company_pending');
   } catch (err) {
     await client.query('ROLLBACK');
     if (err.code === '23505') return res.status(409).json({ error: 'Email already registered' });
