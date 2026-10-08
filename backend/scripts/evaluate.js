@@ -58,6 +58,13 @@ async function main() {
 
   for (const { invoice_id, expected_decision, label } of dataset) {
     const decision = await pollForDecision(invoice_id);
+    // Which source did Agent 1 actually use? 'ocr_extraction' = the PDF was read and structured. If the
+    // structuring step fails (e.g. a Groq error/timeout/rate limit) the system falls back to the
+    // vendor-submitted form values ('vendor_submitted_fallback'), and checks that compare the PDF
+    // against the registered vendor (e.g. the GSTIN identity check) cannot run. Recorded per invoice so
+    // OCR failures can be told apart from decision-logic failures. The scoring below is unaffected.
+    const ex = await pool.query(`SELECT structured_data->>'__source' AS src FROM document_extractions WHERE invoice_id = $1 ORDER BY id DESC LIMIT 1`, [invoice_id]);
+    const ocrSource = ex.rows[0]?.src || 'unknown';
     const gateDecision = decision.final_decision;
     const equalDecision = equalWeightDecision(decision.agent_inputs);
 
@@ -71,15 +78,23 @@ async function main() {
 
     if (gateRight) gateCorrect++;
     if (equalRight) equalCorrect++;
-    rows.push({ invoice_id, label, expected: expected_decision, gate_decision: gateDecision, gate_correct: gateRight, equal_decision: equalDecision, equal_correct: equalRight, score: decision.final_score });
+    rows.push({ invoice_id, label, ocr_source: ocrSource, expected: expected_decision, gate_decision: gateDecision, gate_correct: gateRight, equal_decision: equalDecision, equal_correct: equalRight, score: decision.final_score });
   }
 
   console.log('\n--- Per-invoice results ---');
-  rows.forEach(r => console.log(`${r.gate_correct ? '✓' : '✗'} [gate] ${r.equal_correct ? '✓' : '✗'} [equal]  ${r.label.padEnd(66)} expected=${r.expected} gate=${r.gate_decision} equal=${r.equal_decision}`));
+  rows.forEach(r => console.log(`${r.gate_correct ? '✓' : '✗'} [gate] ${r.equal_correct ? '✓' : '✗'} [equal]  ${r.label.padEnd(66)} expected=${r.expected} gate=${r.gate_decision} equal=${r.equal_decision}${r.ocr_source !== 'ocr_extraction' ? `   <-- OCR source: ${r.ocr_source}` : ''}`));
 
   console.log('\n--- Summary ---');
   console.log(`Context Gate accuracy: ${gateCorrect}/${rows.length} (${(100 * gateCorrect / rows.length).toFixed(1)}%)`);
   console.log(`Equal-weight baseline: ${equalCorrect}/${rows.length} (${(100 * equalCorrect / rows.length).toFixed(1)}%)${STRICT_BASELINE ? '  [strict: no partial credit on suspicious cases]' : ''}`);
+  // Secondary breakdown (the headline numbers above are unchanged and always cover ALL invoices).
+  const fellBack = rows.filter(r => r.ocr_source !== 'ocr_extraction');
+  if (fellBack.length) {
+    const ok = rows.filter(r => r.ocr_source === 'ocr_extraction');
+    console.log(`\nNote: ${fellBack.length} invoice(s) did not go through real OCR structuring (${fellBack.map(r => `#${r.invoice_id} ${r.ocr_source}`).join(', ')}).`);
+    console.log(`  Among the ${ok.length} invoice(s) where OCR succeeded — Context Gate: ${ok.filter(r => r.gate_correct).length}/${ok.length}, equal-weight: ${ok.filter(r => r.equal_correct).length}/${ok.length}.`);
+    console.log('  Report both: the all-invoice figures above are the headline; this line separates OCR failures from decision-logic failures.');
+  }
   if (gateCorrect < equalCorrect) console.log('\n! Context Gate scored BELOW the baseline — either a test case\'s expected value needs re-examining or there is a genuine weighting problem. Worth writing up honestly, not hiding.');
   console.log('\nThis comparison is your ablation-study result — put the table above directly in your report.');
   console.log('Structural vendor-state checks are separate: npm run evaluate:vendor-states');

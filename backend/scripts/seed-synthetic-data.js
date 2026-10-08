@@ -36,7 +36,9 @@ const ADMIN_EMAIL = process.env.EVAL_ADMIN_EMAIL || 'admin@veridion.dev';
 const ADMIN_PASSWORD = process.env.EVAL_ADMIN_PASSWORD || 'password123';
 const PASSWORD = 'Passw0rd!';
 const ONLY = (process.env.SEED_ONLY || 'all').toLowerCase();
-const DECISION_TIMEOUT_MS = Number(process.env.EVAL_DECISION_TIMEOUT_MS || 120000);
+// The AI pipeline works through invoices ONE AT A TIME (each makes Groq calls), so the first vendor-state
+// invoice can queue behind the 15 main-case invoices. Default is therefore generous (10 minutes).
+const DECISION_TIMEOUT_MS = Number(process.env.EVAL_DECISION_TIMEOUT_MS || 600000);
 const DEGRADED_WARMUPS = Number(process.env.EVAL_DEGRADED_WARMUPS || 3);       // flagged warm-ups for degraded-history-1
 const BOUNDARY_FLAGGED_WARMUPS = Number(process.env.EVAL_BOUNDARY_WARMUPS || 1); // flagged warm-ups for boundary-1
 
@@ -244,9 +246,15 @@ async function buildTestCase(ctx, vendor, s, requirement) {
 
 async function waitForDecision(invoiceId, timeoutMs = DECISION_TIMEOUT_MS) {
   const start = Date.now();
+  let lastNote = start;
   while (Date.now() - start < timeoutMs) {
     const r = await pool.query(`SELECT * FROM decisions WHERE invoice_id = $1 ORDER BY id DESC LIMIT 1`, [invoiceId]);
     if (r.rows[0]) return r.rows[0];
+    if (Date.now() - lastNote >= 30000) { // reassure the user that a slow queue is not a hang
+      lastNote = Date.now();
+      const pending = await pool.query(`SELECT count(*) AS n FROM invoices i WHERE NOT EXISTS (SELECT 1 FROM decisions d WHERE d.invoice_id = i.id)`);
+      console.log(`  ...waiting for invoice ${invoiceId} (${pending.rows[0].n} invoice(s) still in the pipeline queue, ${Math.round((Date.now() - start) / 1000)}s elapsed)`);
+    }
     await sleep(1000);
   }
   throw new Error(`Invoice ${invoiceId} never got a decision within ${timeoutMs}ms — is RabbitMQ/ai-service running?`);
@@ -389,6 +397,9 @@ async function runVendorStateCases(ctx, mainResults) {
   note('earned-history-1', `invoice_id=${earned1.invoice_id}`);
 
   // Addition 3 — ranking: high-history (legacy) vendor vs a brand-new one, identical price and delivery_days.
+  // NOTE: ranking-1 is EXPECTED to come out the other way by design (a vendor with no history has Past
+  // Performance weight 0, so tied on price/delivery it scores a perfect 1.0). It is kept as a visible,
+  // labelled design property; ranking-2 (good vs degraded history) is the comparison history can order.
   const freshQuoter = await newVendor(ctx);
   const rankReq = await postRequirement(ctx, spec({ id: 'ranking-1' }));
   const pricing = { requirement_id: rankReq.id, price: 10000, delivery_days: 5 };

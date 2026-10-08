@@ -2,7 +2,12 @@
 
 const Groq = require('groq-sdk');
 
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+const groq = new Groq({
+  apiKey: process.env.GROQ_API_KEY,
+  // Retry rate-limit (429) and temporary server errors up to 6 times with growing waits
+  // (about 20s in total) instead of the library default of 2, which gave up in ~1-2s.
+  maxRetries: Number(process.env.GROQ_MAX_RETRIES || 6),
+});
 
 // gpt-oss-120b replaces the deprecated llama-3.3-70b-versatile (shut down Aug 16, 2026)
 const MODEL = 'openai/gpt-oss-120b';

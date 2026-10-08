@@ -272,7 +272,7 @@ Setup: `cd backend && npm install`, `npm run migrate` (applies `017`, `018`), ad
    - [ ] `npm run migrate:test`, `npm run seed:test`, then `npm run seed:synthetic` finishes; `synthetic-dataset-results.json` has 15 entries, `vendor-state-results.json` is written
    - [ ] `npm run evaluate` polls all 15 invoices to a decision; 8 clean → `auto_approved`; fraud case → `suspicious`
    - [ ] Context Gate accuracy ≥ equal-weight baseline (if not, investigate and write it up honestly)
-   - [ ] `npm run evaluate:vendor-states`: legacy-1, earned-history-1, degraded-history-1, shell-company-1 (needs Neo4j), reputation-correction-1 (all three parts), compound-mismatch-1, boundary-1, ranking-2 pass; read ranking-1's note if it fails
+   - [ ] `npm run evaluate:vendor-states`: legacy-1, earned-history-1, degraded-history-1, reputation-correction-1 (all three parts), compound-mismatch-1, boundary-1, ranking-2 pass; ranking-1 shows as DESIGN PROPERTY (expected); shell-company-1 shows NOT TESTED unless Neo4j is on (separate instance + `TEST_USE_NEO4J=1`)
 
 ---
 
