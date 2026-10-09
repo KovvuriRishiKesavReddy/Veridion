@@ -53,8 +53,12 @@ async function load() {
   if (!pos.length) { cards.innerHTML = '<p class="text-muted">No purchase orders yet.</p>'; return; }
 
   const isWarehouse = user.role === 'warehouse';
+  // Procurement and Warehouse converse with the vendor post-award; Finance has no thread (the
+  // server refuses it by role), so no button for them.
+  const canMessage = user.role === 'procurement' || user.role === 'warehouse';
+  lastPos = pos;
 
-  cards.innerHTML = pos.map(po => `
+  setHtmlPreserving(cards, pos.map(po => `
     <div class="col-md-6">
       <div class="card p-3">
         <div class="d-flex justify-content-between align-items-start">
@@ -72,9 +76,29 @@ async function load() {
         <div class="mt-2 d-flex gap-2">
           <button class="btn btn-sm btn-outline-secondary" onclick="viewDetails(${po.id})">View Fulfillment</button>
           ${po.po_document_path && !isWarehouse ? `<button class="btn btn-sm btn-amber" onclick="downloadPo(${po.id})">Download PO PDF</button>` : ''}
+          ${canMessage ? `<button class="btn btn-sm btn-dark" onclick="openPoThread(${po.id})">Message Vendor</button>` : ''}
         </div>
       </div>
-    </div>`).join('');
+    </div>`).join(''));
+}
+
+// Post-award conversation with the vendor (logistics only -- price is locked on the PO).
+// The reply box is disabled, not the button, once an invoice on the PO is paid: the history
+// stays readable.
+let lastPos = [];
+function openPoThread(id) {
+  const po = lastPos.find(p => p.id === id);
+  openThreadModal({
+    title: `PO #${id}${po ? ' — ' + po.requirement_title : ''}`,
+    subtitle: po ? `Conversation with ${po.vendor_name} · logistics only, the agreed price is locked` : 'Logistics only',
+    listUrl: `/api/po-messages/${id}`,
+    postUrl: `/api/po-messages/${id}`,
+    statusUrl: `/api/po-messages/${id}/status`,
+    viewerRole: user.role,
+    placeholder: 'Message the vendor...',
+    emptyText: 'No messages yet — agree delivery timing, split shipments or handover details here.',
+    closedNote: 'This purchase order has been paid — the conversation is closed to new messages, history stays visible.'
+  });
 }
 
 async function viewDetails(id) {
@@ -100,7 +124,7 @@ async function viewDetails(id) {
             <td>${g.received_date}</td>
             <td>${qtyWithUnit(g.received_quantity, unit)}${varianceBadge(g.variance_quantity)}</td>
             <td>${g.warehouse_notes || '—'}</td>
-            <td>${g.expected_next_delivery_date || '—'}${g.next_delivery_notes ? `<br><span class="small text-muted">${g.next_delivery_notes}</span>` : ''}</td>
+            <td>${g.expected_next_delivery_date || '—'}${g.next_delivery_notes ? `<br><span class="small text-muted">${escapeHtml(g.next_delivery_notes)}</span>` : ''}${g.source_message_text ? `<div class="small text-muted fst-italic">— from conversation: "${escapeHtml(g.source_message_text)}" (${escapeHtml(g.source_message_sender)})</div>` : ''}</td>
           </tr>`).join('')}
       </tbody>
     </table>` : '<p class="text-muted">No goods receipt notes recorded yet for this PO.</p>'}

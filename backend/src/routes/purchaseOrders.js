@@ -139,7 +139,10 @@ router.get('/:id/grns', requireAuth, async (req, res) => {
   }
 
   const grnResult = await db.query(
-    `SELECT * FROM goods_receipt_notes WHERE po_id = $1 ORDER BY received_date ASC, id ASC`,
+    `SELECT g.*, pm.message AS source_message_text, pm.sender_name AS source_message_sender, pm.created_at AS source_message_at
+     FROM goods_receipt_notes g
+     LEFT JOIN po_messages pm ON pm.id = g.expected_next_delivery_source_message_id
+     WHERE g.po_id = $1 ORDER BY g.received_date ASC, g.id ASC`,
     [req.params.id]
   );
 

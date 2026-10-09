@@ -567,3 +567,297 @@ function wireEyeToggle(inputId, buttonId) {
 function qtyWithUnit(qty, unit) {
   return unit ? `${qty} ${unit}` : `${qty}`;
 }
+
+
+// ---------------------------------------------------------------------------
+// Live-refresh helpers (used by the dispute pages)
+// ---------------------------------------------------------------------------
+
+// escapeHtml: user-typed text (chat messages, names, drafts) must never be dropped into
+// innerHTML raw -- it breaks the layout on stray < > characters and is an XSS hole.
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+}
+
+// setHtmlPreserving(container, html): the polling-safe replacement for `el.innerHTML = html`.
+//   * If nothing changed since the last render, does NOTHING at all -- no DOM churn, so
+//     scrolling, selecting and typing are never interrupted by a poll tick.
+//   * If something did change, it carries over what a rebuild would otherwise destroy:
+//     text the user typed into any textarea/input (by id), which field has focus and the
+//     caret position, and the scroll position of every element marked data-scroll-key.
+//     A scroll box that was at the bottom stays pinned to the bottom (so a new message
+//     is visible); one the user scrolled up in keeps its position (so they can read back).
+function setHtmlPreserving(container, html) {
+  if (!container) return;
+  if (container.dataset.lastHtml === html) return;
+
+  const typed = {};
+  container.querySelectorAll('textarea[id], input[id]').forEach(el => {
+    if (!el.readOnly && !el.disabled && el.value !== el.defaultValue) typed[el.id] = el.value;
+  });
+  const active = document.activeElement;
+  const focus = (active && container.contains(active) && active.id)
+    ? { id: active.id, start: active.selectionStart, end: active.selectionEnd } : null;
+  const scrolls = {};
+  container.querySelectorAll('[data-scroll-key]').forEach(el => {
+    scrolls[el.dataset.scrollKey] = { top: el.scrollTop, atBottom: el.scrollHeight - el.scrollTop - el.clientHeight < 24 };
+  });
+
+  container.innerHTML = html;
+  container.dataset.lastHtml = html;
+
+  Object.entries(typed).forEach(([id, value]) => {
+    const el = document.getElementById(id);
+    if (el && !el.readOnly) el.value = value;
+  });
+  container.querySelectorAll('[data-scroll-key]').forEach(el => {
+    const prev = scrolls[el.dataset.scrollKey];
+    el.scrollTop = (!prev || prev.atBottom) ? el.scrollHeight : prev.top;
+  });
+  if (focus) {
+    const el = document.getElementById(focus.id);
+    if (el) {
+      el.focus({ preventScroll: true });
+      if (focus.start != null && el.setSelectionRange) { try { el.setSelectionRange(focus.start, focus.end); } catch (_) {} }
+    }
+  }
+}
+
+// renderChatThread(thread, viewerRole): shared chat layout for both sides of a dispute.
+// Alignment is by VIEWER (your own messages on the right, the other side's on the left);
+// colour is by SENDER ROLE and identical on both screens -- vendor messages are always
+// yellow, Finance messages always the neutral green-grey -- so the same conversation looks
+// the same to both parties. Back-to-back messages from one sender are grouped under one
+// avatar, each in its own bubble on its own line; line breaks inside a message are kept.
+function renderChatThread(thread, viewerRole) {
+  // Group back-to-back messages from the same sender. Roles: 'vendor' (yellow) versus every
+  // company-side role -- finance / procurement / warehouse -- (neutral grey).
+  const groups = [];
+  thread.forEach(m => {
+    const role = m.sender_role || 'finance';
+    const name = m.sender_name || (role === 'vendor' ? 'Vendor' : role.charAt(0).toUpperCase() + role.slice(1));
+    const last = groups[groups.length - 1];
+    if (last && last.role === role && last.name === name) last.messages.push(m);
+    else groups.push({ role, name, messages: [m] });
+  });
+  return groups.map(g => {
+    const mine = g.role === viewerRole;
+    const tone = g.role === 'vendor' ? 'vendor' : 'finance';
+    const initial = String(g.name).trim().charAt(0).toUpperCase() || '?';
+    const lastMsg = g.messages[g.messages.length - 1];
+    const avatar = `<div class="chat-avatar chat-avatar-${tone}">${escapeHtml(initial)}</div>`;
+    return `
+    <div class="chat-row ${mine ? 'chat-row-mine' : 'chat-row-theirs'}">
+      ${!mine ? avatar : ''}
+      <div class="chat-col">
+        ${g.messages.map(m => `<div class="chat-bubble chat-bubble-${tone}">${escapeHtml(m.message)}</div>`).join('')}
+        <div class="chat-meta">${escapeHtml(g.name)} · ${new Date(lastMsg.created_at).toLocaleString()}</div>
+      </div>
+      ${mine ? avatar : ''}
+    </div>`;
+  }).join('');
+}
+
+// buildDisputeThread(c, vendorName): the full conversation for one dispute, in the order it
+// happened, identical for both sides: the dispute message Finance SENT is the first bubble
+// (a Finance message sent at sent_at), then the legacy single vendor response if there is
+// one, then every message since. Showing the original as a normal bubble -- instead of a
+// separate grey box on one screen and an editable textarea on the other -- is what keeps
+// the two sides looking the same. An UNSENT draft is not part of the thread (Finance edits
+// it in the draft box; the vendor never sees it).
+function buildDisputeThread(c, vendorName) {
+  const items = [];
+  if (c.status === 'sent' && c.draft_text) {
+    items.push({ sender_role: 'finance', sender_name: 'Finance', message: c.draft_text, created_at: c.sent_at || c.created_at });
+  }
+  if (c.vendor_response) {
+    items.push({ sender_role: 'vendor', sender_name: vendorName, message: c.vendor_response, created_at: c.vendor_responded_at });
+  }
+  (c.messages || []).forEach(m => items.push(m));
+  return items.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+}
+
+
+// ---------------------------------------------------------------------------
+// openThreadModal(opts): the shared message-thread dialog used by the quotation (pre-award)
+// and purchase-order (post-award) conversations, on both the vendor and company sides. One
+// implementation so the five pages that use it can never drift apart. Live while open (polls
+// once a second, non-destructively -- see setHtmlPreserving -- so scrolling back through
+// history and typing a reply both survive a refresh) and stops polling when closed.
+//
+//   title, subtitle  - header text
+//   listUrl          - GET  -> [{ sender_role, sender_name, message, created_at, id }]
+//   postUrl          - POST { message }
+//   viewerRole       - 'vendor' | 'procurement' | 'warehouse' (decides which side is "mine")
+//   statusUrl        - optional GET -> { closed: bool }  (e.g. a paid PO) -> reply box disabled,
+//                      history stays visible
+//   getTerms         - optional () => { price, delivery_days } | null. Shown live as the
+//                      "current terms" strip; returning null means the item no longer exists
+//                      in the open list (decided), so the thread is treated as closed.
+//   closedNote       - text shown in place of the reply box when closed
+//   readOnly         - true: show history only, no reply box (e.g. Warehouse just reading)
+//   propose          - optional { mode: 'update' | 'counter', putUrl?, onUpdated? }
+//        'update'  (vendor): inputs prefilled with the current terms; "Update my quotation"
+//                  calls PUT putUrl, then drops a one-line note in the thread.
+//        'counter' (procurement): "Propose new price / delivery days" posts the proposal as a
+//                  message -- Procurement never edits a quotation directly, the vendor applies
+//                  it with their own update.
+// ---------------------------------------------------------------------------
+let activeThreadModal = null;
+function closeThreadModal() { if (activeThreadModal) activeThreadModal.close(); }
+
+function openThreadModal(opts) {
+  closeThreadModal();
+  const overlay = document.createElement('div');
+  overlay.className = 'thread-overlay';
+  const p = opts.propose;
+  overlay.innerHTML = `
+    <div class="thread-dialog card p-3" role="dialog" aria-modal="true">
+      <button type="button" class="thread-x" aria-label="Close">&times;</button>
+      <div class="d-flex justify-content-between align-items-start thread-head-main">
+        <div>
+          <strong>${escapeHtml(opts.title)}</strong>
+          ${opts.subtitle ? `<div class="text-muted small">${escapeHtml(opts.subtitle)}</div>` : ''}
+        </div>
+        <span class="badge bg-warning text-dark" id="threadBadge">Open</span>
+      </div>
+      <div class="alert alert-secondary mt-2 mb-0 py-2 small" id="threadTerms" style="display:none;"></div>
+      <div class="mt-2">
+        <label class="form-label small text-muted mb-1">Conversation</label>
+        <div class="dispute-thread" id="threadBody" data-scroll-key="thread-modal"><p class="text-muted small">Loading...</p></div>
+      </div>
+      ${p ? `
+      <div class="border rounded p-3 mt-3 bg-light" id="threadPropose">
+        <p class="small mb-2"><strong>${p.mode === 'update' ? 'Update my quotation' : 'Propose new terms'}</strong> <span class="text-muted">— ${p.mode === 'update' ? 'changes the numbers on your quotation; the buyer sees them immediately.' : 'sent to the vendor as a message; only they can change their quotation.'}</span></p>
+        <div class="row g-2">
+          <div class="col-6"><label class="form-label small mb-1">${p.mode === 'update' ? 'Price (₹)' : 'Propose new price (₹)'}</label><input type="number" min="0" step="0.01" class="form-control" id="threadNewPrice"></div>
+          <div class="col-6"><label class="form-label small mb-1">${p.mode === 'update' ? 'Delivery days' : 'Propose new delivery days'}</label><input type="number" min="1" step="1" class="form-control" id="threadNewDays"></div>
+        </div>
+        <div class="dispute-actions mt-2">
+          <span class="hbg hbg-outline d-inline-block"><button type="button" class="hbg-core dispute-btn" id="threadProposeBtn">${p.mode === 'update' ? 'Update Quotation' : 'Send Proposal'}</button></span>
+        </div>
+        <div class="small mt-2" id="threadProposeMsg"></div>
+      </div>` : ''}
+      <div id="threadReplyBox">
+        <div class="mt-2"><textarea class="form-control" id="threadReply" rows="2" placeholder="${escapeHtml(opts.placeholder || 'Send a message...')}"></textarea></div>
+        <div class="dispute-actions mt-3">
+          <span class="hbg d-inline-block"><button type="button" class="hbg-core dispute-btn" id="threadSend">Send Message</button></span>
+        </div>
+      </div>
+      <div class="alert alert-secondary mt-2 mb-0 small" id="threadNote" style="display:none;"></div>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  const $ = id => overlay.querySelector('#' + id);
+  let timer = null, closed = false, prefilled = false, busy = false;
+
+  function setClosed(isClosed) {
+    closed = isClosed;
+    const show = !isClosed && !opts.readOnly;
+    $('threadReplyBox').style.display = show ? '' : 'none';
+    if ($('threadPropose')) $('threadPropose').style.display = show ? '' : 'none';
+    const badge = $('threadBadge');
+    badge.className = isClosed ? 'badge bg-secondary' : 'badge bg-warning text-dark';
+    badge.textContent = isClosed ? 'Closed' : (opts.openLabel || 'Open');
+    const note = $('threadNote');
+    const text = isClosed ? (opts.closedNote || 'This conversation is closed — history stays visible.')
+      : (opts.readOnly ? 'Read-only — you can read this conversation but not post in it.' : '');
+    note.textContent = text;
+    note.style.display = text ? '' : 'none';
+  }
+
+  async function refresh() {
+    if (!overlay.isConnected) return;
+    const [mRes, sRes] = await Promise.all([fetchWithAuth(opts.listUrl), opts.statusUrl ? fetchWithAuth(opts.statusUrl) : Promise.resolve(null)]);
+    if (!mRes || !mRes.ok) return;
+    const messages = await mRes.json();
+    let isClosed = false;
+    if (sRes && sRes.ok) isClosed = !!(await sRes.json()).closed;
+
+    if (opts.getTerms) {
+      const t = opts.getTerms();
+      const termsEl = $('threadTerms');
+      if (t) {
+        termsEl.style.display = '';
+        termsEl.innerHTML = `Current terms: <strong>₹${escapeHtml(t.price)}</strong> · delivery in <strong>${escapeHtml(t.delivery_days)} days</strong>`;
+        if (p && !prefilled) { $('threadNewPrice').value = t.price; $('threadNewDays').value = t.delivery_days; prefilled = true; }
+      } else {
+        isClosed = true; // no longer an open quotation: accepted or rejected
+        termsEl.style.display = 'none';
+      }
+    }
+    setClosed(isClosed);
+    const sel = window.getSelection && window.getSelection();
+    const body = $('threadBody');
+    if (sel && !sel.isCollapsed && body.contains(sel.anchorNode)) return; // don't wipe a text selection
+    setHtmlPreserving(body, messages.length
+      ? renderChatThread(messages, opts.viewerRole)
+      : `<p class="text-muted small">${escapeHtml(opts.emptyText || 'No messages yet.')}</p>`);
+  }
+
+  async function post(text) {
+    const res = await fetchWithAuth(opts.postUrl, { method: 'POST', body: JSON.stringify({ message: text }) });
+    if (!res) return false;
+    if (!res.ok) { const e = await res.json().catch(() => ({})); alert(e.error || 'Failed to send'); return false; }
+    return true;
+  }
+
+  $('threadSend').onclick = () => withButtonState($('threadSend'), async () => {
+    const ta = $('threadReply'); const text = ta.value;
+    if (!text.trim() || busy) return null;          // nothing to send: just reset the button
+    busy = true;
+    try {
+      const ok = await post(text);
+      if (ok) { ta.value = ''; await refresh(); }
+      return ok;
+    } finally { busy = false; }
+  });
+  $('threadReply').addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) $('threadSend').click(); });
+
+  if (p) {
+    $('threadProposeBtn').onclick = () => withButtonState($('threadProposeBtn'), async () => {
+      if (busy) return null;
+      const price = $('threadNewPrice').value, days = $('threadNewDays').value;
+      const msg = $('threadProposeMsg');
+      if (!price && !days) { msg.className = 'small mt-2 text-danger'; msg.textContent = 'Enter a price and/or delivery days.'; return null; }
+      busy = true;
+      try {
+        let ok = false;
+        if (p.mode === 'update') {
+          const res = await fetchWithAuth(p.putUrl, { method: 'PUT', body: JSON.stringify({ price: price || undefined, delivery_days: days || undefined }) });
+          if (!res) return false;
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) { msg.className = 'small mt-2 text-danger'; msg.textContent = data.error || 'Update failed'; return false; }
+          msg.className = 'small mt-2 text-success'; msg.textContent = 'Quotation updated — the buyer sees the new numbers immediately.';
+          await post(`Updated my quotation: price ₹${data.price}, delivery in ${data.delivery_days} days.`);
+          if (p.onUpdated) p.onUpdated(data);
+          ok = true;
+        } else {
+          const parts = [];
+          if (price) parts.push(`price ₹${price}`);
+          if (days) parts.push(`delivery in ${days} days`);
+          ok = await post(`Counter-proposal: ${parts.join(', ')}. Please update your quotation if you can meet this.`);
+          if (ok) { msg.className = 'small mt-2 text-success'; msg.textContent = 'Proposal sent.'; }
+        }
+        await refresh();
+        return ok;
+      } finally { busy = false; }
+    });
+  }
+
+  function close() {
+    clearInterval(timer);
+    document.removeEventListener('keydown', onKey);
+    overlay.remove();
+    activeThreadModal = null;
+    if (opts.onClose) opts.onClose();
+  }
+  const onKey = e => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', onKey);
+  overlay.querySelector('.thread-x').onclick = close;
+  overlay.addEventListener('mousedown', e => { if (e.target === overlay) close(); });
+
+  activeThreadModal = { close };
+  refresh();
+  timer = setInterval(refresh, 1000);
+}

@@ -76,6 +76,7 @@ router.get('/mine', requireAuth, requireRole('vendor'), requireVerifiedVendor, a
      LEFT JOIN requirements r ON r.id = po.requirement_id
      LEFT JOIN companies c ON c.id = vc.company_id
      WHERE vc.vendor_id = $1
+       AND NOT (vc.status = 'pending_send' AND vc.resolved = true)
      ORDER BY vc.created_at DESC`,
     [req.user.vendor_id]
   );
@@ -94,6 +95,7 @@ router.put('/:id', requireAuth, requireRole('finance'), requireApprovedCompany, 
   const checkRes = await db.query(`SELECT * FROM vendor_communications WHERE id = $1 AND company_id = $2`, [req.params.id, req.user.company_id]);
   const comm = checkRes.rows[0];
   if (!comm) return res.status(404).json({ error: 'Dispute not found' });
+  if (comm.resolved) return res.status(409).json({ error: 'This dispute is closed.' });
   if (comm.status !== 'pending_send') {
     return res.status(400).json({ error: 'Can only edit a dispute message before it has been sent.' });
   }
@@ -112,6 +114,7 @@ router.post('/:id/send', requireAuth, requireRole('finance'), requireApprovedCom
   const comm = checkRes.rows[0];
   if (!comm) return res.status(404).json({ error: 'Dispute not found' });
   if (comm.status === 'sent') return res.status(409).json({ error: 'Already sent.' });
+  if (comm.resolved) return res.status(409).json({ error: 'This dispute is closed (invoice paid, approved or withdrawn) — nothing to send.' });
 
   const result = await db.query(
     `UPDATE vendor_communications SET status = 'sent', sent_by = $1, sent_at = now() WHERE id = $2 RETURNING *`,

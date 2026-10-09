@@ -310,6 +310,17 @@ Install after pulling this change: `cd backend && npm install` (adds `socket.io`
 
 ---
 
+## Vendor–Company communication channel
+
+Two private message threads sit alongside (and entirely separate from) the dispute channel:
+
+- **Pre-award** (`quotation_messages`, `/api/quotation-messages/:quotationId`): one thread per quotation, private to that vendor and the company's Procurement team (another vendor, or another company, gets a 404). Price and delivery-days are negotiated here. The vendor changes their own numbers with `PUT /api/quotations/:id` (only while the quotation is still `submitted`); Procurement sends counter-proposals as messages and never edits a quotation. Accepting a quotation reads the latest price / delivery days, so the PO carries the negotiated numbers. Once the quotation is accepted or rejected the thread is read-only history.
+- **Post-award** (`po_messages`, `/api/po-messages/:poId`): one thread per purchase order, logistics only — `agreed_price` is locked and nothing here can touch it. Vendor, Procurement and Warehouse can read and post; Finance cannot (403). The thread closes to new messages once any invoice on the PO is `paid`; history stays readable (`GET /api/po-messages/:poId/status` reports `{ closed }`).
+- **Sourced delivery dates**: when Warehouse records a partial GRN they can cite the thread message that agreed the remaining-delivery date (`goods_receipt_notes.expected_next_delivery_source_message_id`). The server rejects a message from a different PO. The cited text and sender are shown next to the date on the PO fulfilment modals and both GRN Documents pages.
+- New messages create in-app notifications (bell + toast) for the other side, and a vendor's price/delivery update notifies Procurement.
+
+Migration `023_communication_channels.sql` adds the tables and the GRN column. `npm run test:comms` (test database only) runs the end-to-end test in `backend/scripts/test-communication-channel.js`.
+
 ## A note on scope
 
 This is an actively evolving build — the codebase includes a substantial amount of hardening beyond the original spec, found through real testing rather than assumed upfront: offline-capable OCR (no external CDN dependency), a GST/pre-tax amount calculation shared consistently across every agent that touches it, a vendor-identity-consistency fraud check, a pipeline failure safety net (no invoice can silently vanish if something goes wrong mid-processing), and a company approval workflow mirroring vendor verification. Treat the code comments as the authoritative source for *why* something is built the way it is — several of the less obvious design choices are explained inline at the point they matter.

@@ -581,3 +581,40 @@ body.has-dock-nav > .container.auth-container .alert {
 .pw-match { display: flex; align-items: center; gap: 0.4rem; font-size: 0.78rem; font-weight: 700; margin: -0.5rem 0 1rem 0; transition: color 0.3s ease; }
 .pw-match.match { color: #0f5132; }
 .pw-match.no-match { color: #b3261e; }
+
+
+/* ---- Dispute conversation (shared by the Finance and Vendor dispute pages) ---- */
+.dispute-thread { max-height: 340px; overflow-y: auto; padding-right: 6px; overscroll-behavior: contain; }
+.chat-row { display: flex; align-items: flex-end; gap: 8px; margin-top: 10px; }
+.chat-row-mine { justify-content: flex-end; }
+.chat-row-theirs { justify-content: flex-start; }
+.chat-col { max-width: 78%; display: flex; flex-direction: column; }
+.chat-row-mine .chat-col { align-items: flex-end; }
+.chat-row-theirs .chat-col { align-items: flex-start; }
+.chat-avatar { width: 28px; height: 28px; border-radius: 50%; flex: 0 0 auto; display: flex; align-items: center; justify-content: center; font-size: 0.75rem; font-weight: 700; }
+.chat-avatar-vendor { background: var(--amber-dark, #b8860b); color: #1a1a1a; }
+.chat-avatar-finance { background: #166534; color: #eafff2; }
+/* One bubble per line: block-level, shrink-wrapped, and line breaks inside a message kept. */
+.chat-bubble { display: block; width: fit-content; max-width: 100%; padding: 8px 12px; border-radius: 14px; font-size: 0.85rem; line-height: 1.4; margin-bottom: 3px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.chat-bubble-vendor { background: var(--amber, #e0a72e); color: #1a1a1a; }
+.chat-bubble-finance { background: #cfd6d1; color: #101c14; }
+.chat-row-mine .chat-bubble { border-bottom-right-radius: 4px; }
+.chat-row-theirs .chat-bubble { border-bottom-left-radius: 4px; }
+.chat-meta { font-size: 0.75rem; color: #6c757d; margin-top: 2px; }
+.dispute-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+
+/* ---- Dispute / conversation actions: the same large, side-by-side buttons everywhere ---- */
+.dispute-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.dispute-actions .hbg { margin: 0; }
+.dispute-btn { padding: 10px 26px !important; font-size: 0.95rem !important; font-weight: 600; min-width: 150px; }
+
+/* ---- Shared message-thread dialog (quotation + purchase-order conversations) ----
+   Deliberately built from the SAME pieces as a dispute card -- card header with a bold name and
+   a status badge, a "Conversation" label over .dispute-thread, a 2-row message box, and the
+   large Send Message button -- so every conversation in the product looks and behaves alike. */
+.thread-overlay { position: fixed; inset: 0; background: rgba(15, 23, 20, 0.55); z-index: 2000; display: flex; align-items: center; justify-content: center; padding: 16px; }
+.thread-dialog { width: 100%; max-width: 680px; max-height: 92vh; overflow-y: auto; box-shadow: 0 20px 50px rgba(0, 0, 0, 0.3); position: relative; }
+.thread-x { position: absolute; top: 8px; right: 12px; border: 0; background: transparent; font-size: 1.6rem; line-height: 1; color: #6c757d; cursor: pointer; }
+.thread-x:hover { color: #111; }
+.thread-head-main { padding-right: 28px; }

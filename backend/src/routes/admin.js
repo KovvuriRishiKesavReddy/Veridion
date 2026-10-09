@@ -64,7 +64,11 @@ router.post('/vendors/:id/verify', requireAuth, requireRole('platform_admin'), a
 // with cross-company authority to review — never auto-resolved by the gate itself.
 router.get('/fraud-flags', requireAuth, requireRole('platform_admin'), async (req, res) => {
   const result = await db.query(
-    `SELECT ff.*, v.company_name as vendor_name, inv.invoice_number, inv.invoice_amount
+    `SELECT ff.*, v.company_name as vendor_name,
+            COALESCE(inv.invoice_number, ff.invoice_number_snapshot) AS invoice_number,
+            COALESCE(inv.invoice_amount, ff.invoice_amount_snapshot) AS invoice_amount,
+            COALESCE(ff.invoice_id, ff.invoice_ref_snapshot) AS invoice_ref,
+            (ff.invoice_id IS NULL AND ff.invoice_ref_snapshot IS NOT NULL) AS invoice_withdrawn
      FROM fraud_flags ff
      JOIN vendors v ON v.id = ff.vendor_id
      LEFT JOIN invoices inv ON inv.id = ff.invoice_id

@@ -170,6 +170,23 @@ async function runDecisionAgent(invoiceId) {
   );
 
   await db.query(`UPDATE invoices SET status = $1 WHERE id = $2`, [finalDecision === 'auto_approved' ? 'verified' : 'flagged', invoiceId]);
+  if (finalDecision === 'auto_approved') {
+    // Re-verified (e.g. re-run after a correction): any still-open dispute on this invoice
+    // -- sent or still an unsent draft -- is CLOSED (closed_reason 'verified'), not deleted;
+    // history kept. Not a resolution: no vendor-risk call, no resolution time.
+    await db.query(
+      `UPDATE vendor_communications SET resolved = true, resolved_at = now(), closed_reason = 'verified'
+       WHERE invoice_id = $1 AND resolved = false`, [invoiceId]);
+  }
+
+  // Re-run landed on a reputation-only flag: an earlier UNSENT draft (from a run where the
+  // invoice did have a real issue, since corrected) no longer applies -- close it, not delete.
+  // Sent disputes are left alone (the vendor already saw those).
+  if (flaggedSolelyByReputation) {
+    await db.query(
+      `UPDATE vendor_communications SET resolved = true, resolved_at = now(), closed_reason = 'reputation_only'
+       WHERE invoice_id = $1 AND resolved = false AND status = 'pending_send'`, [invoiceId]);
+  }
 
   // Agent 5 update: feed this decision back into the vendor's running invoice_accuracy_pct.
   // A reputation-only flag (see above) is recorded as a GOOD event, not a bad one —

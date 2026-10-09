@@ -182,9 +182,11 @@ async function runFraudAgent(invoiceId) {
   const insertedFlags = [];
   for (const flag of flags) {
     const result = await db.query(
-      `INSERT INTO fraud_flags (vendor_id, invoice_id, flag_type, severity, evidence, confidence_score)
-       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
-      [invoice.vendor_id, invoiceId, flag.flag_type, flag.severity, JSON.stringify(flag.evidence), flag.confidence_score]
+      `INSERT INTO fraud_flags (vendor_id, invoice_id, flag_type, severity, evidence, confidence_score,
+                               invoice_number_snapshot, invoice_ref_snapshot, invoice_amount_snapshot)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+      [invoice.vendor_id, invoiceId, flag.flag_type, flag.severity, JSON.stringify(flag.evidence), flag.confidence_score,
+       invoice.invoice_number || null, invoiceId, invoice.invoice_amount ?? null]
     );
     insertedFlags.push(result.rows[0]);
   }

@@ -276,6 +276,21 @@ Setup: `cd backend && npm install`, `npm run migrate` (applies `017`, `018`), ad
 
 ---
 
+## Vendor–Company communication channel
+
+- [ ] `npm run migrate` applies `023_communication_channels.sql`; `quotation_messages`, `po_messages` exist and `goods_receipt_notes.expected_next_delivery_source_message_id` is a nullable FK
+- [ ] `npm run test:comms` passes (run against the test database)
+- [ ] Vendor A and Vendor B quote on one requirement; Vendor B cannot read or post in Vendor A's thread (404, not an empty list)
+- [ ] Procurement messages Vendor A and sends a counter-proposal; Vendor A updates their quotation from the dialog; the comparison table shows the new number within a second
+- [ ] Accept it: the PO's agreed price / delivery date are the negotiated ones; both sides can still read the thread but not post
+- [ ] Post-award: Procurement and Warehouse can post, Finance gets no "Message" button (and a 403 from the API); the vendor's "Message" button works
+- [ ] Warehouse records a partial GRN picking a thread message as the source; the PO fulfilment modals and both GRN Documents pages show the date together with the quoted message
+- [ ] A GRN citing a message from a different PO is rejected with a 400
+- [ ] Pay an invoice on the PO: the reply box disappears (history stays) and a direct POST returns 400
+- [ ] The dispute flow is unchanged
+
+---
+
 ## Quick smoke test (fastest path through everything)
 
 1. Open 2 tabs: Tab 1 = procurement (no Remember Me), Tab 2 = a vendor (no Remember Me).

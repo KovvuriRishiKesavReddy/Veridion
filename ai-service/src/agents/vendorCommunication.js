@@ -39,6 +39,15 @@ async function runVendorCommunicationAgent(invoiceId, fraudFlags = null) {
   const matching = matchingRes.rows[0];
   const compliance = complianceRes.rows[0];
 
+  // Last line of defence, at the one place every dispute draft is created (decide.js AND
+  // the manual /agents/draft-dispute route): if the latest decision says this invoice was
+  // flagged SOLELY by the vendor's risk score (Matching, Compliance and Fraud all clean),
+  // there is nothing on the invoice to dispute, so no draft is created -- whoever asked.
+  const lastDecision = await db.query(`SELECT agent_inputs FROM decisions WHERE invoice_id = $1 ORDER BY id DESC LIMIT 1`, [invoiceId]);
+  if (lastDecision.rows[0]?.agent_inputs?.vendor_risk?.counted_as_positive_despite_flag === true) {
+    return { skipped: true, reason: 'flagged solely by vendor risk score -- no dispute applies' };
+  }
+
   const isFraudReview = Array.isArray(fraudFlags) && fraudFlags.length > 0;
 
   // A short, stable label for what this dispute is actually about — shown in the
@@ -64,8 +73,8 @@ async function runVendorCommunicationAgent(invoiceId, fraudFlags = null) {
   }
 
   const systemPrompt = isFraudReview
-    ? `You draft a short, polite, professional message from a procurement company to one of its vendors, requesting documentation to verify the vendor's identity before an invoice can be processed. Never accusatory, never mention fraud, suspicion, or any specific discrepancy — this must read as a routine verification step. The message MUST explicitly ask for: (1) a copy of the vendor's GST registration certificate, and (2) a recent bank statement or cancelled cheque confirming the bank account on file — these are the only two documents that matter here, do not substitute generic documents like a purchase order or delivery receipt instead. State all amounts in Indian Rupees (₹), never $ or USD. Keep it under 150 words. Respond ONLY with a JSON object: {"message": "..."}`
-    : `You draft a short, polite, factual dispute message from a procurement company to one of its vendors, explaining why an invoice was flagged for review. Never accusatory — assume good faith and an honest mistake unless the evidence says otherwise. State all amounts in Indian Rupees (₹), never $ or USD. Keep it under 150 words. Respond ONLY with a JSON object: {"message": "..."}`;
+    ? `You draft a short, polite, professional message from a procurement company to one of its vendors, requesting documentation to verify the vendor's identity before an invoice can be processed. Never accusatory, never mention fraud, suspicion, or any specific discrepancy — this must read as a routine verification step. The message MUST explicitly ask for: (1) a copy of the vendor's GST registration certificate, and (2) a recent bank statement or cancelled cheque confirming the bank account on file — these are the only two documents that matter here, do not substitute generic documents like a purchase order or delivery receipt instead. State all amounts in Indian Rupees (₹), never $ or USD. Keep it under 150 words. Format the message with real line breaks (\\n): a greeting line, a blank line, the body, each requested item or discrepancy on its own numbered line, a blank line, then the sign-off on its own line. Respond ONLY with a JSON object: {"message": "..."}`
+    : `You draft a short, polite, factual dispute message from a procurement company to one of its vendors, explaining why an invoice was flagged for review. Never accusatory — assume good faith and an honest mistake unless the evidence says otherwise. State all amounts in Indian Rupees (₹), never $ or USD. Keep it under 150 words. Format the message with real line breaks (\\n): a greeting line, a blank line, the body, each requested item or discrepancy on its own numbered line, a blank line, then the sign-off on its own line. Respond ONLY with a JSON object: {"message": "..."}`;
   const userPrompt = JSON.stringify({
     vendor_name: invoice.vendor_name,
     requirement_title: invoice.requirement_title,

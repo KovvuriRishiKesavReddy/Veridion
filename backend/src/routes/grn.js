@@ -33,7 +33,7 @@ async function notifyGrnConfirmed(poId, grnId) {
 // PO agreed 100 -> GRN #1 records 90 (partially_fulfilled, 10 remaining) -> GRN #2 records
 // the remaining 10 -> cumulative total now 100 -> PO flips to fulfilled automatically.
 router.post('/', requireAuth, requireRole('warehouse'), requireApprovedCompany, async (req, res) => {
-  const { po_id, received_quantity, received_date, warehouse_notes, expected_next_delivery_date, next_delivery_notes } = req.body;
+  const { po_id, received_quantity, received_date, warehouse_notes, expected_next_delivery_date, next_delivery_notes, expected_next_delivery_source_message_id } = req.body;
   if (!po_id || received_quantity === undefined || !received_date) {
     return res.status(400).json({ error: 'po_id, received_quantity, received_date are required' });
   }
@@ -70,14 +70,31 @@ router.post('/', requireAuth, requireRole('warehouse'), requireApprovedCompany, 
     const fulfillmentStatus = isShortfall ? 'partially_fulfilled' : 'fulfilled';
     const remainingAfter = agreedNum - newTotal; // negative once in overage territory
 
+    // Validate the cited message, if any, actually belongs to THIS PO's thread -- otherwise a
+    // GRN could cite a message from a completely different purchase order, which would make
+    // the "proof" meaningless.
+    let sourceMessageId = null;
+    if (expected_next_delivery_source_message_id) {
+      const msgCheck = await client.query(
+        `SELECT id FROM po_messages WHERE id = $1 AND po_id = $2`,
+        [expected_next_delivery_source_message_id, po_id]
+      );
+      if (!msgCheck.rows[0]) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: "The cited message does not belong to this purchase order's conversation." });
+      }
+      sourceMessageId = msgCheck.rows[0].id;
+    }
+
     const grnRes = await client.query(
       `INSERT INTO goods_receipt_notes
-        (po_id, received_quantity, received_date, warehouse_notes, recorded_by, discrepancy_flag, expected_next_delivery_date, next_delivery_notes)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+        (po_id, received_quantity, received_date, warehouse_notes, recorded_by, discrepancy_flag, expected_next_delivery_date, next_delivery_notes, expected_next_delivery_source_message_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
       [
         po_id, received_quantity, received_date, warehouse_notes || null, req.user.id, discrepancyFlag,
         isShortfall ? (expected_next_delivery_date || null) : null,
-        isShortfall ? (next_delivery_notes || null) : null
+        isShortfall ? (next_delivery_notes || null) : null,
+        isShortfall ? sourceMessageId : null
       ]
     );
     await client.query(`UPDATE purchase_orders SET fulfillment_status=$1 WHERE id=$2`, [fulfillmentStatus, po_id]);
@@ -154,8 +171,10 @@ router.get('/company', requireAuth, requireRole('procurement', 'finance', 'wareh
     `SELECT g.*, po.agreed_quantity, po.fulfillment_status, po.requirement_id,
             v.company_name as vendor_name, r.title as requirement_title, r.unit,
             u.name as recorded_by_name,
+            pm.message AS source_message_text, pm.sender_name AS source_message_sender,
             SUM(g.received_quantity) OVER (PARTITION BY g.po_id ORDER BY g.received_date ASC, g.id ASC) as cumulative_received
      FROM goods_receipt_notes g
+     LEFT JOIN po_messages pm ON pm.id = g.expected_next_delivery_source_message_id
      JOIN purchase_orders po ON po.id = g.po_id
      JOIN vendors v ON v.id = po.vendor_id
      JOIN requirements r ON r.id = po.requirement_id
@@ -179,8 +198,10 @@ router.get('/vendor', requireAuth, requireRole('vendor'), requireVerifiedVendor,
   const result = await db.query(
     `SELECT g.*, po.agreed_quantity, po.fulfillment_status, po.company_id,
             c.name as company_name, r.title as requirement_title, r.unit,
+            pm.message AS source_message_text, pm.sender_name AS source_message_sender,
             SUM(g.received_quantity) OVER (PARTITION BY g.po_id ORDER BY g.received_date ASC, g.id ASC) as cumulative_received
      FROM goods_receipt_notes g
+     LEFT JOIN po_messages pm ON pm.id = g.expected_next_delivery_source_message_id
      JOIN purchase_orders po ON po.id = g.po_id
      JOIN companies c ON c.id = po.company_id
      JOIN requirements r ON r.id = po.requirement_id

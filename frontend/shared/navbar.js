@@ -56,20 +56,27 @@ const DOCK_DOT_IDS = {
     'Browse Requirements': 'dockNewReqDot',
     'Purchase Orders': 'dockOrderDot',
     'Deliveries (GRN)': 'dockGrnDot',
+    'My Quotations': 'dockMyQuotationDot',
     'My Invoices': 'dockInvoiceDot',
     'Disputes': 'dockDisputeDot',
     'Payment Status': 'dockPaymentDot'
   },
   procurement: {
     'Quotations': 'dockQuotationDot',
+    'Purchase Orders': 'dockPoDot',
     'GRN Documents': 'dockGrnDocDot'
   },
   finance: {
+    'Purchase Orders': 'dockPoDot',
+    'GRN Documents': 'dockGrnDocDot',
     'Invoices': 'dockInvoiceReviewDot',
-    'Disputes': 'dockDisputeDot'
+    'Disputes': 'dockDisputeDot',
+    'Payments': 'dockPayableDot'
   },
   warehouse: {
-    'GRN Entry': 'dockGrnEntryDot'
+    'GRN Entry': 'dockGrnEntryDot',
+    'Purchase Orders': 'dockPoDot',
+    'GRN Documents': 'dockGrnDocDot'
   },
   platform_admin: {
     'Vendor Verification': 'dockVendorVerifyDot',
@@ -354,10 +361,75 @@ function setDotSeen(user, key, value) {
 //               so it stays clear while they remain there) rather than waiting for
 //               them to navigate there some other time.
 function updateDot(user, key, elementId, count, onOwnPage) {
+  // If the count has dropped (items were closed / removed), pull the saved baseline down
+  // with it. Otherwise the baseline stays at its old high-water mark and the next genuinely
+  // new item never pushes the count past it, so its dot never appears.
+  if (!onOwnPage && count < getDotSeen(user, key)) setDotSeen(user, key, count);
   if (onOwnPage) setDotSeen(user, key, count);
   const seen = getDotSeen(user, key);
   const dot = document.getElementById(elementId);
   if (dot) dot.style.display = count > seen ? 'block' : 'none';
+}
+
+// updateDotIds: the preferred dot logic. Instead of comparing COUNTS (which cannot tell
+// "one item closed and a different one arrived" from "nothing happened"), it remembers
+// WHICH items the user has already seen and lights the dot if ANY current item is not
+// among them. An item is identified by a string id that changes whenever something
+// notification-worthy happens to it (e.g. `${invoice.id}:${decision}`, or
+// `${dispute.id}:closed`), so new items, new messages, status changes and closures all
+// light the dot, and nothing is missed when counts happen to net out.
+//   Opening the dot's own page marks everything currently present as seen.
+function dotSeenIds(user, key) {
+  try { return new Set(JSON.parse(localStorage.getItem(`veridion_dot_seen_ids:${user.id}:${key}`) || '[]')); }
+  catch (_) { return new Set(); }
+}
+function updateDotIds(user, key, elementId, ids, onOwnPage) {
+  const current = ids.map(String);
+  if (onOwnPage) {
+    try { localStorage.setItem(`veridion_dot_seen_ids:${user.id}:${key}`, JSON.stringify(current)); } catch (_) {}
+  }
+  const seen = onOwnPage ? new Set(current) : dotSeenIds(user, key);
+  const dot = document.getElementById(elementId);
+  if (dot) dot.style.display = current.some(id => !seen.has(id)) ? 'block' : 'none';
+}
+
+// pollMsFor(...pages): how often a dot watcher should poll. 5s normally; 1s when the user
+// is sitting on one of the pages the watcher's dot points to. On its own page the watcher is
+// the thing that marks everything as "seen", so a tight loop means that even if you act and
+// leave within a second or two (e.g. resolve a dispute, then click another icon) the new
+// state is already recorded as seen and the dot doesn't light up for your own action.
+function pollMsFor(...pages) {
+  return pages.some(pg => window.location.pathname.endsWith(pg)) ? 1000 : 5000;
+}
+
+// watchDot: poll one endpoint every 5s and drive one dock dot from it (id-based, see
+// updateDotIds). Used for the simpler "something new appeared in this list" dots.
+function watchDot(user, url, key, elementId, pagePath, toIds) {
+  const check = async () => {
+    try {
+      const res = await fetchWithAuth(url);
+      if (!res || !res.ok) return;
+      const data = await res.json();
+      updateDotIds(user, key, elementId, toIds(data), window.location.pathname.endsWith(pagePath));
+    } catch (err) {
+      // Silent and non-critical -- the next check five seconds later will catch up.
+    }
+  };
+  check();
+  setInterval(check, pollMsFor(pagePath));
+}
+
+// disputeActivityIds(disputes, otherRole, includeRow): one id per thing that has HAPPENED on
+// a dispute from the other party's side -- the dispute being raised, each message sent by
+// `otherRole`, and its closure (resolved / paid / approved / withdrawn). Feeds updateDotIds.
+function disputeActivityIds(disputes, otherRole, includeRow) {
+  const ids = [];
+  disputes.filter(includeRow).forEach(d => {
+    ids.push(`${d.id}:raised`);
+    (d.messages || []).filter(m => m.sender_role === otherRole).forEach(m => ids.push(`${d.id}:msg:${m.id}`));
+    if (d.resolved) ids.push(`${d.id}:closed`);
+  });
+  return ids;
 }
 
 // startVendorNotifications: runs on EVERY page (not just the page each of these
@@ -399,7 +471,7 @@ function startVendorNotifications() {
       const res = await fetchWithAuth('/api/requirements');
       if (!res || !res.ok) return;
       const open = await res.json();
-      updateDot(user, 'new_requirements', 'dockNewReqDot', open.length,
+      updateDotIds(user, 'new_requirements', 'dockNewReqDot', open.map(r => r.id),
         window.location.pathname.endsWith('/vendor/requirements.html'));
     } catch (err) {
       // Silent and non-critical — the next check five seconds later will catch up.
@@ -413,8 +485,13 @@ function startVendorNotifications() {
       const all = await res.json();
       const accepted = all.filter(q => q.status === 'selected');
 
-      updateDot(user, 'selected_quotations', 'dockOrderDot', accepted.length,
+      updateDotIds(user, 'selected_quotations', 'dockOrderDot', accepted.map(q => q.id),
         window.location.pathname.endsWith('/vendor/purchase-orders.html'));
+
+      // My Quotations: any quotation whose status has moved on from 'submitted' (accepted
+      // or rejected) is news for the vendor.
+      updateDotIds(user, 'quotation_outcomes', 'dockMyQuotationDot', all.filter(q => q.status !== 'submitted').map(q => `${q.id}:${q.status}`),
+        window.location.pathname.endsWith('/vendor/my-quotations.html'));
 
       const seenRaw = sessionStorage.getItem(SEEN_ORDER_KEY);
       if (seenRaw !== null) {
@@ -436,7 +513,7 @@ function startVendorNotifications() {
       const res = await fetchWithAuth('/api/grn/vendor');
       if (!res || !res.ok) return;
       const all = await res.json();
-      updateDot(user, 'grn_deliveries', 'dockGrnDot', all.length,
+      updateDotIds(user, 'grn_deliveries', 'dockGrnDot', all.map(g => g.id),
         window.location.pathname.endsWith('/vendor/grn-documents.html'));
     } catch (err) {
       // Silent and non-critical.
@@ -451,9 +528,9 @@ function startVendorNotifications() {
       const decided = all.filter(inv => inv.final_decision);
       const paid = all.filter(inv => inv.status === 'paid');
 
-      updateDot(user, 'invoice_decisions', 'dockInvoiceDot', decided.length,
+      updateDotIds(user, 'invoice_decisions', 'dockInvoiceDot', decided.map(inv => `${inv.id}:${inv.final_decision}`),
         window.location.pathname.endsWith('/vendor/my-invoices.html'));
-      updateDot(user, 'invoices_paid', 'dockPaymentDot', paid.length,
+      updateDotIds(user, 'invoices_paid', 'dockPaymentDot', paid.map(inv => inv.id),
         window.location.pathname.endsWith('/vendor/payments.html'));
     } catch (err) {
       // Silent and non-critical.
@@ -468,7 +545,9 @@ function startVendorNotifications() {
       const sent = all.filter(d => d.status === 'sent');
       const unresolved = sent.filter(d => !d.resolved);
 
-      updateDot(user, 'sent_disputes', 'dockDisputeDot', unresolved.length,
+      // Vendor sees: Finance raising/sending a dispute, Finance's messages, and closures.
+      updateDotIds(user, 'dispute_activity', 'dockDisputeDot',
+        disputeActivityIds(all, 'finance', d => d.status === 'sent'),
         window.location.pathname.endsWith('/vendor/disputes.html'));
 
       const seenDisputeRaw = sessionStorage.getItem(SEEN_DISPUTE_KEY);
@@ -503,11 +582,11 @@ function startVendorNotifications() {
   checkGrn();
   checkInvoices();
   checkDisputes();
-  setInterval(checkRequirements, 5000);
-  setInterval(checkOrders, 5000);
-  setInterval(checkGrn, 5000);
-  setInterval(checkInvoices, 5000);
-  setInterval(checkDisputes, 5000);
+  setInterval(checkRequirements, pollMsFor('/vendor/requirements.html'));
+  setInterval(checkOrders, pollMsFor('/vendor/purchase-orders.html', '/vendor/my-quotations.html'));
+  setInterval(checkGrn, pollMsFor('/vendor/grn-documents.html'));
+  setInterval(checkInvoices, pollMsFor('/vendor/my-invoices.html', '/vendor/payments.html'));
+  setInterval(checkDisputes, pollMsFor('/vendor/disputes.html'));
 }
 
 // startCompanyNotifications: the Finance-side mirror of startVendorNotifications
@@ -519,6 +598,10 @@ function startCompanyNotifications() {
   const user = getUser();
   if (!user || user.role !== 'finance') return;
 
+  // Purchase Orders / GRN Documents: a new PO, a PO status change, or a newly recorded GRN.
+  watchDot(user, '/api/purchase-orders/mine', 'finance_pos', 'dockPoDot', '/company/purchase-orders.html', rows => rows.map(po => `${po.id}:${po.fulfillment_status}`));
+  watchDot(user, '/api/grn/company', 'finance_grn', 'dockGrnDocDot', '/company/grn-documents.html', rows => rows.map(g => g.id));
+
   const SEEN_PENDING_KEY = 'veridion_seen_pending_dispute_count';
   const SEEN_VENDOR_MESSAGE_KEY = 'veridion_seen_vendor_message_count';
 
@@ -527,11 +610,13 @@ function startCompanyNotifications() {
       const res = await fetchWithAuth('/api/vendor-communications');
       if (!res || !res.ok) return;
       const all = await res.json();
-      const pending = all.filter(d => d.status === 'pending_send');
+      const pending = all.filter(d => d.status === 'pending_send' && !d.resolved);
       const unresolvedSent = all.filter(d => d.status === 'sent' && !d.resolved);
-      const needsAttention = pending.length + unresolvedSent.length;
 
-      updateDot(user, 'finance_disputes', 'dockDisputeDot', needsAttention,
+      // Finance sees: a dispute being raised, the vendor's messages, and closures
+      // (resolved, paid, approved, or the vendor withdrawing the invoice).
+      updateDotIds(user, 'dispute_activity', 'dockDisputeDot',
+        disputeActivityIds(all, 'vendor', () => true),
         window.location.pathname.endsWith('/company/disputes.html'));
 
       const seenPendingRaw = sessionStorage.getItem(SEEN_PENDING_KEY);
@@ -571,8 +656,13 @@ function startCompanyNotifications() {
       if (!res || !res.ok) return;
       const all = await res.json();
       const needsAction = all.filter(inv => inv.final_decision && inv.status !== 'paid');
-      updateDot(user, 'finance_invoices', 'dockInvoiceReviewDot', needsAction.length,
+      updateDotIds(user, 'finance_invoices', 'dockInvoiceReviewDot', needsAction.map(inv => `${inv.id}:${inv.final_decision}`),
         window.location.pathname.endsWith('/company/invoices.html'));
+
+      // Payments: an invoice that has cleared verification and is now ready to be paid.
+      updateDotIds(user, 'finance_payable', 'dockPayableDot',
+        all.filter(inv => inv.final_decision === 'auto_approved' && inv.status !== 'paid').map(inv => inv.id),
+        window.location.pathname.endsWith('/company/payment.html'));
     } catch (err) {
       // Silent and non-critical.
     }
@@ -580,8 +670,8 @@ function startCompanyNotifications() {
 
   checkDisputes();
   checkInvoices();
-  setInterval(checkDisputes, 5000);
-  setInterval(checkInvoices, 5000);
+  setInterval(checkDisputes, pollMsFor('/company/disputes.html'));
+  setInterval(checkInvoices, pollMsFor('/company/invoices.html', '/company/payment.html'));
 }
 
 // startProcurementNotifications: procurement's own dots — a new quotation waiting
@@ -591,12 +681,15 @@ function startProcurementNotifications() {
   const user = getUser();
   if (!user || user.role !== 'procurement') return;
 
+  // Purchase Orders: a new PO, or a PO's fulfilment status changing.
+  watchDot(user, '/api/purchase-orders/mine', 'procurement_pos', 'dockPoDot', '/company/purchase-orders.html', rows => rows.map(po => `${po.id}:${po.fulfillment_status}`));
+
   async function checkQuotations() {
     try {
       const res = await fetchWithAuth('/api/quotations/company');
       if (!res || !res.ok) return;
       const submitted = await res.json(); // already submitted-only, see routes/quotations.js
-      updateDot(user, 'procurement_quotations', 'dockQuotationDot', submitted.length,
+      updateDotIds(user, 'procurement_quotations', 'dockQuotationDot', submitted.map(q => q.id),
         window.location.pathname.endsWith('/company/quotation-comparison.html'));
     } catch (err) {
       // Silent and non-critical.
@@ -608,7 +701,7 @@ function startProcurementNotifications() {
       const res = await fetchWithAuth('/api/grn/company');
       if (!res || !res.ok) return;
       const all = await res.json();
-      updateDot(user, 'procurement_grn', 'dockGrnDocDot', all.length,
+      updateDotIds(user, 'procurement_grn', 'dockGrnDocDot', all.map(g => g.id),
         window.location.pathname.endsWith('/company/grn-documents.html'));
     } catch (err) {
       // Silent and non-critical.
@@ -617,8 +710,8 @@ function startProcurementNotifications() {
 
   checkQuotations();
   checkGrn();
-  setInterval(checkQuotations, 5000);
-  setInterval(checkGrn, 5000);
+  setInterval(checkQuotations, pollMsFor('/company/quotation-comparison.html'));
+  setInterval(checkGrn, pollMsFor('/company/grn-documents.html'));
 }
 
 // startWarehouseNotifications: a dot on GRN Entry for any PO that still needs a
@@ -629,13 +722,17 @@ function startWarehouseNotifications() {
   const user = getUser();
   if (!user || user.role !== 'warehouse') return;
 
+  // Purchase Orders / GRN Documents: a new PO, a status change, or a newly recorded GRN.
+  watchDot(user, '/api/purchase-orders/mine', 'warehouse_pos', 'dockPoDot', '/company/purchase-orders.html', rows => rows.map(po => `${po.id}:${po.fulfillment_status}`));
+  watchDot(user, '/api/grn/company', 'warehouse_grn', 'dockGrnDocDot', '/company/grn-documents.html', rows => rows.map(g => g.id));
+
   async function check() {
     try {
       const res = await fetchWithAuth('/api/purchase-orders/mine');
       if (!res || !res.ok) return;
       const all = await res.json();
       const pending = all.filter(po => po.fulfillment_status !== 'fulfilled');
-      updateDot(user, 'warehouse_pending_pos', 'dockGrnEntryDot', pending.length,
+      updateDotIds(user, 'warehouse_pending_pos', 'dockGrnEntryDot', pending.map(po => po.id),
         window.location.pathname.endsWith('/company/grn-entry.html'));
     } catch (err) {
       // Silent and non-critical.
@@ -643,7 +740,7 @@ function startWarehouseNotifications() {
   }
 
   check();
-  setInterval(check, 5000);
+  setInterval(check, pollMsFor('/company/grn-entry.html'));
 }
 
 // startAdminNotifications: four independent dots, one per platform_admin page —
@@ -662,8 +759,8 @@ function startAdminNotifications() {
       const res = await fetchWithAuth('/api/admin/vendors');
       if (!res || !res.ok) return;
       const vendors = await res.json();
-      const pending = vendors.filter(v => v.verification_status === 'pending').length;
-      updateDot(user, 'admin_pending_vendors', 'dockVendorVerifyDot', pending,
+      const pending = vendors.filter(v => v.verification_status === 'pending').map(v => v.id);
+      updateDotIds(user, 'admin_pending_vendors', 'dockVendorVerifyDot', pending,
         window.location.pathname.endsWith('/admin/vendor-verification.html'));
     } catch (err) {
       // Silent and non-critical.
@@ -675,8 +772,8 @@ function startAdminNotifications() {
       const res = await fetchWithAuth('/api/admin/companies');
       if (!res || !res.ok) return;
       const companies = await res.json();
-      const pending = companies.filter(c => c.approval_status === 'pending').length;
-      updateDot(user, 'admin_pending_companies', 'dockCompanyVerifyDot', pending,
+      const pending = companies.filter(c => c.approval_status === 'pending').map(c => c.id);
+      updateDotIds(user, 'admin_pending_companies', 'dockCompanyVerifyDot', pending,
         window.location.pathname.endsWith('/admin/company-verification.html'));
     } catch (err) {
       // Silent and non-critical.
@@ -688,8 +785,8 @@ function startAdminNotifications() {
       const res = await fetchWithAuth('/api/admin/fraud-flags');
       if (!res || !res.ok) return;
       const flags = await res.json();
-      const unresolved = flags.filter(f => !f.resolved).length;
-      updateDot(user, 'admin_unresolved_fraud', 'dockFraudDot', unresolved,
+      const unresolved = flags.filter(f => !f.resolved).map(f => f.id);
+      updateDotIds(user, 'admin_unresolved_fraud', 'dockFraudDot', unresolved,
         window.location.pathname.endsWith('/admin/fraud-review.html'));
     } catch (err) {
       // Silent and non-critical.
@@ -714,10 +811,10 @@ function startAdminNotifications() {
   checkCompanies();
   checkFraud();
   checkOverrides();
-  setInterval(checkVendors, 5000);
-  setInterval(checkCompanies, 5000);
-  setInterval(checkFraud, 5000);
-  setInterval(checkOverrides, 5000);
+  setInterval(checkVendors, pollMsFor('/admin/vendor-verification.html'));
+  setInterval(checkCompanies, pollMsFor('/admin/company-verification.html'));
+  setInterval(checkFraud, pollMsFor('/admin/fraud-review.html'));
+  setInterval(checkOverrides, pollMsFor('/admin/override-log.html'));
 }
 
 // Backend routes already reject an unverified vendor's API calls (see

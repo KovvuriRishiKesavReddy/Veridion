@@ -38,7 +38,7 @@ async function load() {
       <td>${g.received_date}</td>
       <td><span class="badge status-badge ${statusBadgeClass(g.fulfillment_status)}">${g.fulfillment_status}</span></td>
       <td>${g.recorded_by_name}</td>
-      <td>${g.expected_next_delivery_date || '—'}${g.next_delivery_notes ? `<br><span class="small text-muted">${g.next_delivery_notes}</span>` : ''}</td>
+      <td>${g.expected_next_delivery_date || '—'}${g.next_delivery_notes ? `<br><span class="small text-muted">${escapeHtml(g.next_delivery_notes)}</span>` : ''}${g.source_message_text ? `<div class="small text-muted fst-italic">— from conversation: "${escapeHtml(g.source_message_text)}" (${escapeHtml(g.source_message_sender)})</div>` : ''}</td>
     </tr>`).join('');
 }
 getSortState = renderSortToolbar('sortToolbar', load, {

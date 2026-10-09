@@ -12,7 +12,8 @@
     "evaluate:vendor-states": "node scripts/with-test-db.js node scripts/evaluate-vendor-states.js",
     "dev:test": "node scripts/with-test-db.js node src/server.js",
     "migrate:test": "node scripts/with-test-db.js node scripts/migrate.js",
-    "seed:test": "node scripts/with-test-db.js node scripts/seed.js"
+    "seed:test": "node scripts/with-test-db.js node scripts/seed.js",
+    "test:comms": "node scripts/with-test-db.js node scripts/test-communication-channel.js"
   },
   "dependencies": {
     "amqplib": "^0.10.9",

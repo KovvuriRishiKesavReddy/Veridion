@@ -44,6 +44,51 @@ router.post('/', requireAuth, requireRole('vendor'), requireVerifiedVendor, asyn
   })(), 'quotation_received');
 });
 
+// PUT /api/quotations/:id (vendor) -- lets the vendor update their OWN quotation's price and/or
+// delivery_days after submission, which is what makes the pre-award thread actually DO
+// something rather than being a chat log next to a frozen number. Procurement never edits a
+// quotation directly -- they see whatever the vendor currently has set and accept it (the
+// /accept route below reads quotation.price / delivery_days fresh at acceptance, so the last
+// negotiated numbers are what become the PO). Locked the moment it is no longer 'submitted':
+// the number on record must never move after a decision.
+router.put('/:id', requireAuth, requireRole('vendor'), requireVerifiedVendor, async (req, res) => {
+  const { price, delivery_days } = req.body;
+  if ((price == null || price === '') && (delivery_days == null || delivery_days === '')) {
+    return res.status(400).json({ error: 'Provide price and/or delivery_days to update.' });
+  }
+  const newPrice = price == null || price === '' ? null : Number(price);
+  const newDays = delivery_days == null || delivery_days === '' ? null : Number(delivery_days);
+  if (newPrice !== null && !(newPrice > 0)) return res.status(400).json({ error: 'price must be a positive number' });
+  if (newDays !== null && !(Number.isInteger(newDays) && newDays >= 1)) return res.status(400).json({ error: 'delivery_days must be a whole number of days (1 or more)' });
+  if (!/^\d+$/.test(String(req.params.id))) return res.status(404).json({ error: 'Quotation not found' });
+
+  // One atomic UPDATE guarded on status, so an update can never slip in after Procurement
+  // accepts (the status check and the write happen in the same statement).
+  const result = await db.query(
+    `UPDATE quotations SET price = COALESCE($1, price), delivery_days = COALESCE($2, delivery_days)
+     WHERE id = $3 AND vendor_id = $4 AND status = 'submitted' RETURNING *`,
+    [newPrice, newDays, req.params.id, req.user.vendor_id]
+  );
+  if (!result.rows[0]) {
+    const exists = await db.query(`SELECT status FROM quotations WHERE id = $1 AND vendor_id = $2`, [req.params.id, req.user.vendor_id]);
+    if (!exists.rows[0]) return res.status(404).json({ error: 'Quotation not found' });
+    return res.status(400).json({ error: 'Can only update a quotation while it is still awaiting a decision.' });
+  }
+  res.json(result.rows[0]);
+
+  // Tell Procurement the number moved (fire-and-forget).
+  safely((async () => {
+    const info = await db.query(
+      `SELECT r.company_id, r.title, v.company_name FROM quotations q JOIN requirements r ON r.id = q.requirement_id
+       JOIN vendors v ON v.id = q.vendor_id WHERE q.id = $1`, [req.params.id]);
+    const row = info.rows[0];
+    if (!row) return;
+    await notifyCompanyRole(row.company_id, 'procurement', 'quotation_updated',
+      `${row.company_name} updated their quotation for "${row.title}": now ₹${result.rows[0].price}, delivery in ${result.rows[0].delivery_days} days.`,
+      result.rows[0].id, 'quotation');
+  })(), 'quotation_updated');
+});
+
 // GET /api/quotations/mine (vendor)
 router.get('/mine', requireAuth, requireRole('vendor'), requireVerifiedVendor, async (req, res) => {
   const result = await db.query(

@@ -30,7 +30,14 @@
       <div id="shortfallFields" class="d-none border rounded p-3 mb-3 bg-light">
         <p class="small mb-2"><strong>Still short after this delivery</strong> — optionally record when the rest is expected.</p>
         <div class="mb-2"><label class="form-label small">Expected Date for Remaining Quantity</label><input type="date" class="form-control" id="expected_next_delivery_date"></div>
-        <div class="mb-0"><label class="form-label small">Notes on Remaining Delivery</label><input class="form-control" id="next_delivery_notes"></div>
+        <div class="mb-2"><label class="form-label small">Notes on Remaining Delivery</label><input class="form-control" id="next_delivery_notes"></div>
+        <div class="mb-0">
+          <label class="form-label small">Where did this date come from? <span class="text-muted">(optional — pick the conversation message that agreed it, so a reviewer can trace it)</span></label>
+          <div class="d-flex gap-2">
+            <select class="form-control" id="expected_next_delivery_source_message_id"><option value="">— not sourced from a message —</option></select>
+            <button type="button" class="btn btn-outline-secondary btn-sm text-nowrap" onclick="openGrnPoThread()">Open conversation</button>
+          </div>
+        </div>
       </div>
 
       <div id="overageWarning" class="alert alert-warning d-none small"></div>
@@ -95,12 +102,58 @@ async function selectPo(id, title) {
     `<span class="text-primary">Remaining: <strong>${qtyWithUnit(po.remaining_quantity, currentUnit)}</strong></span> · Agreed Delivery Date: ${po.agreed_delivery_date || 'N/A'}`;
   document.getElementById('received_quantity').value = po.remaining_quantity > 0 ? po.remaining_quantity : '';
   updateHints();
+  loadPoMessagesForSourcing(id);
+}
+
+// Populated when a PO is selected (and refreshed while the form is open), so Warehouse can pick
+// the message that actually established the next-delivery date instead of typing a date with
+// nothing backing it. Optional -- leaving it unselected is fine, same as leaving the date blank.
+// The current selection survives a refresh, and the list is left alone while the dropdown is
+// being used (re-rendering an open <select> would snap it shut).
+async function loadPoMessagesForSourcing(poId) {
+  const select = document.getElementById('expected_next_delivery_source_message_id');
+  if (document.activeElement === select) return;
+  const res = await fetchWithAuth(`/api/po-messages/${poId}`);
+  if (!res || !res.ok) return;
+  const messages = await res.json();
+  const previous = select.value;
+  select.innerHTML = '<option value="">— not sourced from a message —</option>' +
+    messages.map(m => {
+      const text = String(m.message);
+      return `<option value="${m.id}">${escapeHtml(m.sender_name)}: "${escapeHtml(text.slice(0, 60))}${text.length > 60 ? '…' : ''}" (${new Date(m.created_at).toLocaleDateString()})</option>`;
+    }).join('');
+  if (previous && messages.some(m => String(m.id) === previous)) select.value = previous;
+}
+setInterval(() => {
+  const poId = document.getElementById('po_id').value;
+  if (poId && document.getElementById('formCard').style.display !== 'none') loadPoMessagesForSourcing(poId);
+}, 5000);
+
+// The full post-award conversation for the selected PO, so Warehouse can read (and, if needed,
+// post in) it when the message list is ambiguous. Refreshes the dropdown on close in case a
+// message was just added.
+function openGrnPoThread() {
+  const poId = document.getElementById('po_id').value;
+  if (!poId) return;
+  openThreadModal({
+    title: document.getElementById('formPoLabel').textContent,
+    subtitle: 'Conversation with the vendor · logistics only',
+    listUrl: `/api/po-messages/${poId}`,
+    postUrl: `/api/po-messages/${poId}`,
+    statusUrl: `/api/po-messages/${poId}/status`,
+    viewerRole: 'warehouse',
+    placeholder: 'Message the vendor...',
+    emptyText: 'No messages yet — agree the split-delivery plan with the vendor here.',
+    closedNote: 'This purchase order has been paid — the conversation is closed to new messages, history stays visible.',
+    onClose: () => loadPoMessagesForSourcing(poId)
+  });
 }
 
 function closeForm() {
   document.getElementById('formCard').style.display = 'none';
   document.getElementById('form').reset();
   document.getElementById('shortfallFields').classList.add('d-none');
+  document.getElementById('expected_next_delivery_source_message_id').innerHTML = '<option value="">— not sourced from a message —</option>';
   document.getElementById('overageWarning').classList.add('d-none');
   document.getElementById('exactWarning').classList.add('d-none');
 }
@@ -133,7 +186,8 @@ document.getElementById('form').addEventListener('submit', async (e) => {
     received_date: document.getElementById('received_date').value,
     warehouse_notes: document.getElementById('warehouse_notes').value,
     expected_next_delivery_date: document.getElementById('expected_next_delivery_date').value || undefined,
-    next_delivery_notes: document.getElementById('next_delivery_notes').value || undefined
+    next_delivery_notes: document.getElementById('next_delivery_notes').value || undefined,
+    expected_next_delivery_source_message_id: document.getElementById('expected_next_delivery_source_message_id').value || undefined
   };
   const res = await fetchWithAuth('/api/grn', { method: 'POST', body: JSON.stringify(body) });
   if (!res) return;

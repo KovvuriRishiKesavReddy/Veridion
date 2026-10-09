@@ -36,7 +36,7 @@ async function load() {
       <td>${qtyWithUnit(g.cumulative_received, g.unit)} / ${qtyWithUnit(g.agreed_quantity, g.unit)}${varianceBadge(g.variance_quantity)}<div class="small text-muted">this delivery: ${qtyWithUnit(g.received_quantity, g.unit)}</div></td>
       <td>${g.received_date}</td>
       <td><span class="badge status-badge ${statusBadgeClass(g.fulfillment_status)}">${g.fulfillment_status}</span></td>
-      <td>${g.expected_next_delivery_date || '—'}</td>
+      <td>${g.expected_next_delivery_date || '—'}${g.source_message_text ? `<div class="small text-muted fst-italic">— from conversation: "${escapeHtml(g.source_message_text)}" (${escapeHtml(g.source_message_sender)})</div>` : ''}</td>
     </tr>`).join('');
 }
 getSortState = renderSortToolbar('sortToolbar', load, {

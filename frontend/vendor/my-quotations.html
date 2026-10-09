@@ -12,8 +12,8 @@
   <h3 class="mb-4">My Quotations</h3>
   <div id="sortToolbar"></div>
   <table class="table table-centered bg-white">
-    <thead><tr><th>Requirement</th><th>Price</th><th>Delivery (days)</th><th>Status</th><th>Submitted</th></tr></thead>
-    <tbody id="rows"><tr><td colspan="5" class="text-muted">Loading...</td></tr></tbody>
+    <thead><tr><th>Requirement</th><th>Price</th><th>Delivery (days)</th><th>Status</th><th>Submitted</th><th>Message</th></tr></thead>
+    <tbody id="rows"><tr><td colspan="6" class="text-muted">Loading...</td></tr></tbody>
   </table>
 </div>
 <script src="/shared/api.js"></script>
@@ -27,15 +27,40 @@ async function load() {
   let qs = await res.json();
   qs = sortAndFilterItems(qs, getSortState(), { dateField: 'submitted_at', numberField: 'id', searchFields: ['requirement_title'] });
   const rows = document.getElementById('rows');
-  if (!qs.length) { rows.innerHTML = '<tr><td colspan="5" class="text-muted">No quotations yet.</td></tr>'; return; }
-  rows.innerHTML = qs.map(q => `
+  if (!qs.length) { rows.innerHTML = '<tr><td colspan="6" class="text-muted">No quotations yet.</td></tr>'; return; }
+  lastQs = qs;
+  setHtmlPreserving(rows, qs.map(q => `
     <tr>
       <td>${q.requirement_title}</td>
       <td>₹${q.price}</td>
       <td>${q.delivery_days}</td>
       <td><span class="badge status-badge ${statusBadgeClass(q.status)}">${q.status}</span></td>
       <td>${new Date(q.submitted_at).toLocaleDateString()}</td>
-    </tr>`).join('');
+      <td>${q.status === 'submitted'
+        ? `<button class="btn btn-sm btn-dark" onclick="openQuotationThread(${q.id})">Message</button>`
+        : `<button class="btn btn-sm btn-outline-secondary" onclick="openQuotationThread(${q.id})">History</button>`}</td>
+    </tr>`).join(''));
+}
+
+// Pre-award negotiation with Procurement, private to this one quotation (other vendors who
+// quoted on the same requirement never see it). While the quotation is still awaiting a
+// decision the vendor can also change their own price / delivery days from the dialog; once
+// it is accepted or rejected the thread is read-only history.
+let lastQs = [];
+function openQuotationThread(id) {
+  const q0 = lastQs.find(x => x.id === id);
+  openThreadModal({
+    title: `Quotation — ${q0 ? q0.requirement_title : '#' + id}`,
+    subtitle: 'Private conversation with the buyer about price and delivery',
+    listUrl: `/api/quotation-messages/${id}`,
+    postUrl: `/api/quotation-messages/${id}`,
+    viewerRole: 'vendor',
+    emptyText: 'No messages yet — the buyer may ask about price or delivery timing.',
+    closedNote: 'This quotation has been decided — the negotiation window is closed, history stays visible.',
+    // Live terms: if the quotation is no longer 'submitted' it counts as closed.
+    getTerms: () => { const q = lastQs.find(x => x.id === id); return q && q.status === 'submitted' ? { price: q.price, delivery_days: q.delivery_days } : null; },
+    propose: { mode: 'update', putUrl: `/api/quotations/${id}`, onUpdated: () => load() }
+  });
 }
 getSortState = renderSortToolbar('sortToolbar', load, {
   searchPlaceholder: 'Search by requirement...',

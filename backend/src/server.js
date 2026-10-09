@@ -20,6 +20,8 @@ const vendorsRoutes = require('./routes/vendors');
 const vendorCommunicationsRoutes = require('./routes/vendorCommunications');
 const notificationsRoutes = require('./routes/notifications');
 const internalRoutes = require('./routes/internal');
+const quotationMessagesRoutes = require('./routes/quotationMessages');
+const poMessagesRoutes = require('./routes/poMessages');
 
 const app = express();
 app.use(cors());
@@ -39,6 +41,8 @@ app.use('/api/vendors', vendorsRoutes);
 app.use('/api/vendor-communications', vendorCommunicationsRoutes);
 app.use('/api/notifications', notificationsRoutes);
 app.use('/api/internal', internalRoutes);
+app.use('/api/quotation-messages', quotationMessagesRoutes);
+app.use('/api/po-messages', poMessagesRoutes);
 
 // --- Frontend, served from this same process/port --------------------------
 // No build step: /frontend is plain HTML/CSS/JS, served directly.

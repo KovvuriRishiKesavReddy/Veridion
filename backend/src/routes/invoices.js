@@ -12,6 +12,24 @@ const { callAiService } = require('../utils/aiService');
 
 const router = express.Router();
 
+// Dispute housekeeping when an invoice leaves the dispute path. Every still-open dispute
+// on it -- whether Finance already SENT it or it is still an unsent draft -- is CLOSED
+// (resolved = true) with a closed_reason ('payment' = Finance accepted and paid;
+// 'withdrawn' = vendor withdrew the invoice), never deleted: message history and the
+// record that a dispute existed are kept. This is deliberately NOT a "resolution": it
+// never calls the vendor-risk dispute-resolved update and records no resolution time,
+// so no score or metric changes (Finance paying already counted the invoice as a
+// positive via the override flow). `q` is a pg client or the pool.
+async function closeDisputesFor(q, invoiceId, reason, userId = null) {
+  await q.query(
+    `UPDATE vendor_communications
+     SET resolved = true, resolved_at = now(), resolved_by = $2, closed_reason = $3
+     WHERE invoice_id = $1 AND resolved = false`,
+    [invoiceId, userId, reason]
+  );
+}
+
+
 // Flow 6: tell the vendor their invoice was paid, naming the paying company and the amount.
 async function notifyPaid(invoice) {
   const r = await db.query(
@@ -160,6 +178,7 @@ router.post('/:id/mark-paid', requireAuth, requireRole('finance'), requireApprov
     `UPDATE invoices SET status='paid' WHERE id=$1 RETURNING *`,
     [req.params.id]
   );
+  await closeDisputesFor(db, req.params.id, 'payment', req.user.id);
   res.json(result.rows[0]);
   safely(notifyPaid(invoice), 'invoice_paid');
 });
@@ -200,6 +219,7 @@ router.post('/:id/override-and-pay', requireAuth, requireRole('finance'), requir
   try {
     await client.query('BEGIN');
     await client.query(`UPDATE invoices SET status='paid' WHERE id=$1`, [req.params.id]);
+    await closeDisputesFor(client, req.params.id, 'payment', req.user.id);
     await client.query(
       `INSERT INTO invoice_overrides (invoice_id, decision_id, overridden_by, reason) VALUES ($1,$2,$3,$4)`,
       [req.params.id, decision.id, req.user.id, reason.trim()]
@@ -312,6 +332,17 @@ router.delete('/:id', requireAuth, requireRole('vendor'), requireVerifiedVendor,
     return res.status(400).json({ error: 'This invoice itself was correct — Matching, Compliance, and Fraud all came back clean. It is flagged only because of your account\'s track record, not anything on this document, so there is nothing to correct by resubmitting. It is with your buyer\'s Finance team for review.' });
   }
 
+  // Any open dispute (sent or unsent draft) -> closed ('withdrawn'), history kept. Must run
+  // BEFORE the delete below, which detaches invoice_id (migration 010).
+  await closeDisputesFor(db, req.params.id, 'withdrawn');
+  // Keep the Fraud Review Queue's invoice number: fraud_flags.invoice_id is nulled by the
+  // delete below, so make sure every flag on this invoice has its snapshot first.
+  await db.query(
+    `UPDATE fraud_flags ff
+     SET invoice_number_snapshot = COALESCE(ff.invoice_number_snapshot, inv.invoice_number),
+         invoice_ref_snapshot = COALESCE(ff.invoice_ref_snapshot, inv.id),
+         invoice_amount_snapshot = COALESCE(ff.invoice_amount_snapshot, inv.invoice_amount)
+     FROM invoices inv WHERE inv.id = ff.invoice_id AND ff.invoice_id = $1`, [req.params.id]);
   await db.query(`DELETE FROM invoices WHERE id = $1`, [req.params.id]);
   res.json({ withdrawn: true, po_id: invoice.po_id });
 });

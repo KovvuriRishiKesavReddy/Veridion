@@ -31,7 +31,7 @@ async function loadFraudFlags() {
   rows.innerHTML = flags.map(f => `
     <tr>
       <td>${f.vendor_name}</td>
-      <td>${f.invoice_number || (f.invoice_id ? '#' + f.invoice_id : '—')}</td>
+      <td>${f.invoice_number ? escapeHtml(f.invoice_number) : (f.invoice_ref ? '#' + f.invoice_ref : '—')}${f.invoice_withdrawn ? ' <span class="badge bg-secondary ms-1">Withdrawn</span>' : ''}</td>
       <td>${f.flag_type}</td>
       <td><span class="badge ${f.severity === 'high' ? 'bg-danger' : f.severity === 'medium' ? 'bg-warning text-dark' : 'bg-secondary'}">${f.severity}</span></td>
       <td>${f.resolved ? '<span class="badge bg-success">Resolved</span>' : '<span class="badge bg-warning text-dark">Open</span>'}</td>
