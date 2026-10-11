@@ -202,7 +202,6 @@ function openQuotationThread(id) {
     postUrl: `/api/quotation-messages/${id}`,
     viewerRole: 'procurement',
     placeholder: 'Message the vendor...',
-    emptyText: 'No messages yet — ask about price or delivery timing.',
     closedNote: 'This quotation has been decided — the negotiation window is closed, history stays visible.',
     // Live terms from whichever table last loaded this quotation; null (gone from the open
     // lists, or no longer 'submitted') means it has been decided.

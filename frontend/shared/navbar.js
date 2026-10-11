@@ -36,6 +36,7 @@ const DOCK_ICONS = {
   'Post Requirement': 'bi-plus-square',
   'Quotations': 'bi-file-earmark-text',
   'GRN Documents': 'bi-clipboard-check',
+  'GRN Corrections': 'bi-clipboard2-x',
   'Invoices': 'bi-receipt',
   'Payments': 'bi-cash-coin',
   'GRN Entry': 'bi-box-seam',
@@ -61,10 +62,14 @@ const DOCK_DOT_IDS = {
     'Disputes': 'dockDisputeDot',
     'Payment Status': 'dockPaymentDot'
   },
+  company_admin: {
+    'GRN Corrections': 'dockGrnCorrDot'
+  },
   procurement: {
     'Quotations': 'dockQuotationDot',
     'Purchase Orders': 'dockPoDot',
-    'GRN Documents': 'dockGrnDocDot'
+    'GRN Documents': 'dockGrnDocDot',
+    'GRN Corrections': 'dockGrnCorrDot'
   },
   finance: {
     'Purchase Orders': 'dockPoDot',
@@ -76,7 +81,8 @@ const DOCK_DOT_IDS = {
   warehouse: {
     'GRN Entry': 'dockGrnEntryDot',
     'Purchase Orders': 'dockPoDot',
-    'GRN Documents': 'dockGrnDocDot'
+    'GRN Documents': 'dockGrnDocDot',
+    'GRN Corrections': 'dockGrnCorrDot'
   },
   platform_admin: {
     'Vendor Verification': 'dockVendorVerifyDot',
@@ -117,6 +123,7 @@ function renderNavbar() {
     company_admin: [
       ['/company/dashboard.html', 'Dashboard'],
       ['/company/team.html', 'Team'],
+      ['/company/grn-corrections.html', 'GRN Corrections'],
       ['/company/vendor-directory.html', 'Vendor Directory'],
       ['/company/profile.html', 'Company Profile']
     ],
@@ -126,6 +133,7 @@ function renderNavbar() {
       ['/company/quotation-comparison.html', 'Quotations'],
       ['/company/purchase-orders.html', 'Purchase Orders'],
       ['/company/grn-documents.html', 'GRN Documents'],
+      ['/company/grn-corrections.html', 'GRN Corrections'],
       ['/company/vendor-directory.html', 'Vendor Directory']
     ],
     finance: [
@@ -140,7 +148,8 @@ function renderNavbar() {
       ['/company/dashboard.html', 'Dashboard'],
       ['/company/grn-entry.html', 'GRN Entry'],
       ['/company/purchase-orders.html', 'Purchase Orders'],
-      ['/company/grn-documents.html', 'GRN Documents']
+      ['/company/grn-documents.html', 'GRN Documents'],
+      ['/company/grn-corrections.html', 'GRN Corrections']
     ],
     platform_admin: [
       ['/admin/dashboard.html', 'Dashboard'],
@@ -312,6 +321,20 @@ function initDockScrollHide() {
     lastY = y;
   }, { passive: true });
 }
+// GRN Corrections dot. Reviewers (Procurement, Company Admin) are alerted to requests raised by
+// SOMEONE ELSE that are still awaiting review; anyone who raised a request is alerted when it is
+// approved or rejected. Ids change with the request's status, so each event lights the dot once.
+function startGrnCorrectionNotifications() {
+  const user = getUser();
+  if (!user || !['company_admin', 'procurement', 'warehouse'].includes(user.role)) return;
+  const reviewer = ['company_admin', 'procurement'].includes(user.role);
+  watchDot(user, '/api/grn-corrections', 'grn_corrections', 'dockGrnCorrDot', '/company/grn-corrections.html', rows => [
+    ...(reviewer ? rows.filter(r => r.status === 'pending' && r.requested_by !== user.id).map(r => `${r.id}:pending`) : []),
+    ...rows.filter(r => r.status !== 'pending' && r.requested_by === user.id).map(r => `${r.id}:${r.status}`)
+  ]);
+}
+
+
 document.addEventListener('DOMContentLoaded', () => {
   renderNavbar();
   enforceVendorVerification();
@@ -320,6 +343,7 @@ document.addEventListener('DOMContentLoaded', () => {
   startCompanyNotifications();
   startProcurementNotifications();
   startWarehouseNotifications();
+  startGrnCorrectionNotifications();
   startAdminNotifications();
 });
 

@@ -163,7 +163,7 @@ async function runFraudAgent(invoiceId) {
     { poId: invoice.po_id }
   );
   if (splitBillingRecords.length > 1) {
-    const grnSumRes = await db.query(`SELECT COALESCE(SUM(received_quantity),0) as total FROM goods_receipt_notes WHERE po_id = $1`, [invoice.po_id]);
+    const grnSumRes = await db.query(`SELECT COALESCE(SUM(received_quantity),0) as total FROM goods_receipt_notes WHERE po_id = $1 AND voided_at IS NULL`, [invoice.po_id]);
     const poRes = await db.query(`SELECT agreed_price FROM purchase_orders WHERE id = $1`, [invoice.po_id]);
     const totalInvoiced = splitBillingRecords.reduce((sum, r) => sum + Number(r.get('amount')), 0);
     const agreedPrice = Number(poRes.rows[0]?.agreed_price || 0);

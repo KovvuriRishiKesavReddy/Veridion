@@ -13,8 +13,8 @@
   <p class="text-muted">Every goods receipt note recorded across the company, with how much of each order has been fulfilled so far. No pricing appears here — this view is quantity-only, by design.</p>
   <div id="sortToolbar"></div>
   <table class="table table-centered bg-white">
-    <thead><tr><th>PO</th><th>Vendor</th><th>Received Qty / Agreed Qty</th><th>Received Date</th><th>Fulfillment</th><th>Recorded By</th><th>Next Expected</th></tr></thead>
-    <tbody id="rows"><tr><td colspan="7" class="text-muted">Loading...</td></tr></tbody>
+    <thead><tr><th>PO</th><th>Vendor</th><th>Received Qty / Agreed Qty</th><th>Received Date</th><th>Fulfillment</th><th>Recorded By</th><th>Next Expected</th><th>Correction</th></tr></thead>
+    <tbody id="rows"><tr><td colspan="8" class="text-muted">Loading...</td></tr></tbody>
   </table>
 </div>
 <script src="/shared/api.js"></script>
@@ -29,17 +29,27 @@ async function load() {
   let grns = await res.json();
   grns = sortAndFilterItems(grns, getSortState(), { dateField: 'received_date', numberField: 'id', searchFields: ['requirement_title', 'vendor_name', 'recorded_by_name'] });
   const rows = document.getElementById('rows');
-  if (!grns.length) { rows.innerHTML = '<tr><td colspan="7" class="text-muted">No GRNs recorded yet.</td></tr>'; return; }
-  rows.innerHTML = grns.map(g => `
-    <tr>
+  if (!grns.length) { rows.innerHTML = '<tr><td colspan="8" class="text-muted">No GRNs recorded yet.</td></tr>'; return; }
+  // A GRN can be corrected only while it is the NEWEST active receipt on its order (void newest-first).
+  const latestActive = {};
+  grns.forEach(g => { if (!g.voided_at && (!latestActive[g.po_id] || g.id > latestActive[g.po_id])) latestActive[g.po_id] = g.id; });
+  const canRequest = ['warehouse', 'procurement'].includes(getUser().role);
+  setHtmlPreserving(rows, grns.map(g => `
+    <tr class="${g.voided_at ? 'text-muted' : ''}">
       <td>#${g.po_id} — ${g.requirement_title}</td>
       <td>${g.vendor_name}</td>
-      <td>${qtyWithUnit(g.cumulative_received, g.unit)} / ${qtyWithUnit(g.agreed_quantity, g.unit)}${varianceBadge(g.variance_quantity)}<div class="small text-muted">this delivery: ${qtyWithUnit(g.received_quantity, g.unit)}</div></td>
+      <td>${g.voided_at
+        ? `<s>${qtyWithUnit(g.received_quantity, g.unit)}</s> <span class="badge bg-secondary">Voided — entered in error</span><div class="small fst-italic">${escapeHtml(g.void_reason || '')}</div>`
+        : `${qtyWithUnit(g.cumulative_received, g.unit)} / ${qtyWithUnit(g.agreed_quantity, g.unit)}${varianceBadge(g.variance_quantity)}<div class="small text-muted">this delivery: ${qtyWithUnit(g.received_quantity, g.unit)}</div>`}</td>
       <td>${g.received_date}</td>
       <td><span class="badge status-badge ${statusBadgeClass(g.fulfillment_status)}">${g.fulfillment_status}</span></td>
       <td>${g.recorded_by_name}</td>
       <td>${g.expected_next_delivery_date || '—'}${g.next_delivery_notes ? `<br><span class="small text-muted">${escapeHtml(g.next_delivery_notes)}</span>` : ''}${g.source_message_text ? `<div class="small text-muted fst-italic">— from conversation: "${escapeHtml(g.source_message_text)}" (${escapeHtml(g.source_message_sender)})</div>` : ''}</td>
-    </tr>`).join('');
+      <td>${g.voided_at ? '—'
+        : g.correction_pending ? '<span class="badge bg-warning text-dark">Correction requested</span>'
+        : (canRequest && latestActive[g.po_id] === g.id) ? `<button class="btn btn-sm btn-outline-dark" onclick="openGrnCorrectionDialog(${g.id}, 'GRN #${g.id} · PO #${g.po_id} — ${escapeHtml(g.requirement_title).replace(/'/g, '&#39;')} · ${g.received_quantity} received on ${g.received_date}', load)">Request correction</button>`
+        : '—'}</td>
+    </tr>`).join(''));
 }
 getSortState = renderSortToolbar('sortToolbar', load, {
   searchPlaceholder: 'Search by PO, vendor, or recorded by...',

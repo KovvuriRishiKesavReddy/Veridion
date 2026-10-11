@@ -21,10 +21,10 @@
   // Where clicking a notification should take this role, by related_type.
   const LINKS = {
     vendor: { po: () => '/vendor/purchase-orders.html', po_invoice: () => '/vendor/my-invoices.html', quotation: () => '/vendor/my-quotations.html', invoice: () => '/vendor/my-invoices.html', dispute: () => '/vendor/disputes.html', account: () => '/vendor/dashboard.html' },
-    procurement: { quotation: () => '/company/quotation-comparison.html', po: () => '/company/purchase-orders.html' },
+    procurement: { quotation: () => '/company/quotation-comparison.html', po: () => '/company/purchase-orders.html', grn_correction: () => '/company/grn-corrections.html' },
     finance: { invoice: id => `/company/invoice-review.html?id=${id}`, dispute: () => '/company/disputes.html' },
-    warehouse: { po: () => '/company/grn-entry.html' },
-    company_admin: { account: () => '/company/dashboard.html' },
+    warehouse: { po: () => '/company/grn-entry.html', grn_correction: () => '/company/grn-corrections.html' },
+    company_admin: { account: () => '/company/dashboard.html', grn_correction: () => '/company/grn-corrections.html' },
     platform_admin: { vendor: () => '/admin/vendor-verification.html', company: () => '/admin/company-verification.html', fraud_flag: () => '/admin/fraud-review.html' }
   };
   function linkFor(type, id) {

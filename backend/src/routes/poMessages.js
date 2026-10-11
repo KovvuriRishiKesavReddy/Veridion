@@ -24,12 +24,28 @@ async function loadPoScoped(poId, user) {
   return po;
 }
 
-// isPoClosedToMessages: freezes the thread once ANY invoice on this PO has been paid --
-// invoices.status = 'paid' is the real flag this codebase uses (see invoices.js's mark-paid /
-// override-and-pay routes); no separate payments table is actually written to.
-async function isPoClosedToMessages(poId) {
-  const result = await db.query(`SELECT 1 FROM invoices WHERE po_id = $1 AND status = 'paid' LIMIT 1`, [poId]);
-  return result.rows.length > 0;
+// poClosure(po): is the post-award thread closed to NEW messages, and why? Two ways it closes
+// (history always stays readable):
+//   1. 'fulfilled' -- every unit on the PO has been confirmed by a GRN. The logistics
+//      conversation (delivery timing, split shipments, handover) has nothing left to arrange, and
+//      goods_receipt_notes locks a fulfilled PO against further GRNs, so this state is final.
+//      From here, anything about the invoice runs through the Disputes channel with Finance.
+//   2. 'paid' -- any invoice on the PO has status 'paid' (the real flag this codebase uses; see
+//      invoices.js mark-paid / override-and-pay -- no separate payments table is written to).
+// Applies to every participant, vendor included: a thread only one side can write to is not a
+// conversation.
+async function poClosure(po) {
+  if (po.fulfillment_status === 'fulfilled') {
+    return {
+      closed: true, reason: 'fulfilled',
+      note: 'All goods on this purchase order have been received and confirmed — this conversation is closed to new messages (history stays visible). Anything about the invoice continues through Disputes with Finance. If a receipt was entered by mistake, Warehouse or Procurement can raise a GRN correction request.'
+    };
+  }
+  const paid = await db.query(`SELECT 1 FROM invoices WHERE po_id = $1 AND status = 'paid' LIMIT 1`, [po.id]);
+  if (paid.rows.length) {
+    return { closed: true, reason: 'paid', note: 'This purchase order has been paid — the conversation is closed to new messages (history stays visible).' };
+  }
+  return { closed: false, reason: null, note: null };
 }
 
 // GET /api/po-messages/:poId (vendor, procurement or warehouse) -- full history, always readable.
@@ -40,12 +56,12 @@ router.get('/:poId', requireAuth, requireRole('vendor', 'procurement', 'warehous
   res.json(result.rows);
 });
 
-// GET /api/po-messages/:poId/status -- { closed }, so the UI can disable the reply box (not the
+// GET /api/po-messages/:poId/status -- { closed, reason, note }, so the UI can disable the reply box (not the
 // history) once an invoice on this PO is paid, without needing a failed POST first.
 router.get('/:poId/status', requireAuth, requireRole('vendor', 'procurement', 'warehouse'), async (req, res) => {
   const po = await loadPoScoped(req.params.poId, req.user);
   if (!po) return res.status(404).json({ error: 'Purchase order not found' });
-  res.json({ closed: await isPoClosedToMessages(po.id) });
+  res.json(await poClosure(po));
 });
 
 // POST /api/po-messages/:poId (vendor, procurement or warehouse) -- logistics only. Nothing
@@ -60,9 +76,8 @@ router.post('/:poId',
 
     const po = await loadPoScoped(req.params.poId, req.user);
     if (!po) return res.status(404).json({ error: 'Purchase order not found' });
-    if (await isPoClosedToMessages(po.id)) {
-      return res.status(400).json({ error: 'This purchase order has been paid — the conversation is closed to new messages.' });
-    }
+    const closure = await poClosure(po);
+    if (closure.closed) return res.status(400).json({ error: closure.note, reason: closure.reason });
 
     const nameRes = await db.query(
       req.user.role === 'vendor' ? `SELECT company_name AS name FROM vendors WHERE id = $1` : `SELECT name FROM users WHERE id = $1`,

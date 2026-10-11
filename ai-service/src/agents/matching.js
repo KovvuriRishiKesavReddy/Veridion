@@ -67,7 +67,7 @@ async function runMatchingAgent(invoiceId) {
   const documentWasReallyExtracted = structured.__source !== 'vendor_submitted_fallback';
 
   const receivedRes = await db.query(
-    `SELECT COALESCE(SUM(received_quantity), 0) as total_received FROM goods_receipt_notes WHERE po_id = $1`,
+    `SELECT COALESCE(SUM(received_quantity), 0) as total_received FROM goods_receipt_notes WHERE po_id = $1 AND voided_at IS NULL`,
     [invoice.po_id]
   );
   const grnQuantity = Number(receivedRes.rows[0].total_received);

@@ -55,7 +55,6 @@ function openQuotationThread(id) {
     listUrl: `/api/quotation-messages/${id}`,
     postUrl: `/api/quotation-messages/${id}`,
     viewerRole: 'vendor',
-    emptyText: 'No messages yet — the buyer may ask about price or delivery timing.',
     closedNote: 'This quotation has been decided — the negotiation window is closed, history stays visible.',
     // Live terms: if the quotation is no longer 'submitted' it counts as closed.
     getTerms: () => { const q = lastQs.find(x => x.id === id); return q && q.status === 'submitted' ? { price: q.price, delivery_days: q.delivery_days } : null; },

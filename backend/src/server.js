@@ -22,6 +22,7 @@ const notificationsRoutes = require('./routes/notifications');
 const internalRoutes = require('./routes/internal');
 const quotationMessagesRoutes = require('./routes/quotationMessages');
 const poMessagesRoutes = require('./routes/poMessages');
+const grnCorrectionsRoutes = require('./routes/grnCorrections');
 
 const app = express();
 app.use(cors());
@@ -43,6 +44,7 @@ app.use('/api/notifications', notificationsRoutes);
 app.use('/api/internal', internalRoutes);
 app.use('/api/quotation-messages', quotationMessagesRoutes);
 app.use('/api/po-messages', poMessagesRoutes);
+app.use('/api/grn-corrections', grnCorrectionsRoutes);
 
 // --- Frontend, served from this same process/port --------------------------
 // No build step: /frontend is plain HTML/CSS/JS, served directly.

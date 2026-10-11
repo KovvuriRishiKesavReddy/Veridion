@@ -749,7 +749,7 @@ function openThreadModal(opts) {
   document.body.appendChild(overlay);
 
   const $ = id => overlay.querySelector('#' + id);
-  let timer = null, closed = false, prefilled = false, busy = false;
+  let timer = null, closed = false, prefilled = false, busy = false, serverNote = null;
 
   function setClosed(isClosed) {
     closed = isClosed;
@@ -760,7 +760,7 @@ function openThreadModal(opts) {
     badge.className = isClosed ? 'badge bg-secondary' : 'badge bg-warning text-dark';
     badge.textContent = isClosed ? 'Closed' : (opts.openLabel || 'Open');
     const note = $('threadNote');
-    const text = isClosed ? (opts.closedNote || 'This conversation is closed — history stays visible.')
+    const text = isClosed ? (serverNote || opts.closedNote || 'This conversation is closed — history stays visible.')
       : (opts.readOnly ? 'Read-only — you can read this conversation but not post in it.' : '');
     note.textContent = text;
     note.style.display = text ? '' : 'none';
@@ -772,7 +772,7 @@ function openThreadModal(opts) {
     if (!mRes || !mRes.ok) return;
     const messages = await mRes.json();
     let isClosed = false;
-    if (sRes && sRes.ok) isClosed = !!(await sRes.json()).closed;
+    if (sRes && sRes.ok) { const st = await sRes.json(); isClosed = !!st.closed; serverNote = st.note || null; }
 
     if (opts.getTerms) {
       const t = opts.getTerms();
@@ -792,7 +792,7 @@ function openThreadModal(opts) {
     if (sel && !sel.isCollapsed && body.contains(sel.anchorNode)) return; // don't wipe a text selection
     setHtmlPreserving(body, messages.length
       ? renderChatThread(messages, opts.viewerRole)
-      : `<p class="text-muted small">${escapeHtml(opts.emptyText || 'No messages yet.')}</p>`);
+      : `<p class="text-muted small">${escapeHtml(opts.emptyText || 'No messages')}</p>`);
   }
 
   async function post(text) {
@@ -860,4 +860,58 @@ function openThreadModal(opts) {
   activeThreadModal = { close };
   refresh();
   timer = setInterval(refresh, 1000);
+}
+
+
+// ---------------------------------------------------------------------------
+// openGrnCorrectionDialog(grnId, label, onDone): the support-style "this GRN is wrong" request.
+// A GRN is an audit record, so it is never edited: the person raises a request saying what is
+// wrong, someone else (Procurement or Company Admin) reviews it, and approval voids the GRN so
+// the correct receipt can be entered. Used from GRN Documents and GRN Entry.
+// ---------------------------------------------------------------------------
+function openGrnCorrectionDialog(grnId, label, onDone) {
+  closeThreadModal();
+  const overlay = document.createElement('div');
+  overlay.className = 'thread-overlay';
+  overlay.innerHTML = `
+    <div class="thread-dialog card p-3" role="dialog" aria-modal="true">
+      <button type="button" class="thread-x" aria-label="Close">&times;</button>
+      <div class="thread-head-main"><strong>Request a GRN correction</strong><div class="text-muted small">${escapeHtml(label)}</div></div>
+      <div class="alert alert-secondary mt-2 mb-0 small">
+        A goods receipt note is never edited. A reviewer (Procurement or Company Admin — not you) checks your request.
+        While it is open, payment of invoices on this purchase order is on hold. If it is approved, this GRN is
+        <strong>voided</strong> (kept on record), the order's received total drops accordingly, the order's conversation
+        reopens if it had closed, and any unpaid invoice on the order is withdrawn so the vendor can resubmit it against the
+        corrected receipt. You then record the correct GRN. Only the most recent GRN on an order can be corrected.
+      </div>
+      <div class="mt-2">
+        <label class="form-label small text-muted mb-1">What is wrong, and what is correct? (the reviewer sees exactly this)</label>
+        <textarea class="form-control" id="corrReason" rows="4" placeholder="e.g. Only 60 bags arrived — I keyed 100 by mistake."></textarea>
+      </div>
+      <div class="small mt-2 text-danger" id="corrError"></div>
+      <div class="dispute-actions mt-3">
+        <span class="hbg d-inline-block"><button type="button" class="hbg-core dispute-btn" id="corrSubmit">Send Request</button></span>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  const close = () => { document.removeEventListener('keydown', onKey); overlay.remove(); activeThreadModal = null; };
+  const onKey = e => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', onKey);
+  overlay.querySelector('.thread-x').onclick = close;
+  overlay.addEventListener('mousedown', e => { if (e.target === overlay) close(); });
+  activeThreadModal = { close };
+  overlay.querySelector('#corrSubmit').onclick = () => withButtonState(overlay.querySelector('#corrSubmit'), async () => {
+    const reason = overlay.querySelector('#corrReason').value.trim();
+    const err = overlay.querySelector('#corrError');
+    err.textContent = '';
+    if (reason.length < 10) { err.textContent = 'Please explain what is wrong (at least 10 characters).'; return null; }
+    const res = await fetchWithAuth('/api/grn-corrections', { method: 'POST', body: JSON.stringify({ grn_id: grnId, reason }) });
+    if (!res) return false;
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) { err.textContent = data.error || 'Could not send the request'; return false; }
+    close();
+    if (onDone) onDone(data);
+    return true;
+  });
+  overlay.querySelector('#corrReason').focus();
 }

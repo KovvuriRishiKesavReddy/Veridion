@@ -53,7 +53,7 @@
   <h6>My Recent Submissions</h6>
   <div id="mineSortToolbar"></div>
   <table class="table table-centered table-sm bg-white">
-    <thead><tr><th>PO</th><th>This Delivery</th><th>Date</th><th>Running Total</th><th>Unit</th></tr></thead>
+    <thead><tr><th>PO</th><th>This Delivery</th><th>Date</th><th>Running Total</th><th>Unit</th><th>Correction</th></tr></thead>
     <tbody id="rows"><tr><td colspan="4" class="text-muted">Loading...</td></tr></tbody>
   </table>
 </div>
@@ -143,7 +143,6 @@ function openGrnPoThread() {
     statusUrl: `/api/po-messages/${poId}/status`,
     viewerRole: 'warehouse',
     placeholder: 'Message the vendor...',
-    emptyText: 'No messages yet — agree the split-delivery plan with the vendor here.',
     closedNote: 'This purchase order has been paid — the conversation is closed to new messages, history stays visible.',
     onClose: () => loadPoMessagesForSourcing(poId)
   });
@@ -215,9 +214,21 @@ async function loadMine() {
   let grns = await res.json();
   grns = sortAndFilterItems(grns, getMineSortState(), { dateField: 'received_date', numberField: 'id', searchFields: ['po_id', 'warehouse_notes'] });
   const rows = document.getElementById('rows');
-  rows.innerHTML = grns.length ? grns.map(g =>
-    `<tr><td>#${g.po_id}</td><td>${g.received_quantity}</td><td>${g.received_date}</td><td>towards ${g.agreed_quantity} agreed</td><td>${g.unit || '—'}</td></tr>`
-  ).join('') : '<tr><td colspan="5" class="text-muted">No submissions yet.</td></tr>';
+  // Only the NEWEST active receipt on an order can be corrected (void newest-first).
+  const latestActive = {};
+  grns.forEach(g => { if (!g.voided_at && (!latestActive[g.po_id] || g.id > latestActive[g.po_id])) latestActive[g.po_id] = g.id; });
+  setHtmlPreserving(rows, grns.length ? grns.map(g => `
+    <tr class="${g.voided_at ? 'text-muted' : ''}">
+      <td>#${g.po_id}</td>
+      <td>${g.voided_at ? `<s>${g.received_quantity}</s> <span class="badge bg-secondary">Voided</span>` : g.received_quantity}</td>
+      <td>${g.received_date}</td>
+      <td>towards ${g.agreed_quantity} agreed</td>
+      <td>${g.unit || '—'}</td>
+      <td>${g.voided_at ? '—'
+        : g.correction_pending ? '<span class="badge bg-warning text-dark">Correction requested</span>'
+        : latestActive[g.po_id] === g.id ? `<button class="btn btn-sm btn-outline-dark" onclick="openGrnCorrectionDialog(${g.id}, 'GRN #${g.id} · PO #${g.po_id} · ${g.received_quantity} received on ${g.received_date}', () => { loadMine(); loadAvailable(); })">Request correction</button>`
+        : '—'}</td>
+    </tr>`).join('') : '<tr><td colspan="6" class="text-muted">No submissions yet.</td></tr>');
 }
 
 getMineSortState = renderSortToolbar('mineSortToolbar', loadMine, { searchPlaceholder: 'Search by PO or notes...' });

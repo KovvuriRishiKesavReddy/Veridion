@@ -56,7 +56,7 @@ router.post('/', requireAuth, requireRole('warehouse'), requireApprovedCompany, 
     }
 
     const priorRes = await client.query(
-      `SELECT COALESCE(SUM(received_quantity), 0) as prior_total FROM goods_receipt_notes WHERE po_id = $1`,
+      `SELECT COALESCE(SUM(received_quantity), 0) as prior_total FROM goods_receipt_notes WHERE po_id = $1 AND voided_at IS NULL`,
       [po_id]
     );
     const priorTotal = Number(priorRes.rows[0].prior_total);
@@ -154,7 +154,9 @@ router.post('/', requireAuth, requireRole('warehouse'), requireApprovedCompany, 
 // GET /api/grn/mine (warehouse) — this role's own submission history
 router.get('/mine', requireAuth, requireRole('warehouse'), async (req, res) => {
   const result = await db.query(
-    `SELECT g.*, po.agreed_quantity, r.unit FROM goods_receipt_notes g
+    `SELECT g.*, po.agreed_quantity, r.unit,
+            (EXISTS (SELECT 1 FROM grn_correction_requests c WHERE c.grn_id = g.id AND c.status = 'pending')) AS correction_pending
+     FROM goods_receipt_notes g
      JOIN purchase_orders po ON po.id = g.po_id
      JOIN requirements r ON r.id = po.requirement_id
      WHERE po.company_id = $1 AND g.recorded_by = $2
@@ -171,8 +173,9 @@ router.get('/company', requireAuth, requireRole('procurement', 'finance', 'wareh
     `SELECT g.*, po.agreed_quantity, po.fulfillment_status, po.requirement_id,
             v.company_name as vendor_name, r.title as requirement_title, r.unit,
             u.name as recorded_by_name,
+            (EXISTS (SELECT 1 FROM grn_correction_requests c WHERE c.grn_id = g.id AND c.status = 'pending')) AS correction_pending,
             pm.message AS source_message_text, pm.sender_name AS source_message_sender,
-            SUM(g.received_quantity) OVER (PARTITION BY g.po_id ORDER BY g.received_date ASC, g.id ASC) as cumulative_received
+            SUM(g.received_quantity) FILTER (WHERE g.voided_at IS NULL) OVER (PARTITION BY g.po_id ORDER BY g.received_date ASC, g.id ASC) as cumulative_received
      FROM goods_receipt_notes g
      LEFT JOIN po_messages pm ON pm.id = g.expected_next_delivery_source_message_id
      JOIN purchase_orders po ON po.id = g.po_id
@@ -199,7 +202,7 @@ router.get('/vendor', requireAuth, requireRole('vendor'), requireVerifiedVendor,
     `SELECT g.*, po.agreed_quantity, po.fulfillment_status, po.company_id,
             c.name as company_name, r.title as requirement_title, r.unit,
             pm.message AS source_message_text, pm.sender_name AS source_message_sender,
-            SUM(g.received_quantity) OVER (PARTITION BY g.po_id ORDER BY g.received_date ASC, g.id ASC) as cumulative_received
+            SUM(g.received_quantity) FILTER (WHERE g.voided_at IS NULL) OVER (PARTITION BY g.po_id ORDER BY g.received_date ASC, g.id ASC) as cumulative_received
      FROM goods_receipt_notes g
      LEFT JOIN po_messages pm ON pm.id = g.expected_next_delivery_source_message_id
      JOIN purchase_orders po ON po.id = g.po_id

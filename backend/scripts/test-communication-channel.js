@@ -166,18 +166,36 @@ const login = async email => (await api('POST', '/api/auth/login', null, { email
   const fin2 = await pool.query(`SELECT expected_next_delivery_source_message_id AS m FROM goods_receipt_notes WHERE po_id=$1 ORDER BY id DESC LIMIT 1`, [po.id]);
   check('non-shortfall GRN stores no source (guard matches the date fields)', fin2.rows[0].m === null);
 
-  console.log('\n[paid] thread closes when an invoice on the PO is paid');
-  await pool.query(`INSERT INTO invoices (po_id, vendor_id, invoice_number, invoice_amount, status) VALUES ($1,$2,'INV-1',1000,'paid')`, [po.id, po.vendor_id]);
-  r = await api('POST', `/api/po-messages/${po.id}`, wh, { message: 'after paid' });
-  check('POST after paid -> 400 (warehouse)', r.status === 400);
-  r = await api('POST', `/api/po-messages/${po.id}`, vA, { message: 'after paid' });
-  check('POST after paid -> 400 (vendor)', r.status === 400);
+  console.log('\n[fulfilled] thread closes once every unit is confirmed by GRN');
+  r = await api('GET', `/api/po-messages/${po.id}/status`, wh);
+  check('status: closed, reason fulfilled (60 + 40 = 100 received)', r.status === 200 && r.body.closed === true && r.body.reason === 'fulfilled', JSON.stringify(r.body));
+  r = await api('POST', `/api/po-messages/${po.id}`, wh, { message: 'after fulfilled' });
+  check('POST after fulfilled -> 400 (warehouse)', r.status === 400 && r.body.reason === 'fulfilled');
+  r = await api('POST', `/api/po-messages/${po.id}`, proc, { message: 'after fulfilled' });
+  check('POST after fulfilled -> 400 (procurement)', r.status === 400);
+  r = await api('POST', `/api/po-messages/${po.id}`, vA, { message: 'after fulfilled' });
+  check('POST after fulfilled -> 400 (vendor)', r.status === 400);
   r = await api('GET', `/api/po-messages/${po.id}`, vA);
-  check('GET still returns history', r.status === 200 && r.body.length === 3);
-  r = await api('GET', `/api/po-messages/${po.id}/status`, vA);
-  check('status says closed', r.body.closed === true);
-  r = await api('POST', `/api/po-messages/${po2.id}`, vA, { message: 'unpaid PO still open' });
-  check('a different, unpaid PO is unaffected', r.status === 201);
+  check('GET still returns the full history', r.status === 200 && r.body.length === 3);
+  r = await api('GET', `/api/po-messages/${po.id}`, wh);
+  check('warehouse can still read the history', r.status === 200 && r.body.length === 3);
+  r = await api('GET', `/api/po-messages/${po.id}`, fin);
+  check('finance still has no access to this thread (403) -- it uses Disputes', r.status === 403);
+
+  console.log('\n[paid] thread also closes when an invoice is paid, even before fulfilment');
+  r = await api('GET', `/api/po-messages/${po2.id}/status`, vA);
+  check('a different, partially-delivered/unfulfilled PO is still open', r.status === 200 && r.body.closed === false);
+  r = await api('POST', `/api/po-messages/${po2.id}`, vA, { message: 'unpaid, unfulfilled PO still open' });
+  check('and still accepts messages', r.status === 201);
+  await pool.query(`INSERT INTO invoices (po_id, vendor_id, invoice_number, invoice_amount, status) VALUES ($1,$2,'INV-1',1000,'paid')`, [po2.id, po2.vendor_id]);
+  r = await api('POST', `/api/po-messages/${po2.id}`, wh, { message: 'after paid' });
+  check('POST after paid -> 400 (warehouse)', r.status === 400 && r.body.reason === 'paid');
+  r = await api('POST', `/api/po-messages/${po2.id}`, vA, { message: 'after paid' });
+  check('POST after paid -> 400 (vendor)', r.status === 400);
+  r = await api('GET', `/api/po-messages/${po2.id}`, vA);
+  check('GET still returns history after paid', r.status === 200 && r.body.length === 2);
+  r = await api('GET', `/api/po-messages/${po2.id}/status`, vA);
+  check('status says closed (paid)', r.body.closed === true && r.body.reason === 'paid');
 
   console.log('\n[disputes] untouched');
   const dm = await pool.query(`SELECT to_regclass('dispute_messages') AS t, to_regclass('vendor_communications') AS v`);

@@ -12,23 +12,7 @@ const { callAiService } = require('../utils/aiService');
 
 const router = express.Router();
 
-// Dispute housekeeping when an invoice leaves the dispute path. Every still-open dispute
-// on it -- whether Finance already SENT it or it is still an unsent draft -- is CLOSED
-// (resolved = true) with a closed_reason ('payment' = Finance accepted and paid;
-// 'withdrawn' = vendor withdrew the invoice), never deleted: message history and the
-// record that a dispute existed are kept. This is deliberately NOT a "resolution": it
-// never calls the vendor-risk dispute-resolved update and records no resolution time,
-// so no score or metric changes (Finance paying already counted the invoice as a
-// positive via the override flow). `q` is a pg client or the pool.
-async function closeDisputesFor(q, invoiceId, reason, userId = null) {
-  await q.query(
-    `UPDATE vendor_communications
-     SET resolved = true, resolved_at = now(), resolved_by = $2, closed_reason = $3
-     WHERE invoice_id = $1 AND resolved = false`,
-    [invoiceId, userId, reason]
-  );
-}
-
+const { closeDisputesFor, grnCorrectionPending } = require('../utils/invoiceLifecycle');
 
 // Flow 6: tell the vendor their invoice was paid, naming the paying company and the amount.
 async function notifyPaid(invoice) {
@@ -111,7 +95,7 @@ router.get('/mine', requireAuth, requireRole('vendor'), requireVerifiedVendor, a
 router.get('/eligible-pos', requireAuth, requireRole('vendor'), requireVerifiedVendor, async (req, res) => {
   const result = await db.query(
     `SELECT po.*, r.title as requirement_title,
-            COALESCE((SELECT SUM(received_quantity) FROM goods_receipt_notes WHERE po_id = po.id), 0) as received_so_far
+            COALESCE((SELECT SUM(received_quantity) FROM goods_receipt_notes WHERE po_id = po.id AND voided_at IS NULL), 0) as received_so_far
      FROM purchase_orders po
      JOIN requirements r ON r.id = po.requirement_id
      WHERE po.vendor_id = $1
@@ -159,6 +143,9 @@ router.post('/:id/mark-paid', requireAuth, requireRole('finance'), requireApprov
   const invoice = invRes.rows[0];
   if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
   if (invoice.status === 'paid') return res.status(409).json({ error: 'Already marked as paid' });
+  if (await grnCorrectionPending(db, invoice.po_id)) {
+    return res.status(409).json({ error: 'Payment is on hold: a GRN correction request is open on this purchase order. Resolve the correction first — the goods receipts this invoice was checked against may change.' });
+  }
 
   const decisionRes = await db.query(
     `SELECT * FROM decisions WHERE invoice_id = $1 ORDER BY id DESC LIMIT 1`,
@@ -205,6 +192,9 @@ router.post('/:id/override-and-pay', requireAuth, requireRole('finance'), requir
   const invoice = invRes.rows[0];
   if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
   if (invoice.status === 'paid') return res.status(409).json({ error: 'Already marked as paid' });
+  if (await grnCorrectionPending(db, invoice.po_id)) {
+    return res.status(409).json({ error: 'Payment is on hold: a GRN correction request is open on this purchase order. Resolve the correction first — the goods receipts this invoice was checked against may change.' });
+  }
 
   const decisionRes = await db.query(`SELECT * FROM decisions WHERE invoice_id = $1 ORDER BY id DESC LIMIT 1`, [req.params.id]);
   const decision = decisionRes.rows[0];

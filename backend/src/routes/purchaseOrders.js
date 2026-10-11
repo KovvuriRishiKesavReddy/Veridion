@@ -28,7 +28,7 @@ function stripFinancials(po) {
 const GRN_SUM_JOIN = `
   LEFT JOIN (
     SELECT po_id, SUM(received_quantity) as total_received
-    FROM goods_receipt_notes GROUP BY po_id
+    FROM goods_receipt_notes WHERE voided_at IS NULL GROUP BY po_id
   ) grn_totals ON grn_totals.po_id = po.id
 `;
 

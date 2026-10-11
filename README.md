@@ -315,11 +315,23 @@ Install after pulling this change: `cd backend && npm install` (adds `socket.io`
 Two private message threads sit alongside (and entirely separate from) the dispute channel:
 
 - **Pre-award** (`quotation_messages`, `/api/quotation-messages/:quotationId`): one thread per quotation, private to that vendor and the company's Procurement team (another vendor, or another company, gets a 404). Price and delivery-days are negotiated here. The vendor changes their own numbers with `PUT /api/quotations/:id` (only while the quotation is still `submitted`); Procurement sends counter-proposals as messages and never edits a quotation. Accepting a quotation reads the latest price / delivery days, so the PO carries the negotiated numbers. Once the quotation is accepted or rejected the thread is read-only history.
-- **Post-award** (`po_messages`, `/api/po-messages/:poId`): one thread per purchase order, logistics only — `agreed_price` is locked and nothing here can touch it. Vendor, Procurement and Warehouse can read and post; Finance cannot (403). The thread closes to new messages once any invoice on the PO is `paid`; history stays readable (`GET /api/po-messages/:poId/status` reports `{ closed }`).
+- **Post-award** (`po_messages`, `/api/po-messages/:poId`): one thread per purchase order, logistics only — `agreed_price` is locked and nothing here can touch it. Vendor, Procurement and Warehouse can read and post; Finance cannot (403). The thread closes to new messages — for everyone, vendor included — as soon as the PO is **fulfilled** (every unit confirmed by a GRN) or any invoice on it is `paid`; history stays readable. From there, anything about the invoice continues through the Disputes channel with Finance. `GET /api/po-messages/:poId/status` reports `{ closed, reason, note }`.
 - **Sourced delivery dates**: when Warehouse records a partial GRN they can cite the thread message that agreed the remaining-delivery date (`goods_receipt_notes.expected_next_delivery_source_message_id`). The server rejects a message from a different PO. The cited text and sender are shown next to the date on the PO fulfilment modals and both GRN Documents pages.
 - New messages create in-app notifications (bell + toast) for the other side, and a vendor's price/delivery update notifies Procurement.
 
 Migration `023_communication_channels.sql` adds the tables and the GRN column. `npm run test:comms` (test database only) runs the end-to-end test in `backend/scripts/test-communication-channel.js`.
+
+## GRN corrections (support-style)
+
+A goods receipt note is an audit record and is never edited or deleted, so a GRN entered by mistake (say "all goods received" keyed by accident) is fixed through a **correction request**, like a support ticket:
+
+1. **Raise** — Warehouse or Procurement requests a correction on a GRN from GRN Entry or GRN Documents, with a written reason.
+2. **Review** — Procurement or the Company Admin reviews it on the **GRN Corrections** page. Never the person who raised it. A rejection needs a reason, and a new request can be raised afterwards.
+3. **Approve = void** — the GRN stays on record, marked voided (who, when, why), and stops counting everywhere (order fulfilment, PO totals, invoice matching, fraud checks). The order's status is recalculated from the receipts that still count, so it can drop from `fulfilled` back to `partially_fulfilled` or `pending`, and its conversation reopens. Any **unpaid** invoice on the order is withdrawn through the normal withdraw sequence so the vendor resubmits it against the corrected receipt and it is verified afresh. Warehouse then records the correct GRN.
+
+Guard rails: only the **most recent** active GRN on an order can be corrected (void newest-first); one open request per GRN; nothing can be corrected once an invoice on the order is **paid**; while a request is open, payment of invoices on that order is **on hold** (mark-paid and override-and-pay return 409). Voiding does not reverse the vendor's on-time-delivery score event from the mistaken GRN — scores are only ever changed by new events.
+
+Migration `024_grn_corrections.sql`; `npm run test:grn-corrections` (test database only) runs `backend/scripts/test-grn-corrections.js`.
 
 ## A note on scope
 

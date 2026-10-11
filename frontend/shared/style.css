@@ -614,7 +614,15 @@ body.has-dock-nav > .container.auth-container .alert {
    a status badge, a "Conversation" label over .dispute-thread, a 2-row message box, and the
    large Send Message button -- so every conversation in the product looks and behaves alike. */
 .thread-overlay { position: fixed; inset: 0; background: rgba(15, 23, 20, 0.55); z-index: 2000; display: flex; align-items: center; justify-content: center; padding: 16px; }
-.thread-dialog { width: 100%; max-width: 680px; max-height: 92vh; overflow-y: auto; box-shadow: 0 20px 50px rgba(0, 0, 0, 0.3); position: relative; }
+/* Solid, opaque panel: the global .card is 82% transparent glass, which let the page behind show
+   through the conversation and made messages hard to read. A dialog sits ABOVE the page, so it
+   gets a fully opaque white background, no hover lift, and a blurred, darker backdrop. */
+.thread-overlay { background: rgba(10, 20, 15, 0.62); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); }
+.thread-dialog, .thread-dialog.card { width: 100%; max-width: 680px; max-height: 92vh; overflow-y: auto; box-shadow: 0 24px 60px rgba(0, 0, 0, 0.4); position: relative; background-color: #ffffff; color: #1a1f1c; transform: none; }
+.thread-dialog.card:hover { transform: none; box-shadow: 0 24px 60px rgba(0, 0, 0, 0.4); }
+.thread-dialog .dispute-thread { background: #f4f6f5; border: 1px solid #e3e8e5; border-radius: 14px; padding: 6px 12px 10px; }
+.thread-dialog .alert-secondary { background-color: #eceff1; }
+.thread-dialog .bg-light { background-color: #f4f6f5 !important; }
 .thread-x { position: absolute; top: 8px; right: 12px; border: 0; background: transparent; font-size: 1.6rem; line-height: 1; color: #6c757d; cursor: pointer; }
 .thread-x:hover { color: #111; }
 .thread-head-main { padding-right: 28px; }

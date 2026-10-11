@@ -286,8 +286,22 @@ Setup: `cd backend && npm install`, `npm run migrate` (applies `017`, `018`), ad
 - [ ] Post-award: Procurement and Warehouse can post, Finance gets no "Message" button (and a 403 from the API); the vendor's "Message" button works
 - [ ] Warehouse records a partial GRN picking a thread message as the source; the PO fulfilment modals and both GRN Documents pages show the date together with the quoted message
 - [ ] A GRN citing a message from a different PO is rejected with a 400
-- [ ] Pay an invoice on the PO: the reply box disappears (history stays) and a direct POST returns 400
+- [ ] Confirm the last units on a PO via GRN (PO becomes fulfilled): the reply box disappears for Procurement, Warehouse and the vendor, history stays, and a direct POST returns 400
+- [ ] Pay an invoice on a PO that is not yet fulfilled: the thread closes the same way
 - [ ] The dispute flow is unchanged
+
+---
+
+## GRN corrections
+
+- [ ] `npm run migrate` applies `024_grn_corrections.sql`; `npm run test:grn-corrections` passes (test database)
+- [ ] Warehouse records a GRN for the full quantity, then clicks **Request correction** on it (GRN Entry or GRN Documents) with a reason; the button only appears on the newest active GRN of an order
+- [ ] Procurement / Company Admin see the request on **GRN Corrections** (red dot); the requester sees no Approve/Reject buttons on their own request
+- [ ] While it is open, Finance's **Approve Payment** on an invoice for that order is refused ("payment is on hold")
+- [ ] Approve: the GRN shows **Voided — entered in error** (company and vendor GRN pages, PO fulfilment modals), the order's received total/status drops, its conversation reopens, and any unpaid invoice on it is withdrawn with the vendor and Finance notified
+- [ ] Warehouse records the correct GRN; totals and status are right; the vendor resubmits the invoice
+- [ ] Reject: needs a reason; GRN untouched; the requester is notified and can raise a new request
+- [ ] After an invoice on the order is paid, requesting a correction is refused
 
 ---
 
