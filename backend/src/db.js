@@ -18,7 +18,8 @@ require('dotenv').config();
 // the parser on the wrong instance silently does nothing.
 types.setTypeParser(1082, (val) => val);
 
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const { sslFor } = require('./utils/pgSsl');
+const pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: sslFor(process.env.DATABASE_URL) });
 
 module.exports = {
   query: (text, params) => pool.query(text, params),

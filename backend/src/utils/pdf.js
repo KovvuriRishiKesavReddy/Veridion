@@ -1,16 +1,21 @@
 const PDFDocument = require('pdfkit');
-const fs = require('fs');
-const path = require('path');
+const { uploadBuffer } = require('./storage');
 
-const poDir = path.join(__dirname, '..', '..', 'uploads', 'pos');
-if (!fs.existsSync(poDir)) fs.mkdirSync(poDir, { recursive: true });
-
+// Builds the PO PDF in memory, uploads it to storage, and resolves with the storage key
+// (stored in purchase_orders.po_document_path).
 function generatePoPdf(po, requirement, vendor, company) {
   return new Promise((resolve, reject) => {
-    const filePath = path.join(poDir, `po-${po.id}.pdf`);
     const doc = new PDFDocument({ margin: 50 });
-    const stream = fs.createWriteStream(filePath);
-    doc.pipe(stream);
+    const chunks = [];
+    doc.on('data', (chunk) => chunks.push(chunk));
+    doc.on('end', async () => {
+      try {
+        const key = `pos/po-${po.id}.pdf`;
+        await uploadBuffer(key, Buffer.concat(chunks), 'application/pdf');
+        resolve(key);
+      } catch (err) { reject(err); }
+    });
+    doc.on('error', reject);
 
     doc.fontSize(20).text('Purchase Order', { align: 'center' });
     doc.moveDown();
@@ -40,8 +45,6 @@ function generatePoPdf(po, requirement, vendor, company) {
     doc.fontSize(10).fillColor('gray').text(`Generated automatically by Veridion on ${new Date().toISOString()}`);
 
     doc.end();
-    stream.on('finish', () => resolve(filePath));
-    stream.on('error', reject);
   });
 }
 

@@ -48,6 +48,7 @@ const pdfParse =
     : (pdfParseModule.default || pdfParseModule.pdf || pdfParseModule);
 const { createWorker, PSM } = require('tesseract.js');
 const { pool } = require('../db');
+const { downloadBuffer } = require('../utils/storage');
 const { callGroqStructured } = require('../groqClient');
 
 const IMAGE_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tiff', '.heic']);
@@ -109,7 +110,7 @@ async function extractEmbeddedPdfText(invoiceId, filePath) {
     return ''; // fail soft into the Tesseract fallback path below, don't crash the pipeline
   }
   try {
-    const buffer = fs.readFileSync(filePath);
+    const buffer = await downloadBuffer(filePath);
     const data = await pdfParse(buffer, { pagerender: renderPageWithSpacing });
     return (data.text || '').trim();
   } catch (err) {
@@ -135,9 +136,13 @@ async function renderPdfPagesToImages(invoiceId, filePath) {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'veridion-ocr-'));
   const outPrefix = path.join(tmpDir, 'page');
   try {
+    // filePath is a storage key (R2), not a local path, and pdftoppm needs a real file on
+    // disk — so pull the bytes down into the temp dir first (deleted in `finally` below).
+    const localPdfPath = path.join(tmpDir, 'source.pdf');
+    fs.writeFileSync(localPdfPath, await downloadBuffer(filePath));
     // -r 300: bumped from 200 DPI — see runTesseractOnBuffer below for why this
     // combined with an explicit page-segmentation mode was needed, not either alone.
-    await execFileAsync('pdftoppm', ['-png', '-r', '300', filePath, outPrefix]);
+    await execFileAsync('pdftoppm', ['-png', '-r', '300', localPdfPath, outPrefix]);
     const files = fs.readdirSync(tmpDir)
       .filter(f => f.startsWith('page') && f.endsWith('.png'))
       .sort(); // pdftoppm names pages page-1.png, page-2.png, ... — lexical sort is correct here
@@ -196,7 +201,7 @@ async function runTesseractOnBuffer(buffer) {
 }
 
 async function runTesseractOnImageFile(filePath) {
-  return runTesseractOnBuffer(fs.readFileSync(filePath));
+  return runTesseractOnBuffer(await downloadBuffer(filePath));
 }
 
 async function runTesseractOnPdfPages(invoiceId, filePath) {

@@ -1,5 +1,5 @@
 const express = require('express');
-const path = require('path');
+const { sendStoredFile } = require('../utils/storage');
 const db = require('../db');
 const { requireAuth } = require('../middleware/auth');
 
@@ -115,7 +115,7 @@ router.get('/:id/document', requireAuth, async (req, res) => {
   }
   if (req.user.role === 'warehouse') return res.status(403).json({ error: 'Warehouse role cannot view PO documents (contains pricing)' });
 
-  res.sendFile(path.resolve(po.po_document_path));
+  await sendStoredFile(res, po.po_document_path);
 });
 
 // GET /api/purchase-orders/:id/grns — every GRN recorded against this PO, in order, with

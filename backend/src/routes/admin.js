@@ -1,5 +1,5 @@
 const express = require('express');
-const path = require('path');
+const { sendStoredFile } = require('../utils/storage');
 const db = require('../db');
 const { requireAuth } = require('../middleware/auth');
 const { requireRole } = require('../middleware/roles');
@@ -28,7 +28,7 @@ router.get('/vendors/:id/proof-document', requireAuth, requireRole('platform_adm
   const result = await db.query(`SELECT business_reg_proof_path FROM vendors WHERE id = $1`, [req.params.id]);
   const vendor = result.rows[0];
   if (!vendor || !vendor.business_reg_proof_path) return res.status(404).json({ error: 'No proof document on file' });
-  res.sendFile(path.resolve(vendor.business_reg_proof_path));
+  await sendStoredFile(res, vendor.business_reg_proof_path);
 });
 
 // GET /api/admin/vendors/:id/pan-proof-document — the uploaded PAN card document.
@@ -36,7 +36,7 @@ router.get('/vendors/:id/pan-proof-document', requireAuth, requireRole('platform
   const result = await db.query(`SELECT pan_proof_path FROM vendors WHERE id = $1`, [req.params.id]);
   const vendor = result.rows[0];
   if (!vendor || !vendor.pan_proof_path) return res.status(404).json({ error: 'No PAN proof document on file' });
-  res.sendFile(path.resolve(vendor.pan_proof_path));
+  await sendStoredFile(res, vendor.pan_proof_path);
 });
 
 // POST /api/admin/vendors/:id/verify — approve or reject a vendor's registration.
@@ -108,7 +108,7 @@ router.get('/companies/:id/proof-document', requireAuth, requireRole('platform_a
   const result = await db.query(`SELECT registration_proof_path FROM companies WHERE id = $1`, [req.params.id]);
   const company = result.rows[0];
   if (!company || !company.registration_proof_path) return res.status(404).json({ error: 'No proof document on file' });
-  res.sendFile(path.resolve(company.registration_proof_path));
+  await sendStoredFile(res, company.registration_proof_path);
 });
 
 // POST /api/admin/companies/:id/approve — approve or reject a company's registration.

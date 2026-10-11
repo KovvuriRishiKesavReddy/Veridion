@@ -48,7 +48,7 @@ if (!/test/i.test(dbName)) {
   console.error('Refusing to run: the database name in TEST_DATABASE_URL / DATABASE_URL must contain "test" — this creates real accounts/data.');
   process.exit(1);
 }
-const pool = new Pool({ connectionString: DB_URL });
+const pool = new Pool({ connectionString: DB_URL, ssl: require('../src/utils/pgSsl').sslFor(DB_URL) });
 
 const RUN_TAG = Date.now().toString(36); // keeps emails / bank accounts / addresses unique across re-runs
 const sleep = ms => new Promise(r => setTimeout(r, ms));

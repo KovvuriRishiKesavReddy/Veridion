@@ -120,4 +120,16 @@ setSocketIo(io); // hands the io instance to notify.js so every route can use no
 
 const PORT = process.env.PORT || 4000;
 // listen on `server`, not `app`, so Socket.io's upgrade handling actually works
-server.listen(PORT, () => console.log(`Veridion backend listening on http://localhost:${PORT}`));
+// Render's free tier spins ai-service down after ~15 min with no inbound HTTP request (its
+// RabbitMQ consumer doesn't count). Ping its /health when backend starts/wakes, then every
+// 10 min while backend is warm, so loading the site also wakes ai-service. No-op locally.
+const fetchPing = require('node-fetch');
+function pingAiService() {
+  if (!process.env.AI_SERVICE_URL) return;
+  fetchPing(`${process.env.AI_SERVICE_URL}/health`).catch(() => {});
+}
+server.listen(PORT, () => {
+  console.log(`Veridion backend listening on http://localhost:${PORT}`);
+  pingAiService();
+  setInterval(pingAiService, 10 * 60 * 1000);
+});

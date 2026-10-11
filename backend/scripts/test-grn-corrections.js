@@ -10,7 +10,7 @@ const { Pool } = require('pg');
 const DB_URL = process.env.TEST_DATABASE_URL;
 if (!DB_URL || !/test/i.test(new URL(DB_URL).pathname)) { console.error('Refusing to run: TEST_DATABASE_URL must name a database containing "test".'); process.exit(2); }
 const PORT = 4578, BASE = `http://localhost:${PORT}`;
-const pool = new Pool({ connectionString: DB_URL });
+const pool = new Pool({ connectionString: DB_URL, ssl: require('../src/utils/pgSsl').sslFor(DB_URL) });
 let passed = 0, failed = 0, backend;
 const check = (name, cond, extra = '') => { cond ? passed++ : failed++; console.log(`  ${cond ? 'PASS' : 'FAIL'}  ${name} ${cond ? '' : extra}`); };
 async function api(method, url, token, body) {

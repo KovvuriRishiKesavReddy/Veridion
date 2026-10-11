@@ -1,16 +1,6 @@
 const multer = require('multer');
-const path = require('path');
-const fs = require('fs');
 
-const uploadDir = path.join(__dirname, '..', '..', 'uploads');
-if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
-
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, uploadDir),
-  filename: (req, file, cb) => {
-    const unique = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
-    cb(null, `${unique}${path.extname(file.originalname)}`);
-  }
-});
-
-module.exports = multer({ storage, limits: { fileSize: 10 * 1024 * 1024 } });
+// Files are held in memory (req.file.buffer) and the route handler uploads them to
+// storage (Cloudflare R2 in production) itself — nothing is written to local disk, so
+// Render's ephemeral filesystem can't lose anything.
+module.exports = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });

@@ -20,7 +20,7 @@ if (!DB_URL || !/test/i.test(new URL(DB_URL).pathname)) {
 }
 const BACKEND_PORT = 4555, MOCK_PORT = 4556;
 const BASE = `http://localhost:${BACKEND_PORT}`;
-const pool = new Pool({ connectionString: DB_URL });
+const pool = new Pool({ connectionString: DB_URL, ssl: require('../src/utils/pgSsl').sslFor(DB_URL) });
 
 let passed = 0, failed = 0;
 function check(name, cond, extra = '') {

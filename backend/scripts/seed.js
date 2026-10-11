@@ -24,7 +24,7 @@ function assertSafeToSeed() {
 
 async function main() {
   assertSafeToSeed();
-  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: require('../src/utils/pgSsl').sslFor(process.env.DATABASE_URL) });
   const passwordHash = await bcrypt.hash('password123', 10);
 
   // wipe existing data (safe for a dev seed run)

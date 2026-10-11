@@ -13,3 +13,6 @@ venv/
 
 # Logs
 *.log
+
+# Local file uploads (production uses Cloudflare R2)
+backend/uploads/

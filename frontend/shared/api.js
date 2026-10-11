@@ -1,5 +1,6 @@
-// Change this if your backend runs somewhere other than localhost:4000
-const API_BASE = 'http://localhost:4000';
+// Empty = same origin. The backend serves the frontend itself, so this works both locally
+// (http://localhost:4000) and on Render, with no CORS setup.
+const API_BASE = '';
 
 // Session storage strategy: sessionStorage (tab-scoped) is checked first, with a
 // fallback to localStorage (device-scoped) for a "Remember Me" login. This combines

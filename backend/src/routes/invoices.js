@@ -6,6 +6,8 @@ const { requireVerifiedVendor } = require('../middleware/vendorVerification');
 const { requireApprovedCompany } = require('../middleware/companyApproval');
 const { notifyVendor, safely } = require('../utils/notify');
 const upload = require('../utils/upload');
+const { uploadBuffer, makeKey } = require('../utils/storage');
+const fetch = require('node-fetch');
 const { publishInvoiceSubmitted } = require('../utils/queue');
 const { syncInvoiceNode } = require('../utils/neo4jSync');
 const { callAiService } = require('../utils/aiService');
@@ -52,7 +54,7 @@ router.post('/', requireAuth, requireRole('vendor'), requireVerifiedVendor, uplo
     return res.status(409).json({ error: 'An invoice has already been submitted for this PO.' });
   }
 
-  const filePath = req.file ? req.file.path : null;
+  const filePath = req.file ? await uploadBuffer(makeKey('invoices', req.file.originalname), req.file.buffer, req.file.mimetype) : null;
 
   const result = await db.query(
     `INSERT INTO invoices (po_id, grn_id, vendor_id, invoice_number, invoice_amount, invoice_quantity, gst_amount, gstin_on_invoice, invoice_file_path, due_date)
@@ -65,6 +67,8 @@ router.post('/', requireAuth, requireRole('vendor'), requireVerifiedVendor, uplo
   // fail the response — the invoice is already safely stored regardless of queue health.
   publishInvoiceSubmitted(result.rows[0].id);
   syncInvoiceNode(result.rows[0]);
+  // Nudge ai-service awake (Render free tier sleeps after ~15 min without HTTP traffic).
+  if (process.env.AI_SERVICE_URL) fetch(`${process.env.AI_SERVICE_URL}/health`).catch(() => {});
 
   res.status(201).json(result.rows[0]);
 });

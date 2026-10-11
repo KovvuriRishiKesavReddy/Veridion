@@ -4,6 +4,7 @@ const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const db = require('../db');
 const upload = require('../utils/upload');
+const { uploadBuffer, makeKey } = require('../utils/storage');
 const { syncVendorNode } = require('../utils/neo4jSync');
 const { normalizePhoneNumber } = require('../utils/validation');
 const { isValidGstin, isValidPan, isStrongPassword } = require('../utils/validation');
@@ -56,6 +57,9 @@ router.post('/register/vendor', upload.fields([{ name: 'business_reg_proof', max
   if (!panProofFile) {
     return res.status(400).json({ error: 'PAN card proof document is required — Platform Admin verifies the PAN number against this.' });
   }
+  // Upload to storage before opening the DB transaction; the returned keys go in the *_path columns.
+  const businessRegProofKey = await uploadBuffer(makeKey('vendorproofs', proofFile.originalname), proofFile.buffer, proofFile.mimetype);
+  const panProofKey = await uploadBuffer(makeKey('vendorproofs', panProofFile.originalname), panProofFile.buffer, panProofFile.mimetype);
   const client = await db.getClient();
   try {
     await client.query('BEGIN');
@@ -71,7 +75,7 @@ router.post('/register/vendor', upload.fields([{ name: 'business_reg_proof', max
     const vendorRes = await client.query(
       `INSERT INTO vendors (user_id, company_name, gstin, pan, business_reg_proof_path, pan_proof_path, phone_number, bank_account_number, bank_ifsc, address, preferred_notification_channel)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10, COALESCE($11, 'sms')) RETURNING id`,
-      [user.id, company_name, gstin.toUpperCase(), pan.toUpperCase(), proofFile.path, panProofFile.path, phone_number, bank_account_number, bank_ifsc, address, preferred_notification_channel || null]
+      [user.id, company_name, gstin.toUpperCase(), pan.toUpperCase(), businessRegProofKey, panProofKey, phone_number, bank_account_number, bank_ifsc, address, preferred_notification_channel || null]
     );
     await client.query('COMMIT');
     const token = signToken({ ...user, company_id: null }, { vendor_id: vendorRes.rows[0].id });
@@ -107,12 +111,13 @@ router.post('/register/company', upload.single('registration_proof'), async (req
   if (!req.file) {
     return res.status(400).json({ error: 'A company registration proof document (e.g. certificate of incorporation) is required.' });
   }
+  const registrationProofKey = await uploadBuffer(makeKey('companyproofs', req.file.originalname), req.file.buffer, req.file.mimetype);
   const client = await db.getClient();
   try {
     await client.query('BEGIN');
     const compRes = await client.query(
       `INSERT INTO companies (name, gstin, address, industry_type, registration_proof_path) VALUES ($1,$2,$3,$4,$5) RETURNING id`,
-      [company_name, gstin.toUpperCase(), address, industry_type, req.file.path]
+      [company_name, gstin.toUpperCase(), address, industry_type, registrationProofKey]
     );
     const companyId = compRes.rows[0].id;
     const passwordHash = await bcrypt.hash(password, 10);

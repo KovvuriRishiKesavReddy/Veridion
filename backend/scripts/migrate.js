@@ -9,7 +9,7 @@ const path = require('path');
 const { Pool } = require('pg');
 
 async function main() {
-  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: require('../src/utils/pgSsl').sslFor(process.env.DATABASE_URL) });
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS schema_migrations (

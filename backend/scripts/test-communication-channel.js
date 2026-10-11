@@ -16,7 +16,7 @@ if (!DB_URL || !/test/i.test(new URL(DB_URL).pathname)) {
   process.exit(2);
 }
 const PORT = 4577, BASE = `http://localhost:${PORT}`;
-const pool = new Pool({ connectionString: DB_URL });
+const pool = new Pool({ connectionString: DB_URL, ssl: require('../src/utils/pgSsl').sslFor(DB_URL) });
 let passed = 0, failed = 0, backend;
 const check = (name, cond, extra = '') => { cond ? passed++ : failed++; console.log(`  ${cond ? 'PASS' : 'FAIL'}  ${name} ${cond ? '' : extra}`); };
 const sleep = ms => new Promise(r => setTimeout(r, ms));

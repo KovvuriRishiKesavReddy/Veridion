@@ -17,7 +17,7 @@ if (!/test/i.test(dbName)) {
   console.error('Refusing to run: the database name in TEST_DATABASE_URL / DATABASE_URL must contain "test".');
   process.exit(1);
 }
-const pool = new Pool({ connectionString: DB_URL });
+const pool = new Pool({ connectionString: DB_URL, ssl: require('../src/utils/pgSsl').sslFor(DB_URL) });
 const AUTO_APPROVE_THRESHOLD = 0.7;
 
 async function pollForDecision(invoiceId, timeoutMs = 120000) {
