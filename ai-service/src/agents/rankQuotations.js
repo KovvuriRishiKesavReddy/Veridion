@@ -1,6 +1,40 @@
 const db = require('../db');
 const { callGroqStructured } = require('../groqClient');
 
+// countSuccessfulDeals: the exact number of deals this vendor has genuinely CLOSED
+// successfully with this company, for Past Performance's evidence weight in ranking.
+// A "successful deal" is one purchase order whose invoice Finance has approved AND
+// marked paid (invoices.status = 'paid', set by both the normal Approve Payment route and
+// the override-and-pay route). Counted per PO with COUNT(DISTINCT po.id), so:
+//   - a vendor who sends several wrong/flagged/rejected invoices and then one correct
+//     invoice that gets paid has exactly ONE successful deal, not several;
+//   - one deal is never counted twice (previously an on-time GRN and an accurate-invoice
+//     decision each added 1, so a single deal could count as 2, and the invoice success
+//     was recorded at AI-decision time, before Finance had closed or paid anything).
+// Computed live from the tables, so it can never drift out of sync with reality.
+// A legacy-imported vendor also keeps its (already discounted, labeled-unverified)
+// offline history as a one-time starting amount: stored_data_volume scaled by the
+// reported on-time percentage, counted once. Agent 8's decision math and the risk-score
+// counters are deliberately untouched by this -- it only changes what ranking trusts.
+async function countSuccessfulDeals(companyId, vendorId) {
+  const paidRes = await db.query(
+    `SELECT COUNT(DISTINCT po.id)::int AS n
+     FROM purchase_orders po
+     JOIN invoices inv ON inv.po_id = po.id
+     WHERE po.company_id = $1 AND po.vendor_id = $2 AND inv.status = 'paid'`,
+    [companyId, vendorId]
+  );
+  const legacyRes = await db.query(
+    `SELECT stored_data_volume, reported_on_time_pct FROM legacy_vendor_imports WHERE company_id = $1 AND vendor_id = $2`,
+    [companyId, vendorId]
+  );
+  const legacy = legacyRes.rows[0];
+  const legacyDeals = legacy
+    ? Math.round(Number(legacy.stored_data_volume) * (Number(legacy.reported_on_time_pct) / 100))
+    : 0;
+  return (paidRes.rows[0]?.n || 0) + legacyDeals;
+}
+
 // runRankQuotationsAgent: Agent 6 — Quotation Ranking.
 // Applies the SAME Context Gate formula as Agent 8 (Part 3.3 of the build doc: "The
 // same formula is reused for Quotation Ranking"), but fused over three signals
@@ -96,19 +130,12 @@ async function runRankQuotationsAgent(requirementId) {
     // data_volume counts every recorded event with this vendor regardless of outcome
     // (per Part 5.2 — that's the correct meaning for the Context Gate's "how much
     // evidence exists" framing, and Agent 5 must keep counting it that way, untouched).
-    // But for RANKING specifically, the question is different: "how many times has
-    // this vendor actually proven themselves," not "how many times have we observed
-    // them at all." A vendor with data_volume=14 and 13.77% accuracy has really only
-    // demonstrated success roughly twice — ranking should size its trust in their
-    // track record to that, not to all 14 observations, most of which were failures.
-    // grn_on_time_count / invoice_decision_success_count are EXACT counters tracked
-    // separately alongside the shared data_volume (see the migration's own comment for
-    // why this couldn't just be reconstructed from data_volume — a single shared
-    // counter across GRN/invoice/dispute events can't be un-mixed after the fact).
-    // Pre-existing vendors (from before these counters existed) start at 0 here and
-    // build up exact history from this point forward — see that migration for why
-    // backfilling this specific number would have been dishonest guesswork.
-    const successfulDeals = (Number(risk?.grn_on_time_count) || 0) + (Number(risk?.invoice_decision_success_count) || 0);
+    // But for RANKING specifically, the question is different: "how many deals has this
+    // vendor actually closed successfully with us," not "how many events have we seen"
+    // (a vendor can send many wrong invoices before one right one). So ranking counts
+    // CLOSED deals: one per purchase order whose invoice Finance approved and paid —
+    // see countSuccessfulDeals above for exactly what that means and why.
+    const successfulDeals = await countSuccessfulDeals(requirement.company_id, q.vendor_id);
     const pastPerformanceDataVolume = successfulDeals;
     const pastPerformanceConfidence = pastPerformanceDataVolume > 0 ? 0.85 : 0;
 
@@ -181,4 +208,4 @@ async function runRankQuotationsAgent(requirementId) {
   return results;
 }
 
-module.exports = { runRankQuotationsAgent };
+module.exports = { runRankQuotationsAgent, countSuccessfulDeals };
