@@ -76,7 +76,7 @@ async function load() {
         <div class="mt-2 d-flex gap-2">
           <button class="btn btn-sm btn-outline-secondary" onclick="viewDetails(${po.id})">View Fulfillment</button>
           ${po.po_document_path && !isWarehouse ? `<button class="btn btn-sm btn-amber" onclick="downloadPo(${po.id})">Download PO PDF</button>` : ''}
-          ${canMessage ? `<button class="btn btn-sm btn-dark" onclick="openPoThread(${po.id})">Message Vendor</button>` : ''}
+          ${canMessage ? `<button class="btn btn-sm btn-message" onclick="openPoThread(${po.id})">Message Vendor</button>` : ''}
         </div>
       </div>
     </div>`).join(''));

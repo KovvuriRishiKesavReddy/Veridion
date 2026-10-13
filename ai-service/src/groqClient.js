@@ -21,7 +21,23 @@ const MODEL = 'openai/gpt-oss-120b';
  * for their pipeline (previously a silent {} looked identical to a
  * legitimately empty invoice, which is what caused the all-null bug).
  */
-async function callGroqStructured(systemPrompt, userPrompt, jsonSchema) {
+// Veridion deals only in Indian Rupees, but the model is given bare numbers with no currency,
+// so left alone it guesses a symbol (we saw "¥9,900" in a ranking explanation). For callers
+// that WRITE prose for people (ranking reasoning, decision reasoning, dispute drafts) we both
+// tell the model to use ₹ and rewrite any other currency marker in front of a number.
+const RUPEE_NOTE = ' All monetary amounts are in Indian Rupees (INR). Always write them with the rupee symbol, e.g. ₹9,900 — never use ¥, $, €, £, "Rs", "USD", "JPY" or any other currency symbol or code.';
+const CURRENCY_BEFORE_NUMBER = /(?:[¥￥$€£]|\b(?:Rs\.?|INR|JPY|USD|EUR|GBP|CNY))\s?(?=\d)/g;
+function normalizeCurrency(value) {
+  if (typeof value === 'string') return value.replace(CURRENCY_BEFORE_NUMBER, '₹');
+  if (Array.isArray(value)) return value.map(normalizeCurrency);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, normalizeCurrency(v)]));
+  }
+  return value;
+}
+
+async function callGroqStructured(systemPrompt, userPrompt, jsonSchema, options = {}) {
+  if (options.rupees) systemPrompt = systemPrompt + RUPEE_NOTE;
   const response = await groq.chat.completions.create({
     model: MODEL,
     messages: [
@@ -51,7 +67,7 @@ async function callGroqStructured(systemPrompt, userPrompt, jsonSchema) {
     }
   }
 
-  return parsed;
+  return options.rupees ? normalizeCurrency(parsed) : parsed;
 }
 
-module.exports = { callGroqStructured, MODEL };
+module.exports = { callGroqStructured, normalizeCurrency, MODEL };

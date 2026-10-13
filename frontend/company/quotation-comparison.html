@@ -103,8 +103,10 @@ async function loadAll() {
       <td>${q.delivery_days}${deadlineBadge(q)}</td>
       <td>${new Date(q.submitted_at).toLocaleDateString()}</td>
       <td class="text-nowrap">
-        <span class="hbg d-inline-block"><button class="hbg-core" style="padding:6px 14px;font-size:0.85rem;" onclick="withButtonState(this, () => acceptFromAll(${q.id}))">Accept</button></span>
-        <button class="btn btn-sm btn-dark ms-1" onclick="openQuotationThread(${q.id})">Message</button>
+        <div class="q-actions">
+          <span class="hbg"><button class="hbg-core" onclick="withButtonState(this, () => acceptFromAll(${q.id}))">Accept</button></span>
+          <span class="hbg hbg-amber"><button class="hbg-core" onclick="openQuotationThread(${q.id})">Message</button></span>
+        </div>
       </td>
     </tr>`).join(''));
 }
@@ -169,7 +171,7 @@ async function loadQuotations(rerank = true) {
       <td>${q.delivery_days}${deadlineBadge(q)}</td>
       <td>${q.ai_rank_score != null ? Number(q.ai_rank_score).toFixed(2) : '—'}</td>
       <td><span class="badge status-badge ${statusBadgeClass(q.status)}">${q.status}</span></td>
-      <td class="text-nowrap">${q.status === 'submitted' ? `<span class="hbg d-inline-block"><button class="hbg-core" style="padding:6px 14px;font-size:0.85rem;" onclick="withButtonState(this, () => accept(${q.id}))">Accept</button></span> <button class="btn btn-sm btn-dark ms-1" onclick="openQuotationThread(${q.id})">Message</button>` : '—'}</td>
+      <td class="text-nowrap">${q.status === 'submitted' ? `<div class="q-actions"><span class="hbg"><button class="hbg-core" onclick="withButtonState(this, () => accept(${q.id}))">Accept</button></span><span class="hbg hbg-amber"><button class="hbg-core" onclick="openQuotationThread(${q.id})">Message</button></span></div>` : '—'}</td>
     </tr>
     ${q.ai_rank_reasoning ? `
     <tr class="table-light">

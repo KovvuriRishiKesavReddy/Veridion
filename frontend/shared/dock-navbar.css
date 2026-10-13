@@ -355,6 +355,17 @@ body.has-dock-nav { padding-top: 84px; }
 .hbg.hbg-danger .hbg-core { background: #7f1d1d; }
 .hbg.hbg-danger:hover .hbg-core { background: #991b1b; }
 
+/* Amber variant — solid yellowish-orange, same shape and size as the green Accept
+   button. Used for the Message button next to Accept on the quotations page. */
+.hbg.hbg-amber::before { background: conic-gradient(from 0deg, #b45309, #f59e0b, #fcd34d, #b45309); }
+.hbg.hbg-amber .hbg-core { background: #f59e0b; color: #3b2300; }
+.hbg.hbg-amber:hover .hbg-core { background: #e8890b; }
+
+/* Accept + Message side by side: one row, vertically centred, identical width/height. */
+.q-actions { display: flex; align-items: center; gap: 8px; justify-content: center; }
+.q-actions .hbg { display: block; min-width: 104px; }
+.q-actions .hbg-core { padding: 6px 14px; font-size: 0.85rem; line-height: 1.4; text-align: center; white-space: nowrap; }
+
 /* ---------------------------------------------------------------------------
    Stateful buttons — idle / loading / success / error, driven by
    withButtonState() in api.js. Pure CSS swap based on a data-state attribute.

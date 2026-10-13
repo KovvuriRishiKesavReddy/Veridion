@@ -249,7 +249,7 @@ async function buildReasoningText(matching, compliance, fraud, risk, gateWeights
   // existed but was unreachable dead code, since nothing in groqClient.js
   // ever actually returns a `__stub` marker. Now genuinely used on failure.
   try {
-    const groqResult = await callGroqStructured(systemPrompt, userPrompt);
+    const groqResult = await callGroqStructured(systemPrompt, userPrompt, undefined, { rupees: true });
     if (groqResult?.reasoning) return groqResult.reasoning;
   } catch (err) {
     console.error(`[decide] reasoning-text Groq call failed, using deterministic fallback: ${err.message}`);

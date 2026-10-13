@@ -137,8 +137,27 @@ body.has-dock-nav > .container table.bg-white tbody tr:hover {
 .table-centered td {
   text-align: center;
   vertical-align: middle;
-  padding-top: 0.85rem;
-  padding-bottom: 0.85rem;
+  padding: 0.85rem 0.55rem;
+}
+/* long emails wrap instead of widening the table */
+.table-centered .cell-wrap { overflow-wrap: anywhere; min-width: 10.5rem; }
+
+/* 8+ column tables are slightly more compact so every column fits */
+.table-centered:has(thead th:nth-child(8)) { font-size: 0.875rem; }
+.table-centered:has(thead th:nth-child(8)) th,
+.table-centered:has(thead th:nth-child(8)) td { padding-left: 0.4rem; padding-right: 0.4rem; }
+
+/* every table fills its panel exactly: never narrower, never wider */
+body.has-dock-nav > .container table.table-centered,
+body.has-dock-nav > .container .modal-body table.table-centered { width: 100%; max-width: 100%; }
+
+.table-centered .btn-sm { min-width: 84px; white-space: nowrap; }
+
+/* on narrower screens the table scrolls inside the panel instead of spilling out */
+@media (max-width: 1150px) {
+  body.has-dock-nav > .container table.table-centered {
+    display: block; overflow-x: auto; -webkit-overflow-scrolling: touch;
+  }
 }
 
 /* Alerts, form fields and badges pick up the same rounding + mint accents. */
@@ -297,6 +316,23 @@ body.has-dock-nav > .container.auth-container .alert {
   border-color: rgba(20, 83, 45, 0.92);
   color: #fff;
   box-shadow: 0 8px 18px -8px rgba(20, 83, 45, 0.45);
+}
+
+/* Message buttons: frosted, translucent yellowish-orange (same treatment as the
+   translucent "View Fulfillment" button, but in amber instead of green). */
+.btn-message {
+  color: #92400e;
+  border-color: rgba(217, 119, 6, 0.45);
+  background-color: rgba(253, 224, 138, 0.55);
+  backdrop-filter: blur(8px) saturate(160%);
+  -webkit-backdrop-filter: blur(8px) saturate(160%);
+}
+.btn-message:hover,
+.btn-message:focus {
+  background-color: rgba(234, 138, 12, 0.92);
+  border-color: rgba(234, 138, 12, 0.92);
+  color: #fff;
+  box-shadow: 0 8px 18px -8px rgba(217, 119, 6, 0.5);
 }
 
 .btn-outline-danger {

@@ -37,7 +37,7 @@ async function load() {
       <td><span class="badge status-badge ${statusBadgeClass(q.status)}">${q.status}</span></td>
       <td>${new Date(q.submitted_at).toLocaleDateString()}</td>
       <td>${q.status === 'submitted'
-        ? `<button class="btn btn-sm btn-dark" onclick="openQuotationThread(${q.id})">Message</button>`
+        ? `<button class="btn btn-sm btn-message" onclick="openQuotationThread(${q.id})">Message</button>`
         : `<button class="btn btn-sm btn-outline-secondary" onclick="openQuotationThread(${q.id})">History</button>`}</td>
     </tr>`).join(''));
 }

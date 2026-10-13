@@ -87,7 +87,7 @@ async function runVendorCommunicationAgent(invoiceId, fraudFlags = null) {
 
   let draftText;
   try {
-    const result = await callGroqStructured(systemPrompt, userPrompt);
+    const result = await callGroqStructured(systemPrompt, userPrompt, undefined, { rupees: true });
     draftText = result?.message;
   } catch (err) {
     console.error(`[vendorCommunication] Groq draft failed for invoice ${invoiceId}, using deterministic fallback: ${err.message}`);

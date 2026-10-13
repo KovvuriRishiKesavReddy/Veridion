@@ -179,7 +179,7 @@ async function runRankQuotationsAgent(requirementId) {
   let reasoningByVendor = {};
   try {
     const systemPrompt = `You write a one-to-two sentence plain-English ranking explanation for EACH vendor quotation in a JSON array, addressed to a non-technical Procurement reviewer. Explicitly mention when a vendor's ranking leaned heavily on Price or Delivery because it has few or no successful deals with this company yet (not because it lacks activity — a vendor can have plenty of history and still have few successes in it). When deadline_overrun_days is not null, explicitly say this vendor's delivery would land that many days after the requirement's deadline and that this lowered its Delivery score — don't omit it even if the vendor still ranks well overall on price or past performance. Respond ONLY with a JSON object: {"reasonings": [{"vendor_name": "...", "reasoning": "..."}, ...]}, one entry per input vendor, in the same order.`;
-    const groqResult = await callGroqStructured(systemPrompt, JSON.stringify(reasoningInput));
+    const groqResult = await callGroqStructured(systemPrompt, JSON.stringify(reasoningInput), undefined, { rupees: true });
     if (Array.isArray(groqResult?.reasonings)) {
       groqResult.reasonings.forEach(r => { reasoningByVendor[r.vendor_name] = r.reasoning; });
     }

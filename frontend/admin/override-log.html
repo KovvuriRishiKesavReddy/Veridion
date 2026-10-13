@@ -21,7 +21,6 @@
 <div class="container">
   <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-1">
     <h3 class="mb-0">Override Log</h3>
-    <button class="btn btn-sm btn-outline-secondary" id="refreshBtn" type="button">Refresh</button>
   </div>
   <p class="text-muted">Every time Finance approves payment on a flagged or suspicious invoice anyway, the reason they gave is recorded. This groups those overrides by month — a month with a spike in overrides is a concrete signal that the Context Gate's auto-approve threshold may be too conservative, flagging invoices Finance keeps having to rescue by hand.</p>
   <div id="overrideMonths"><div class="text-muted">Loading...</div></div>
@@ -81,14 +80,12 @@ async function loadOverrides() {
     container.innerHTML = '<div class="text-muted">No overrides recorded yet. They appear here once Finance approves a flagged or suspicious invoice via Override &amp; Pay.</div>';
     return;
   }
-  // Keep whichever months the admin already expanded across a manual refresh; on first
-  // load, open just the most recent month.
+  // Open just the most recent month on first load.
   const previouslyOpen = new Set([...container.querySelectorAll('details[open]')].map(d => d.dataset.month));
   const firstLoad = !container.querySelector('details');
   container.innerHTML = months.map((m, i) => renderMonth(m, firstLoad ? i === 0 : previouslyOpen.has(m.month))).join('');
 }
 
-document.getElementById('refreshBtn').addEventListener('click', loadOverrides);
 loadOverrides();
 </script>
 </body>
