@@ -77,25 +77,6 @@ app.post('/agents/decide', async (req, res) => {
   }
 });
 
-// POST /agents/redecide-after-fraud-review — called by the backend when Platform Admin has
-// resolved every fraud flag on an invoice. Re-runs ONLY the decision stage (Matching and
-// Compliance results already exist and haven't changed; Fraud re-checks the graph as it
-// stands now inside runDecisionAgent) in rerun mode, then notifies Finance/vendor through the
-// same idempotent pipeline-complete hook a first-time decision uses, so Finance sees the
-// updated outcome.
-app.post('/agents/redecide-after-fraud-review', async (req, res) => {
-  try {
-    const invoiceId = Number(req.body.invoice_id);
-    if (!invoiceId) return res.status(400).json({ error: 'invoice_id is required' });
-    const decision = await runDecisionAgent(invoiceId, { rerun: true });
-    await notifyBackendPipelineComplete(invoiceId);
-    res.json(decision);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
 app.post('/agents/fraud', async (req, res) => {
   try {
     const result = await runFraudAgent(req.body.invoice_id);

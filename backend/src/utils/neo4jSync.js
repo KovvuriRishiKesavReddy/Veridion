@@ -37,14 +37,6 @@ async function runWrite(query, params) {
 
 // Keeps the graph's Vendor/BankAccount/Address nodes in sync — this is what powers
 // shell-company detection (SHARES_BANK_ACCOUNT_WITH / SHARES_ADDRESS_WITH) in Agent 4.
-//
-// Step 1 is the ORIGINAL, unchanged write (adds/updates the vendor's CURRENT bank-account
-// and address edges). Step 2 is new and strictly additive-safe: it then deletes only the
-// edges that no longer match the vendor's current values. The old version never did this,
-// so a vendor who changed their bank account or address kept the OLD edge forever -- and
-// kept matching whichever vendor shared the old value. Because step 1 always runs first,
-// a failure in step 2 (runWrite swallows errors) can at worst leave a stale edge behind
-// (the old behaviour) -- it can never leave a vendor with NO edges.
 async function syncVendorNode(vendor) {
   await runWrite(
     `MERGE (v:Vendor {id: $id})
@@ -63,30 +55,6 @@ async function syncVendorNode(vendor) {
       bank_account_number: vendor.bank_account_number || null, address: vendor.address || null
     }
   );
-
-  // Step 2: drop edges that no longer match the current values (all of them if the value is now empty).
-  await runWrite(
-    `MATCH (v:Vendor {id: $id})-[r:HAS_BANK_ACCOUNT]->(b:BankAccount)
-     WHERE $bank_account_number IS NULL OR b.number <> $bank_account_number
-     DELETE r`,
-    { id: vendor.id, bank_account_number: vendor.bank_account_number || null }
-  );
-  await runWrite(
-    `MATCH (v:Vendor {id: $id})-[r:HAS_ADDRESS]->(a:Address)
-     WHERE $address IS NULL OR a.value <> $address
-     DELETE r`,
-    { id: vendor.id, address: vendor.address || null }
-  );
-}
-
-// detachVendorIdentity: removes a vendor's bank-account and address edges (the only things
-// shell-company detection matches on) while KEEPING the Vendor node and its PO/invoice
-// history. Called when Platform Admin rejects/revokes a vendor, so a revoked vendor can no
-// longer make anyone else "share" a bank account or address with it. Re-verifying the
-// vendor calls syncVendorNode, which recreates the edges from Postgres.
-async function detachVendorIdentity(vendorId) {
-  await runWrite(`MATCH (v:Vendor {id: $id})-[r:HAS_BANK_ACCOUNT]->(:BankAccount) DELETE r`, { id: vendorId });
-  await runWrite(`MATCH (v:Vendor {id: $id})-[r:HAS_ADDRESS]->(:Address) DELETE r`, { id: vendorId });
 }
 
 async function syncPurchaseOrderNode(po) {
@@ -109,4 +77,4 @@ async function syncInvoiceNode(invoice) {
   );
 }
 
-module.exports = { syncVendorNode, detachVendorIdentity, syncPurchaseOrderNode, syncInvoiceNode };
+module.exports = { syncVendorNode, syncPurchaseOrderNode, syncInvoiceNode };
