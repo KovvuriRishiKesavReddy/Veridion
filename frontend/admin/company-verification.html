@@ -31,7 +31,7 @@ async function loadCompanies() {
   rows.innerHTML = companies.map(c => `
     <tr>
       <td>${c.name}</td>
-      <td>${c.admin_name || '—'} (${c.admin_email || '—'})</td>
+      <td class="cell-wrap">${c.admin_name || '—'} (${c.admin_email || '—'})</td>
       <td>${c.gstin || '—'}</td>
       <td>${c.address || '—'}</td>
       <td>${c.industry_type || '—'}</td>

@@ -139,10 +139,28 @@ async function runRankQuotationsAgent(requirementId) {
     const pastPerformanceDataVolume = successfulDeals;
     const pastPerformanceConfidence = pastPerformanceDataVolume > 0 ? 0.85 : 0;
 
+    // --- Signal 4: Quality ---
+    // risk.quality_score is the quantity-weighted average of the warehouse's per-GRN 1-5
+    // ratings (0-100 scale), kept separately from Past Performance on purpose: a vendor can be
+    // perfectly on time with accurate invoices and still ship poor goods, so folding quality
+    // into that average would hide a different failure mode.
+    // The CONFIDENCE in that value is based on grn_count (how many independent deliveries we
+    // have observed), not on units: one huge shipment shouldn't max out trust the way several
+    // independent deliveries should have to. It is deliberately NOT tied to paid deals (unlike
+    // Past Performance) -- quality is a physical fact observed at GRN time, before any invoice
+    // exists, and nothing downstream revises it.
+    // quality_score is only set once a GRN carrying a real rating has been confirmed, so GRNs
+    // that pre-date the quality rating (migration 025's backfill) never count as "rated".
+    const hasQualityHistory = !!risk && risk.quality_score != null && Number(risk.grn_count) > 0;
+    const qualityScore = hasQualityHistory ? Number(risk.quality_score) / 100 : 0.5;
+    const qualityDataVolume = hasQualityHistory ? Number(risk.grn_count) : 0;
+    const qualityConfidence = qualityDataVolume > 0 ? 0.85 : 0;
+
     const signals = [
       { name: 'price', confidence: 1.0, data_volume: 1, score: priceScore },
       { name: 'delivery', confidence: 0.9, data_volume: 1, score: deliveryScore },
-      { name: 'past_performance', confidence: pastPerformanceConfidence, data_volume: pastPerformanceDataVolume, score: pastPerformanceScore }
+      { name: 'past_performance', confidence: pastPerformanceConfidence, data_volume: pastPerformanceDataVolume, score: pastPerformanceScore },
+      { name: 'quality', confidence: qualityConfidence, data_volume: qualityDataVolume, score: qualityScore }
     ];
 
     const rawWeights = signals.map(s => s.confidence * Math.log(1 + s.data_volume));
@@ -155,7 +173,7 @@ async function runRankQuotationsAgent(requirementId) {
       finalScore += w * s.score;
     });
 
-    ranked.push({ quotation: q, gateWeights, finalScore, hasHistory, dataVolume: pastPerformanceDataVolume, deadlineOverrunDays });
+    ranked.push({ quotation: q, gateWeights, finalScore, hasHistory, dataVolume: pastPerformanceDataVolume, qualityDataVolume, deadlineOverrunDays });
   }
 
   ranked.sort((a, b) => b.finalScore - a.finalScore);
@@ -170,15 +188,16 @@ async function runRankQuotationsAgent(requirementId) {
     price: r.quotation.price,
     delivery_days: r.quotation.delivery_days,
     final_score: r.finalScore.toFixed(2),
-    weights: { price: r.gateWeights.price.toFixed(2), delivery: r.gateWeights.delivery.toFixed(2), past_performance: r.gateWeights.past_performance.toFixed(2) },
+    weights: { price: r.gateWeights.price.toFixed(2), delivery: r.gateWeights.delivery.toFixed(2), past_performance: r.gateWeights.past_performance.toFixed(2), quality: r.gateWeights.quality.toFixed(2) },
     has_history: r.hasHistory,
     successful_deals: r.dataVolume,
+    quality_rated_deliveries: r.qualityDataVolume,
     deadline_overrun_days: r.deadlineOverrunDays
   }));
 
   let reasoningByVendor = {};
   try {
-    const systemPrompt = `You write a one-to-two sentence plain-English ranking explanation for EACH vendor quotation in a JSON array, addressed to a non-technical Procurement reviewer. Explicitly mention when a vendor's ranking leaned heavily on Price or Delivery because it has few or no successful deals with this company yet (not because it lacks activity — a vendor can have plenty of history and still have few successes in it). When deadline_overrun_days is not null, explicitly say this vendor's delivery would land that many days after the requirement's deadline and that this lowered its Delivery score — don't omit it even if the vendor still ranks well overall on price or past performance. Respond ONLY with a JSON object: {"reasonings": [{"vendor_name": "...", "reasoning": "..."}, ...]}, one entry per input vendor, in the same order.`;
+    const systemPrompt = `You write a one-to-two sentence plain-English ranking explanation for EACH vendor quotation in a JSON array, addressed to a non-technical Procurement reviewer. Explicitly mention when a vendor's ranking leaned heavily on Price or Delivery because it has few or no successful deals with this company yet (not because it lacks activity — a vendor can have plenty of history and still have few successes in it). When deadline_overrun_days is not null, explicitly say this vendor's delivery would land that many days after the requirement's deadline and that this lowered its Delivery score — don't omit it even if the vendor still ranks well overall on price or past performance. Also mention when a vendor's quality weight carried real influence (quality_rated_deliveries > 0) versus when it had none because this vendor has no quality-rated GRN history with this company yet. Respond ONLY with a JSON object: {"reasonings": [{"vendor_name": "...", "reasoning": "..."}, ...]}, one entry per input vendor, in the same order.`;
     const groqResult = await callGroqStructured(systemPrompt, JSON.stringify(reasoningInput), undefined, { rupees: true });
     if (Array.isArray(groqResult?.reasonings)) {
       groqResult.reasonings.forEach(r => { reasoningByVendor[r.vendor_name] = r.reasoning; });
@@ -193,8 +212,8 @@ async function runRankQuotationsAgent(requirementId) {
       ? ` This delivery would land ${r.deadlineOverrunDays} day(s) after the requirement's deadline, which lowered its Delivery score.`
       : '';
     const fallbackReasoning = (r.dataVolume > 0
-      ? `Ranked with a final score of ${r.finalScore.toFixed(2)} — Price ${(r.gateWeights.price * 100).toFixed(0)}%, Delivery ${(r.gateWeights.delivery * 100).toFixed(0)}%, Past Performance ${(r.gateWeights.past_performance * 100).toFixed(0)}% weighted (${r.dataVolume} successful deal(s) with this company).`
-      : `Ranked with a final score of ${r.finalScore.toFixed(2)}, leaning almost entirely on Price (${(r.gateWeights.price * 100).toFixed(0)}%) and Delivery (${(r.gateWeights.delivery * 100).toFixed(0)}%) — this vendor has ${r.hasHistory ? 'a track record with too few successes yet to trust' : 'no track record with your company yet'}, so Past Performance carried no real weight.`
+      ? `Ranked with a final score of ${r.finalScore.toFixed(2)} — Price ${(r.gateWeights.price * 100).toFixed(0)}%, Delivery ${(r.gateWeights.delivery * 100).toFixed(0)}%, Past Performance ${(r.gateWeights.past_performance * 100).toFixed(0)}%, Quality ${(r.gateWeights.quality * 100).toFixed(0)}% weighted (${r.dataVolume} successful deal(s), ${r.qualityDataVolume} quality-rated deliver${r.qualityDataVolume === 1 ? 'y' : 'ies'} with this company).`
+      : `Ranked with a final score of ${r.finalScore.toFixed(2)}, leaning almost entirely on Price (${(r.gateWeights.price * 100).toFixed(0)}%) and Delivery (${(r.gateWeights.delivery * 100).toFixed(0)}%) — this vendor has ${r.hasHistory ? 'a track record with too few successes yet to trust' : 'no track record with your company yet'}, so Past Performance carried no real weight${r.qualityDataVolume > 0 ? `, while Quality (${(r.gateWeights.quality * 100).toFixed(0)}%, from ${r.qualityDataVolume} rated deliver${r.qualityDataVolume === 1 ? 'y' : 'ies'}) did` : ' and neither did Quality (no quality-rated deliveries yet)'}.`
     ) + overrunNote;
     const reasoning = reasoningByVendor[r.quotation.vendor_name] || fallbackReasoning;
 

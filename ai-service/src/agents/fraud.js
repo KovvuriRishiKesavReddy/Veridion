@@ -23,6 +23,39 @@ function nameSimilarity(a, b) {
   return intersection / union; // Jaccard similarity, 0 = nothing in common, 1 = identical token sets
 }
 
+// dropRevokedVendors: Postgres is the source of truth for whether the OTHER vendor in a
+// shared-bank/address match still counts. A vendor Platform Admin has rejected (revoked), or
+// whose login has been deactivated, must not make anyone else look like a shell company.
+// This is checked here, against Postgres, IN ADDITION to the graph being cleaned on
+// rejection (backend admin.js), because graph writes are fire-and-forget and can fail
+// silently -- a stale edge must never be able to keep raising fraud on its own.
+//
+// FAIL-SAFE: if anything here goes wrong (a query error, an id that can't be read), the
+// records are returned UNFILTERED -- i.e. exactly the previous behaviour. This helper can
+// only ever remove a match it positively confirmed belongs to a revoked vendor; it can
+// never make fraud detection throw or go blind.
+function toNum(x) {
+  return x && typeof x.toNumber === 'function' ? x.toNumber() : Number(x);
+}
+async function dropRevokedVendors(records) {
+  if (records.length === 0) return records;
+  try {
+    const ids = [...new Set(records.map(r => toNum(r.get('other_vendor_id'))))];
+    if (ids.some(id => !Number.isFinite(id))) return records;
+    const res = await db.query(
+      `SELECT v.id FROM vendors v LEFT JOIN users u ON u.id = v.user_id
+       WHERE v.id = ANY($1::int[])
+         AND (v.verification_status = 'rejected' OR u.is_active = false OR u.deleted_at IS NOT NULL)`,
+      [ids]
+    );
+    const revoked = new Set(res.rows.map(r => r.id));
+    return records.filter(r => !revoked.has(toNum(r.get('other_vendor_id'))));
+  } catch (err) {
+    console.error(`[fraud] could not check whether matched vendors are revoked (${err.message}) — using the unfiltered graph result`);
+    return records;
+  }
+}
+
 // runFraudAgent: Agent 4 — Fraud Detection.
 // Three checks:
 //
@@ -50,12 +83,12 @@ async function runFraudAgent(invoiceId) {
   const flags = [];
 
   // --- Check 1: shell company (shared bank account or address with a different vendor) ---
-  const sharedBankRecords = await runCypher(
+  const sharedBankRecords = await dropRevokedVendors(await runCypher(
     `MATCH (v1:Vendor {id: $vendorId})-[:HAS_BANK_ACCOUNT]->(b:BankAccount)<-[:HAS_BANK_ACCOUNT]-(v2:Vendor)
      WHERE v2.id <> v1.id
      RETURN v2.id as other_vendor_id, v2.company_name as other_vendor_name, b.number as shared_account`,
     { vendorId: invoice.vendor_id }
-  );
+  ));
   if (sharedBankRecords.length > 0) {
     flags.push({
       flag_type: 'shell_company_shared_bank_account',
@@ -65,12 +98,12 @@ async function runFraudAgent(invoiceId) {
     });
   }
 
-  const sharedAddressRecords = await runCypher(
+  const sharedAddressRecords = await dropRevokedVendors(await runCypher(
     `MATCH (v1:Vendor {id: $vendorId})-[:HAS_ADDRESS]->(a:Address)<-[:HAS_ADDRESS]-(v2:Vendor)
      WHERE v2.id <> v1.id
      RETURN v2.id as other_vendor_id, v2.company_name as other_vendor_name, a.value as shared_address`,
     { vendorId: invoice.vendor_id }
-  );
+  ));
   if (sharedAddressRecords.length > 0) {
     flags.push({
       flag_type: 'shell_company_shared_address',
@@ -179,8 +212,27 @@ async function runFraudAgent(invoiceId) {
   }
 
   // Insert any flags found, and return them for Agent 8 to factor in.
+  //
+  // Re-run safety (Platform Admin resolving a flag re-runs the decision for the same
+  // invoice): flags are de-duplicated per (invoice, flag_type) --
+  //   * a flag of this type the admin already RESOLVED for this invoice is not raised
+  //     again: that human review is final for that signal on that invoice;
+  //   * a flag of this type still OPEN is reused, not duplicated;
+  //   * an OPEN flag whose signal no longer fires (e.g. the shared bank account was
+  //     cleaned out of the graph) is closed automatically -- there's nothing left to review.
+  // A first run on a brand-new invoice has no existing flags, so this changes nothing there.
+  const existingRes = await db.query(`SELECT * FROM fraud_flags WHERE invoice_id = $1 ORDER BY id DESC`, [invoiceId]);
+  const firedTypes = new Set(flags.map(f => f.flag_type));
+  const staleOpenIds = existingRes.rows.filter(r => !r.resolved && !firedTypes.has(r.flag_type)).map(r => r.id);
+  if (staleOpenIds.length > 0) {
+    await db.query(`UPDATE fraud_flags SET resolved = true WHERE id = ANY($1::int[])`, [staleOpenIds]);
+  }
+
   const insertedFlags = [];
   for (const flag of flags) {
+    const prior = existingRes.rows.find(r => r.flag_type === flag.flag_type);
+    if (prior?.resolved) continue;                        // admin already reviewed this signal
+    if (prior) { insertedFlags.push(prior); continue; }   // still open: reuse, don't duplicate
     const result = await db.query(
       `INSERT INTO fraud_flags (vendor_id, invoice_id, flag_type, severity, evidence, confidence_score,
                                invoice_number_snapshot, invoice_ref_snapshot, invoice_amount_snapshot)

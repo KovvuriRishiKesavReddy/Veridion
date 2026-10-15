@@ -137,26 +137,46 @@ body.has-dock-nav > .container table.bg-white tbody tr:hover {
 .table-centered td {
   text-align: center;
   vertical-align: middle;
-  padding: 0.85rem 0.55rem;
+  padding-top: 0.85rem;
+  padding-bottom: 0.85rem;
+  padding-left: 0.55rem;
+  padding-right: 0.55rem;
 }
-/* long emails wrap instead of widening the table */
+
+/* Cells that hold long unbreakable strings (email addresses, "Name (email)") get this
+   class so THEY wrap instead of forcing the table wider than its panel, while ordinary
+   words in every other column stay whole ("Construction", "Registered", GSTINs). */
 .table-centered .cell-wrap { overflow-wrap: anywhere; min-width: 10.5rem; }
 
-/* 8+ column tables are slightly more compact so every column fits */
+/* Tables with 8+ columns (Company/Vendor Verification, Invoices...) are a touch more
+   compact so all columns fit side by side inside the panel. */
 .table-centered:has(thead th:nth-child(8)) { font-size: 0.875rem; }
 .table-centered:has(thead th:nth-child(8)) th,
 .table-centered:has(thead th:nth-child(8)) td { padding-left: 0.4rem; padding-right: 0.4rem; }
 
-/* every table fills its panel exactly: never narrower, never wider */
+/* Every table fills its panel exactly: never narrower (so it stays centred with even
+   margins like the Fraud Review Queue) and never wider (so nothing spills past the
+   panel's right edge or creates a page-level horizontal scrollbar). */
 body.has-dock-nav > .container table.table-centered,
-body.has-dock-nav > .container .modal-body table.table-centered { width: 100%; max-width: 100%; }
+body.has-dock-nav > .container .modal-body table.table-centered {
+  width: 100%;
+  max-width: 100%;
+}
 
-.table-centered .btn-sm { min-width: 84px; white-space: nowrap; }
+/* Row-action buttons: one line each, compact enough that a row with several buttons
+   (View Proof + Revoke, Approve + Reject) still fits the panel. */
+.table-centered .btn-sm {
+  min-width: 84px;
+  white-space: nowrap;
+}
 
-/* on narrower screens the table scrolls inside the panel instead of spilling out */
+/* Safety net for narrow screens (tablets/phones): rather than overflow the panel, the
+   table scrolls sideways inside itself. */
 @media (max-width: 1150px) {
   body.has-dock-nav > .container table.table-centered {
-    display: block; overflow-x: auto; -webkit-overflow-scrolling: touch;
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
   }
 }
 

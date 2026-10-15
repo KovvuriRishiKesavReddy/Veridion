@@ -362,7 +362,7 @@ body.has-dock-nav { padding-top: 84px; }
 .hbg.hbg-amber:hover .hbg-core { background: #e8890b; }
 
 /* Accept + Message side by side: one row, vertically centred, identical width/height. */
-.q-actions { display: flex; align-items: center; gap: 8px; justify-content: center; }
+.q-actions { display: flex; align-items: center; justify-content: center; gap: 8px; }
 .q-actions .hbg { display: block; min-width: 104px; }
 .q-actions .hbg-core { padding: 6px 14px; font-size: 0.85rem; line-height: 1.4; text-align: center; white-space: nowrap; }
 

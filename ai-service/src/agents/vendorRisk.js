@@ -1,21 +1,31 @@
 const db = require('../db');
 
-// updateVendorMetric: the exact running-average formula from the spec.
-// new_value = (old_value * old_data_volume + this_event_value) / (old_data_volume + 1)
-// new_data_volume = old_data_volume + 1
-// this_event_value is 100 for a "good" outcome, 0 for "bad" — data_volume increases by
-// exactly 1 regardless of good/bad, since it tracks how much evidence exists, not how
-// good the vendor is. Scoped to (company_id, vendor_id) — one company's experience with
-// a vendor never affects what another company sees (Part 5.7.1's isolation principle).
+// updateVendorMetrics: the running-average formula from the spec, for N metrics observed from
+// the SAME underlying event (one GRN tells you both on-time-ness and quality).
 //
-// exactCounters (optional): { countColumn, successColumn } — when given, ALSO
-// increments these two columns atomically in the same update: countColumn always by
-// 1, successColumn by 1 only when eventValue is a "good" (100) outcome. This exists
-// purely so quotation ranking can read an EXACT per-metric event/success count
-// (grn_count/grn_on_time_count, invoice_decision_count/invoice_decision_success_count)
-// instead of reconstructing an estimate from the shared data_volume above — it has no
-// effect on data_volume or the metric average itself, which remain exactly as spec'd.
-async function updateVendorMetric(companyId, vendorId, metricName, eventValue, exactCounters = null) {
+// Default per metric (every pre-existing caller): new_value = (old_value * old_data_volume +
+// this_event_value) / (old_data_volume + 1), i.e. weight 1 per event against data_volume.
+// this_event_value is 100 for a "good" outcome, 0 for "bad".
+//
+// data_volume and platform_verified_event_count increment exactly ONCE for the whole call, never
+// once per metric and never affected by a metric's custom weight: they mean "how much evidence
+// exists" (Agent 8's Context Gate reads data_volume directly), and one GRN is one piece of
+// evidence however many things it tells us.
+//
+// A metric may instead pass its OWN { weight, weightColumn }: its running average is then
+// weighted by `weight` (e.g. units received) against its OWN accumulator column, leaving
+// data_volume's meaning untouched. quality_score uses this so a 60-unit Excellent delivery
+// outweighs a 40-unit Very Poor one.
+//
+// Scoped to (company_id, vendor_id) -- one company's experience with a vendor never affects
+// what another company sees (Part 5.7.1's isolation principle).
+//
+// exactCounters (optional, per metric): { countColumn, successColumn } -- ALSO increments these
+// two columns atomically: countColumn always by 1, successColumn by 1 only when eventValue is a
+// "good" (100) outcome. This exists so quotation ranking can read an EXACT per-metric count
+// (grn_count/grn_on_time_count, invoice_decision_count/invoice_decision_success_count) instead
+// of an estimate from the shared data_volume.
+async function updateVendorMetrics(companyId, vendorId, metrics) {
   const client = await db.pool.connect();
   try {
     await client.query('BEGIN');
@@ -38,24 +48,44 @@ async function updateVendorMetric(companyId, vendorId, metricName, eventValue, e
       row = insertRes.rows[0];
     }
 
-    const oldValue = row[metricName] != null ? Number(row[metricName]) : null;
     const oldDataVolume = Number(row.data_volume);
-    const newValue = oldValue === null
-      ? eventValue // first event for this metric specifically: no prior value to average with
-      : (oldValue * oldDataVolume + eventValue) / (oldDataVolume + 1);
-    const newDataVolume = oldDataVolume + 1;
+    const newDataVolume = oldDataVolume + 1; // ONE increment for the whole event, always
 
-    // Column names here come only from the fixed whitelist callers below pass in
-    // (never from request input), so building this fragment is safe.
-    const exactCounterSet = exactCounters
-      ? `, ${exactCounters.countColumn} = ${exactCounters.countColumn} + 1, ${exactCounters.successColumn} = ${exactCounters.successColumn} + ${eventValue === 100 ? 1 : 0}`
-      : '';
+    // Column names here come only from the fixed whitelist callers below pass in (never from
+    // request input), so building these fragments is safe.
+    const setClauses = [];
+    const params = [];
+    for (const m of metrics) {
+      const weight = m.weight != null ? Number(m.weight) : 1;
+      const oldWeight = m.weightColumn ? (Number(row[m.weightColumn]) || 0) : oldDataVolume;
+      const newWeight = oldWeight + weight;
+      const oldValue = row[m.name] != null ? Number(row[m.name]) : null;
+      // First event for this metric specifically: no prior value to average with. A zero total
+      // weight (e.g. a 0-quantity GRN as a metric's first event) falls back to the raw value.
+      const newValue = oldValue === null || newWeight <= 0
+        ? m.eventValue
+        : (oldValue * oldWeight + m.eventValue * weight) / newWeight;
+      params.push(newValue);
+      setClauses.push(`${m.name} = $${params.length}`);
+      if (m.weightColumn) {
+        params.push(newWeight);
+        setClauses.push(`${m.weightColumn} = $${params.length}`);
+      }
+      if (m.exactCounters) {
+        setClauses.push(`${m.exactCounters.countColumn} = ${m.exactCounters.countColumn} + 1`);
+        setClauses.push(`${m.exactCounters.successColumn} = ${m.exactCounters.successColumn} + ${m.eventValue === 100 ? 1 : 0}`);
+      }
+    }
+    params.push(newDataVolume);
+    setClauses.push(`data_volume = $${params.length}`);
+    setClauses.push(`platform_verified_event_count = platform_verified_event_count + 1`);
+    setClauses.push(`last_updated = now()`);
+    params.push(companyId, vendorId);
 
     const updateRes = await client.query(
-      `UPDATE vendor_risk_scores
-       SET ${metricName} = $1, data_volume = $2, platform_verified_event_count = platform_verified_event_count + 1, last_updated = now()${exactCounterSet}
-       WHERE company_id = $3 AND vendor_id = $4 RETURNING *`,
-      [newValue, newDataVolume, companyId, vendorId]
+      `UPDATE vendor_risk_scores SET ${setClauses.join(', ')}
+       WHERE company_id = $${params.length - 1} AND vendor_id = $${params.length} RETURNING *`,
+      params
     );
 
     await client.query('COMMIT');
@@ -66,6 +96,13 @@ async function updateVendorMetric(companyId, vendorId, metricName, eventValue, e
   } finally {
     client.release();
   }
+}
+
+// updateVendorMetric: unchanged signature, now a thin wrapper -- every existing caller
+// (onInvoiceDecisionFinalised, onDisputeResolved, legacyImport) keeps working exactly as
+// before: one metric, weight 1 via data_volume, zero behavior change.
+async function updateVendorMetric(companyId, vendorId, metricName, eventValue, exactCounters = null) {
+  return updateVendorMetrics(companyId, vendorId, [{ name: metricName, eventValue, exactCounters }]);
 }
 
 // onGrnConfirmed: fires the moment a GRN is recorded. onTime = received_date compared
@@ -80,7 +117,19 @@ async function onGrnConfirmed(poId, grnId) {
   if (!grn) throw new Error(`GRN ${grnId} not found`);
 
   const onTime = !po.agreed_delivery_date || grn.received_date <= po.agreed_delivery_date;
-  return updateVendorMetric(po.company_id, po.vendor_id, 'on_time_delivery_pct', onTime ? 100 : 0, { countColumn: 'grn_count', successColumn: 'grn_on_time_count' });
+
+  // Maps the 1-5 rating onto the same 0-100 scale every other metric uses:
+  // 1 (Very Poor) -> 0, 2 -> 25, 3 (Neutral) -> 50, 4 -> 75, 5 (Excellent) -> 100.
+  const qualityEventValue = (Number(grn.quality_rating) - 1) * 25;
+  const receivedQty = Number(grn.received_quantity);
+
+  return updateVendorMetrics(po.company_id, po.vendor_id, [
+    { name: 'on_time_delivery_pct', eventValue: onTime ? 100 : 0, exactCounters: { countColumn: 'grn_count', successColumn: 'grn_on_time_count' } },
+    // Quality is weighted by units received (a 60-unit Excellent delivery outweighs a 40-unit
+    // Very Poor one), not one flat vote per delivery. No exactCounters: quality isn't binary, so
+    // forcing a "success count" onto it would throw away the Good-vs-Excellent distinction.
+    { name: 'quality_score', eventValue: qualityEventValue, weight: receivedQty, weightColumn: 'quality_weighted_units' }
+  ]);
 }
 
 // onInvoiceDecisionFinalised: fires from Agent 8 after every decision (and again from
@@ -205,4 +254,4 @@ async function legacyImport(companyId, vendorId, importedBy, reported) {
   }
 }
 
-module.exports = { updateVendorMetric, onGrnConfirmed, onInvoiceDecisionFinalised, onDisputeResolved, legacyImport };
+module.exports = { updateVendorMetric, updateVendorMetrics, onGrnConfirmed, onInvoiceDecisionFinalised, onDisputeResolved, legacyImport };

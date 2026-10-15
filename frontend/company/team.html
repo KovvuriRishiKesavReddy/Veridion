@@ -142,7 +142,7 @@ function renderTeam() {
   const html = list.map(u => `
     <tr>
       <td>${u.name}</td>
-      <td>${u.email}</td>
+      <td class="cell-wrap">${u.email}</td>
       <td><span class="badge bg-secondary">${u.role}</span></td>
       <td>${u.is_active ? '<span class="badge bg-success">Active</span>' : '<span class="badge bg-secondary">Removed</span>'}</td>
       <td>${
@@ -165,7 +165,7 @@ async function loadTeam() {
   lastTeam = data.team;
   renderTeam();
   const inviteHtml = data.pending_invitations.map(i =>
-    `<tr><td>${i.invited_email}</td><td>${i.invited_role}</td><td><span class="badge bg-warning text-dark">${i.status}</span></td><td>${new Date(i.created_at).toLocaleDateString()}</td><td>${copyLinkButtonHtml(i.token)}</td></tr>`
+    `<tr><td class="cell-wrap">${i.invited_email}</td><td>${i.invited_role}</td><td><span class="badge bg-warning text-dark">${i.status}</span></td><td>${new Date(i.created_at).toLocaleDateString()}</td><td>${copyLinkButtonHtml(i.token)}</td></tr>`
   ).join('') || '<tr><td colspan="5" class="text-muted">No pending invitations.</td></tr>';
   // This runs every second (live polling). Only touch the DOM when something actually
   // changed, so a button mid-"Copied!" isn't torn down and rebuilt under the user.

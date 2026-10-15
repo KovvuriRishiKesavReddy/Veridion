@@ -14,7 +14,15 @@ const { runVendorCommunicationAgent } = require('./vendorCommunication');
 //   final_score    = sum(gate_weight_i * agent_verdict_score_i)
 const AUTO_APPROVE_THRESHOLD = 0.7;
 
-async function runDecisionAgent(invoiceId) {
+// opts.rerun: true when this is a RE-decision on an invoice that already has a decision --
+// currently only after the Platform Admin resolves its fraud flag(s). The decision itself is
+// computed exactly as normal; the one difference is vendor-risk accounting. The earlier
+// decision already charged the vendor's invoice_accuracy_pct (a 'suspicious'/'flagged'
+// outcome counts as a bad event), so a re-run that lands on ANOTHER bad outcome must not
+// charge it a second time for the same invoice. A re-run that lands on a good outcome
+// (auto_approved, or a reputation-only flag) still records its positive corrective event --
+// the same "corrective event" trade-off the override-and-pay route already makes.
+async function runDecisionAgent(invoiceId, { rerun = false } = {}) {
   const matchingRes = await db.query(`SELECT * FROM matching_results WHERE invoice_id = $1 ORDER BY id DESC LIMIT 1`, [invoiceId]);
   const complianceRes = await db.query(`SELECT * FROM compliance_checks WHERE invoice_id = $1 ORDER BY id DESC LIMIT 1`, [invoiceId]);
   const matching = matchingRes.rows[0];
@@ -23,6 +31,17 @@ async function runDecisionAgent(invoiceId) {
 
   const invRes = await db.query(`SELECT inv.*, po.company_id FROM invoices inv JOIN purchase_orders po ON po.id = inv.po_id WHERE inv.id = $1`, [invoiceId]);
   const invoice = invRes.rows[0];
+
+  // Rerun only: did the PREVIOUS decision already count as a good event for this vendor's
+  // invoice_accuracy_pct (auto_approved, or a reputation-only flag recorded as positive)?
+  // Read BEFORE this run inserts its own decision row. Used below so repeating a re-run can
+  // never record the same positive corrective event twice.
+  let prevWasPositive = false;
+  if (rerun) {
+    const prevRes = await db.query(`SELECT final_decision, agent_inputs FROM decisions WHERE invoice_id = $1 ORDER BY id DESC LIMIT 1`, [invoiceId]);
+    const prev = prevRes.rows[0];
+    prevWasPositive = !!prev && (prev.final_decision === 'auto_approved' || prev.agent_inputs?.vendor_risk?.counted_as_positive_despite_flag === true);
+  }
 
   // Agent 4 — Fraud Detection. Runs fresh every time (checks the graph as it stands now).
   const fraud = await runFraudAgent(invoiceId);
@@ -55,7 +74,7 @@ async function runDecisionAgent(invoiceId) {
       [invoiceId, JSON.stringify({ fraud }), JSON.stringify({}), 0, reasoningText]
     );
     await db.query(`UPDATE invoices SET status = 'suspicious' WHERE id = $1`, [invoiceId]);
-    if (invoice) await onInvoiceDecisionFinalised(invoiceId, 'suspicious');
+    if (invoice && !rerun) await onInvoiceDecisionFinalised(invoiceId, 'suspicious');
 
     // Also create a dispute record for Finance's own Disputes queue — ALONGSIDE the
     // Platform Admin fraud review above, not instead of it. A suspicious invoice is
@@ -192,7 +211,10 @@ async function runDecisionAgent(invoiceId) {
   // A reputation-only flag (see above) is recorded as a GOOD event, not a bad one —
   // the invoice itself was correct, only the DECISION was cautious. Same running-average
   // update either way (Part 5.2's formula, untouched); only which outcome it records differs.
-  await onInvoiceDecisionFinalised(invoiceId, flaggedSolelyByReputation ? 'auto_approved' : finalDecision);
+  const decisionForRisk = flaggedSolelyByReputation ? 'auto_approved' : finalDecision;
+  if (!rerun || (decisionForRisk === 'auto_approved' && !prevWasPositive)) {
+    await onInvoiceDecisionFinalised(invoiceId, decisionForRisk);
+  }
 
   // Agent 7: for a 'flagged' (non-fraud) decision, draft a dispute message for
   // Finance to review and send — Part 4.3/Prompt 4.2's automatic trigger. Never for

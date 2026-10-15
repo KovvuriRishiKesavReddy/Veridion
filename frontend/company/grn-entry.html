@@ -25,16 +25,28 @@
         <input type="number" class="form-control" id="received_quantity" required>
       </div>
       <div class="mb-3"><label class="form-label">Received Date</label><input type="date" class="form-control" id="received_date" required></div>
+      <div class="mb-3">
+        <label class="form-label">Delivery Quality <span class="text-muted small">(required — rate what arrived in THIS delivery)</span></label>
+        <select class="form-control" id="quality_rating" required>
+          <option value="">— select —</option>
+          <option value="1">1 – Very Poor</option>
+          <option value="2">2 – Poor</option>
+          <option value="3">3 – Neutral</option>
+          <option value="4">4 – Good</option>
+          <option value="5">5 – Excellent</option>
+        </select>
+      </div>
+      <div class="mb-3"><label class="form-label">Quality Notes <span class="text-muted small">(optional — e.g. damaged bags, wrong grade)</span></label><textarea class="form-control" id="quality_notes"></textarea></div>
       <div class="mb-3"><label class="form-label">Warehouse Notes</label><textarea class="form-control" id="warehouse_notes"></textarea></div>
 
       <div id="shortfallFields" class="d-none border rounded p-3 mb-3 bg-light">
-        <p class="small mb-2"><strong>Still short after this delivery</strong> — optionally record when the rest is expected.</p>
-        <div class="mb-2"><label class="form-label small">Expected Date for Remaining Quantity</label><input type="date" class="form-control" id="expected_next_delivery_date"></div>
+        <p class="small mb-2"><strong>Still short after this delivery</strong> — a partial delivery can only be submitted with the date the rest is confirmed for <em>and</em> the conversation message that confirmed it.</p>
+        <div class="mb-2"><label class="form-label small">Confirmed Date for Remaining Quantity <span class="text-danger">*</span></label><input type="date" class="form-control" id="expected_next_delivery_date"></div>
         <div class="mb-2"><label class="form-label small">Notes on Remaining Delivery</label><input class="form-control" id="next_delivery_notes"></div>
         <div class="mb-0">
-          <label class="form-label small">Where did this date come from? <span class="text-muted">(optional — pick the conversation message that agreed it, so a reviewer can trace it)</span></label>
+          <label class="form-label small">Confirming message <span class="text-danger">*</span> <span class="text-muted">(pick the conversation message that agreed this date, so a reviewer can trace it — use "Open conversation" to ask the vendor if there isn't one yet)</span></label>
           <div class="d-flex gap-2">
-            <select class="form-control" id="expected_next_delivery_source_message_id"><option value="">— not sourced from a message —</option></select>
+            <select class="form-control" id="expected_next_delivery_source_message_id"><option value="">— select the confirming message —</option></select>
             <button type="button" class="btn btn-outline-secondary btn-sm text-nowrap" onclick="openGrnPoThread()">Open conversation</button>
           </div>
         </div>
@@ -53,7 +65,7 @@
   <h6>My Recent Submissions</h6>
   <div id="mineSortToolbar"></div>
   <table class="table table-centered table-sm bg-white">
-    <thead><tr><th>PO</th><th>This Delivery</th><th>Date</th><th>Running Total</th><th>Unit</th><th>Correction</th></tr></thead>
+    <thead><tr><th>PO</th><th>This Delivery</th><th>Date</th><th>Running Total</th><th>Quality</th><th>Unit</th><th>Correction</th></tr></thead>
     <tbody id="rows"><tr><td colspan="4" class="text-muted">Loading...</td></tr></tbody>
   </table>
 </div>
@@ -117,7 +129,7 @@ async function loadPoMessagesForSourcing(poId) {
   if (!res || !res.ok) return;
   const messages = await res.json();
   const previous = select.value;
-  select.innerHTML = '<option value="">— not sourced from a message —</option>' +
+  select.innerHTML = '<option value="">— select the confirming message —</option>' +
     messages.map(m => {
       const text = String(m.message);
       return `<option value="${m.id}">${escapeHtml(m.sender_name)}: "${escapeHtml(text.slice(0, 60))}${text.length > 60 ? '…' : ''}" (${new Date(m.created_at).toLocaleDateString()})</option>`;
@@ -152,9 +164,17 @@ function closeForm() {
   document.getElementById('formCard').style.display = 'none';
   document.getElementById('form').reset();
   document.getElementById('shortfallFields').classList.add('d-none');
-  document.getElementById('expected_next_delivery_source_message_id').innerHTML = '<option value="">— not sourced from a message —</option>';
+  setShortfallRequired(false);
+  document.getElementById('expected_next_delivery_source_message_id').innerHTML = '<option value="">— select the confirming message —</option>';
   document.getElementById('overageWarning').classList.add('d-none');
   document.getElementById('exactWarning').classList.add('d-none');
+}
+
+// The date and the confirming message are required exactly while the shortfall block is shown
+// (the browser's own form validation enforces it; the backend enforces it again regardless).
+function setShortfallRequired(on) {
+  document.getElementById('expected_next_delivery_date').required = on;
+  document.getElementById('expected_next_delivery_source_message_id').required = on;
 }
 
 function updateHints() {
@@ -163,10 +183,12 @@ function updateHints() {
   const overBox = document.getElementById('overageWarning');
   const exactBox = document.getElementById('exactWarning');
   shortBox.classList.add('d-none'); overBox.classList.add('d-none'); exactBox.classList.add('d-none');
+  setShortfallRequired(false);
   if (remainingQty === null || !val) return;
 
   if (val < remainingQty) {
     shortBox.classList.remove('d-none');
+    setShortfallRequired(true);
   } else if (val > remainingQty) {
     overBox.classList.remove('d-none');
     overBox.textContent = `This is ${qtyWithUnit(val - remainingQty, currentUnit)} more than the remaining quantity (${qtyWithUnit(remainingQty, currentUnit)}). It will be recorded and flagged for the company to review.`;
@@ -184,6 +206,8 @@ document.getElementById('form').addEventListener('submit', async (e) => {
     received_quantity: document.getElementById('received_quantity').value,
     received_date: document.getElementById('received_date').value,
     warehouse_notes: document.getElementById('warehouse_notes').value,
+    quality_rating: Number(document.getElementById('quality_rating').value),
+    quality_notes: document.getElementById('quality_notes').value || undefined,
     expected_next_delivery_date: document.getElementById('expected_next_delivery_date').value || undefined,
     next_delivery_notes: document.getElementById('next_delivery_notes').value || undefined,
     expected_next_delivery_source_message_id: document.getElementById('expected_next_delivery_source_message_id').value || undefined
@@ -223,12 +247,13 @@ async function loadMine() {
       <td>${g.voided_at ? `<s>${g.received_quantity}</s> <span class="badge bg-secondary">Voided</span>` : g.received_quantity}</td>
       <td>${g.received_date}</td>
       <td>towards ${g.agreed_quantity} agreed</td>
+      <td>${qualityBadge(g.quality_rating, g.quality_notes)}</td>
       <td>${g.unit || '—'}</td>
       <td>${g.voided_at ? '—'
         : g.correction_pending ? '<span class="badge bg-warning text-dark">Correction requested</span>'
         : latestActive[g.po_id] === g.id ? `<button class="btn btn-sm btn-outline-dark" onclick="openGrnCorrectionDialog(${g.id}, 'GRN #${g.id} · PO #${g.po_id} · ${g.received_quantity} received on ${g.received_date}', () => { loadMine(); loadAvailable(); })">Request correction</button>`
         : '—'}</td>
-    </tr>`).join('') : '<tr><td colspan="6" class="text-muted">No submissions yet.</td></tr>');
+    </tr>`).join('') : '<tr><td colspan="7" class="text-muted">No submissions yet.</td></tr>');
 }
 
 getMineSortState = renderSortToolbar('mineSortToolbar', loadMine, { searchPlaceholder: 'Search by PO or notes...' });

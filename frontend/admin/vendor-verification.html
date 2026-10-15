@@ -35,7 +35,7 @@ async function load() {
       <td>${v.company_name}</td>
       <td>${v.contact_name}</td>
       <td>${v.phone_number || '—'}</td>
-      <td>${v.email}</td>
+      <td class="cell-wrap">${v.email}</td>
       <td>${v.gstin || '—'}</td>
       <td><span class="badge status-badge ${statusBadgeClass(v.verification_status)}">${v.verification_status}</span></td>
       <td>${new Date(v.created_at).toLocaleDateString()}</td>

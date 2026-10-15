@@ -576,6 +576,19 @@ function qtyWithUnit(qty, unit) {
 
 // escapeHtml: user-typed text (chat messages, names, drafts) must never be dropped into
 // innerHTML raw -- it breaks the layout on stray < > characters and is an XSS hole.
+// qualityBadge: the warehouse's 1-5 delivery quality rating as a coloured badge, with any
+// quality note as a tooltip. Shown everywhere a GRN is listed, worded exactly like the dropdown
+// ("4 – Good") so everyone's 4 means the same thing. Stored as an integer; the vendor rollup
+// converts it to the 0-100 scale as (rating - 1) x 25: 1 -> 0, 2 -> 25, 3 -> 50, 4 -> 75, 5 -> 100.
+const QUALITY_LABELS = { 1: 'Very Poor', 2: 'Poor', 3: 'Neutral', 4: 'Good', 5: 'Excellent' };
+const QUALITY_CLASSES = { 1: 'bg-danger', 2: 'bg-warning text-dark', 3: 'bg-secondary', 4: 'bg-success', 5: 'bg-success' };
+function qualityBadge(rating, notes) {
+  const r = Number(rating);
+  if (!QUALITY_LABELS[r]) return '—';
+  const tip = notes ? ` title="${escapeHtml(notes)}"` : '';
+  return `<span class="badge ${QUALITY_CLASSES[r]}"${tip}>${r} – ${QUALITY_LABELS[r]}</span>`;
+}
+
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
 }

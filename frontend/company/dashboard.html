@@ -281,7 +281,7 @@ if (user && user.role === 'company_admin') {
     document.getElementById('teamOverviewRows').innerHTML = teamData.team.slice(0, 6).map(m => `
       <tr>
         <td>${m.name}</td>
-        <td>${m.email}</td>
+        <td class="cell-wrap">${m.email}</td>
         <td><span class="badge bg-secondary">${m.role}</span></td>
         <td>${m.is_active ? '<span class="badge bg-success">Active</span>' : '<span class="badge bg-secondary">Removed</span>'}</td>
       </tr>`).join('');
