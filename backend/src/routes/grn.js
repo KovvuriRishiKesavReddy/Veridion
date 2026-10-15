@@ -33,9 +33,16 @@ async function notifyGrnConfirmed(poId, grnId) {
 // PO agreed 100 -> GRN #1 records 90 (partially_fulfilled, 10 remaining) -> GRN #2 records
 // the remaining 10 -> cumulative total now 100 -> PO flips to fulfilled automatically.
 router.post('/', requireAuth, requireRole('warehouse'), requireApprovedCompany, async (req, res) => {
-  const { po_id, received_quantity, received_date, warehouse_notes, expected_next_delivery_date, next_delivery_notes, expected_next_delivery_source_message_id } = req.body;
+  const { po_id, received_quantity, received_date, warehouse_notes, quality_rating, quality_notes, expected_next_delivery_date, next_delivery_notes, expected_next_delivery_source_message_id } = req.body;
   if (!po_id || received_quantity === undefined || !received_date) {
     return res.status(400).json({ error: 'po_id, received_quantity, received_date are required' });
+  }
+
+  // quality_rating is required on EVERY GRN, not just partial ones: it describes what arrived in
+  // THIS delivery specifically, independent of whether the order is complete.
+  const qualityNum = Number(quality_rating);
+  if (quality_rating === undefined || quality_rating === null || quality_rating === '' || !Number.isInteger(qualityNum) || qualityNum < 1 || qualityNum > 5) {
+    return res.status(400).json({ error: 'quality_rating is required and must be an integer from 1 (Very Poor) to 5 (Excellent).' });
   }
 
   const client = await db.getClient();
@@ -70,6 +77,22 @@ router.post('/', requireAuth, requireRole('warehouse'), requireApprovedCompany, 
     const fulfillmentStatus = isShortfall ? 'partially_fulfilled' : 'fulfilled';
     const remainingAfter = agreedNum - newTotal; // negative once in overage territory
 
+    // A partial delivery must commit to a next-delivery date, backed by a real message in the
+    // PO conversation (the vendor's confirmation) -- not optional. A full/final GRN needs
+    // neither, since there is no "next delivery" left to promise.
+    if (isShortfall) {
+      if (!expected_next_delivery_date || !expected_next_delivery_source_message_id) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'A partial delivery requires an expected next-delivery date, backed by a message in the PO conversation — record this before submitting a short GRN.' });
+      }
+      const nextDate = new Date(String(expected_next_delivery_date).slice(0, 10));
+      const recvDate = new Date(String(received_date).slice(0, 10));
+      if (Number.isNaN(nextDate.getTime()) || nextDate < recvDate) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'The expected next-delivery date must be a valid date on or after the date of this delivery.' });
+      }
+    }
+
     // Validate the cited message, if any, actually belongs to THIS PO's thread -- otherwise a
     // GRN could cite a message from a completely different purchase order, which would make
     // the "proof" meaningless.
@@ -88,13 +111,14 @@ router.post('/', requireAuth, requireRole('warehouse'), requireApprovedCompany, 
 
     const grnRes = await client.query(
       `INSERT INTO goods_receipt_notes
-        (po_id, received_quantity, received_date, warehouse_notes, recorded_by, discrepancy_flag, expected_next_delivery_date, next_delivery_notes, expected_next_delivery_source_message_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+        (po_id, received_quantity, received_date, warehouse_notes, recorded_by, discrepancy_flag, expected_next_delivery_date, next_delivery_notes, expected_next_delivery_source_message_id, quality_rating, quality_notes)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
       [
         po_id, received_quantity, received_date, warehouse_notes || null, req.user.id, discrepancyFlag,
         isShortfall ? (expected_next_delivery_date || null) : null,
         isShortfall ? (next_delivery_notes || null) : null,
-        isShortfall ? sourceMessageId : null
+        isShortfall ? sourceMessageId : null,
+        qualityNum, quality_notes || null
       ]
     );
     await client.query(`UPDATE purchase_orders SET fulfillment_status=$1 WHERE id=$2`, [fulfillmentStatus, po_id]);

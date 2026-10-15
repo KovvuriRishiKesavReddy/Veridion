@@ -143,11 +143,11 @@ const login = async email => (await api('POST', '/api/auth/login', null, { email
   const q2 = (await api('POST', '/api/quotations', vA, { requirement_id: rq2.body.id, price: 100, delivery_days: 3 })).body;
   const po2 = (await api('POST', `/api/quotations/${q2.id}/accept`, proc)).body;
   const foreign = (await api('POST', `/api/po-messages/${po2.id}`, vA, { message: 'other PO chatter' })).body;
-  r = await api('POST', '/api/grn', wh, { po_id: po.id, received_quantity: 60, received_date: '2026-10-09', expected_next_delivery_date: '2026-10-20', next_delivery_notes: 'split', expected_next_delivery_source_message_id: foreign.id });
+  r = await api('POST', '/api/grn', wh, { quality_rating: 4, po_id: po.id, received_quantity: 60, received_date: '2026-10-09', expected_next_delivery_date: '2026-10-20', next_delivery_notes: 'split', expected_next_delivery_source_message_id: foreign.id });
   check("GRN citing a different PO's message -> 400", r.status === 400, JSON.stringify(r.body));
   const none = await pool.query(`SELECT COUNT(*)::int AS n FROM goods_receipt_notes WHERE po_id=$1`, [po.id]);
   check('rejected GRN was rolled back (nothing stored)', none.rows[0].n === 0);
-  r = await api('POST', '/api/grn', wh, { po_id: po.id, received_quantity: 60, received_date: '2026-10-09', expected_next_delivery_date: '2026-10-20', next_delivery_notes: 'split', expected_next_delivery_source_message_id: planMsgId });
+  r = await api('POST', '/api/grn', wh, { quality_rating: 4, po_id: po.id, received_quantity: 60, received_date: '2026-10-09', expected_next_delivery_date: '2026-10-20', next_delivery_notes: 'split', expected_next_delivery_source_message_id: planMsgId });
   check('GRN citing this PO\'s message -> 201', r.status === 201, JSON.stringify(r.body));
   const stored = await pool.query(`SELECT expected_next_delivery_source_message_id AS m FROM goods_receipt_notes WHERE po_id=$1`, [po.id]);
   check('DB row has the source message id', stored.rows[0] && stored.rows[0].m === planMsgId);
@@ -161,7 +161,7 @@ const login = async email => (await api('POST', '/api/auth/login', null, { email
   r = await api('GET', '/api/grn/vendor', vA);
   check('GET /api/grn/vendor carries the source text', r.status === 200 && r.body.some(x => /remainder ships on the 20th/.test(x.source_message_text || '')));
   // A full (non-shortfall) GRN ignores any cited message, same as the date fields do
-  r = await api('POST', '/api/grn', wh, { po_id: po.id, received_quantity: 40, received_date: '2026-10-20', expected_next_delivery_source_message_id: planMsgId });
+  r = await api('POST', '/api/grn', wh, { quality_rating: 4, po_id: po.id, received_quantity: 40, received_date: '2026-10-20', expected_next_delivery_source_message_id: planMsgId });
   check('final GRN accepted', r.status === 201);
   const fin2 = await pool.query(`SELECT expected_next_delivery_source_message_id AS m FROM goods_receipt_notes WHERE po_id=$1 ORDER BY id DESC LIMIT 1`, [po.id]);
   check('non-shortfall GRN stores no source (guard matches the date fields)', fin2.rows[0].m === null);

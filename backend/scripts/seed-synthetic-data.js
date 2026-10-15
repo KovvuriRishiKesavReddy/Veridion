@@ -219,7 +219,13 @@ async function buildTestCase(ctx, vendor, s, requirement) {
   // 3. Warehouse records the GRN(s) this scenario needs (a single full one, split deliveries, over-delivery...).
   const receivedDate = dateStr(s.deliveryDays + s.lateDays);
   for (const q of s.grns) {
-    await api('POST', '/api/grn', ctx.company.team.warehouse.token, { po_id: po.id, received_quantity: q, received_date: s.lateDays ? receivedDate : dateStr(0) });
+    // Partial deliveries must cite a PO-conversation message (the vendor confirming the next date);
+    // a full/final GRN ignores both fields. Every GRN carries a quality rating.
+    const confirm = await api('POST', `/api/po-messages/${po.id}`, vendor.token, { message: 'The remaining units will follow on the confirmed date.' });
+    await api('POST', '/api/grn', ctx.company.team.warehouse.token, {
+      po_id: po.id, received_quantity: q, received_date: s.lateDays ? receivedDate : dateStr(0),
+      quality_rating: 4, expected_next_delivery_date: '2099-12-31', expected_next_delivery_source_message_id: confirm.id
+    });
   }
   // 4. Generate the real PDF and submit it as the invoice — multipart, exactly like a vendor's browser.
   const gstin = s.invoiceGstin || vendor.gstin;

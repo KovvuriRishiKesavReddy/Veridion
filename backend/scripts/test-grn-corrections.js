@@ -37,7 +37,12 @@ const login = async email => (await api('POST', '/api/auth/login', null, { email
     const q = (await api('POST', '/api/quotations', vA, { requirement_id: rq.body.id, price: 100, delivery_days: 5 })).body;
     return (await api('POST', `/api/quotations/${q.id}/accept`, proc)).body;
   }
-  const grn = (token, po, qty, date = '2026-10-09') => api('POST', '/api/grn', token, { po_id: po.id, received_quantity: qty, received_date: date });
+  // Every GRN carries a quality rating; a partial one must also cite a PO-conversation message and a
+  // confirmed next date (a full GRN ignores both). The message post fails harmlessly once a PO is closed.
+  const grn = async (token, po, qty, date = '2026-10-09') => {
+    const m = await api('POST', `/api/po-messages/${po.id}`, token, { message: 'Remaining units confirmed for the 20th.' });
+    return api('POST', '/api/grn', token, { po_id: po.id, received_quantity: qty, received_date: date, quality_rating: 4, expected_next_delivery_date: '2030-01-01', expected_next_delivery_source_message_id: m.body && m.body.id });
+  };
 
   console.log('\n[the mistake] "all goods received" entered by accident');
   const po = await makePo(100, 'Cement A');
