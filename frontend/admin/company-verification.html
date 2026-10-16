@@ -11,24 +11,56 @@
 <div class="container">
   <h3 class="mb-1">Company Verification</h3>
   <p class="text-muted">Every company that has registered on the platform. A company_admin gets a valid login immediately, but nobody on their team can post requirements, invite teammates, accept quotations, record deliveries, or approve payments until the company is approved here.</p>
-  <table class="table table-centered bg-white">
+  <div class="d-flex justify-content-between align-items-center mb-2">
+    <h6 class="mb-0">Companies</h6>
+    <div id="viewToggle"></div>
+  </div>
+  <div class="view-wrap" id="viewWrap">
+  <table class="table table-centered bg-white mb-0 view-table" id="viewTable">
     <thead><tr><th>Company</th><th>Admin</th><th>GSTIN</th><th>Address</th><th>Industry</th><th>Status</th><th>Registered</th><th>Proof</th><th>Action</th></tr></thead>
     <tbody id="companyRows"><tr><td colspan="9" class="text-muted">Loading...</td></tr></tbody>
   </table>
+  </div>
 </div>
 <script src="/shared/api.js"></script>
 <script src="/shared/navbar.js"></script>
 <script src="/shared/dashboard-widgets.js"></script>
+<script src="/shared/seg-toggle.js"></script>
 <script>
 requireLogin(['platform_admin']);
+
+let allCompanies = [];
+let lastHtml = null;
+
+// Pending first (that's the queue that needs a decision), then Approved / Rejected. Same sliding
+// toggle and table swap as the Team page (shared/seg-toggle.js).
+const viewToggle = createViewToggle({
+  mountId: 'viewToggle', wrapId: 'viewWrap', tableId: 'viewTable',
+  views: [{ key: 'pending', label: 'Pending' }, { key: 'approved', label: 'Approved' }, { key: 'rejected', label: 'Rejected' }],
+  initial: 'pending',
+  onSwap: () => { lastHtml = null; renderCompanies(); }
+});
+
+const EMPTY_MSG = {
+  pending: 'No companies waiting for approval.',
+  approved: 'No approved companies yet.',
+  rejected: 'No rejected companies. Anyone you reject or revoke will appear here.'
+};
 
 async function loadCompanies() {
   const res = await fetchWithAuth('/api/admin/companies');
   if (!res) return;
-  const companies = await res.json();
-  const rows = document.getElementById('companyRows');
-  if (!companies.length) { rows.innerHTML = '<tr><td colspan="9" class="text-muted">No companies registered yet.</td></tr>'; return; }
-  rows.innerHTML = companies.map(c => `
+  allCompanies = await res.json();
+  renderCompanies();
+}
+
+function renderCompanies() {
+  const counts = { pending: 0, approved: 0, rejected: 0 };
+  allCompanies.forEach(c => { if (counts[c.approval_status] !== undefined) counts[c.approval_status]++; });
+  viewToggle.setCounts(counts);
+  const view = viewToggle.getView();
+  const companies = allCompanies.filter(c => c.approval_status === view);
+  const html = companies.length ? companies.map(c => `
     <tr>
       <td>${c.name}</td>
       <td class="cell-wrap">${c.admin_name || '—'} (${c.admin_email || '—'})</td>
@@ -50,7 +82,9 @@ async function loadCompanies() {
           <button class="btn btn-sm btn-outline-secondary" onclick="approveCompany(${c.id}, 'approved')">Re-approve</button>
         `}
       </td>
-    </tr>`).join('');
+    </tr>`).join('') : `<tr><td colspan="9" class="text-muted">${EMPTY_MSG[view]}</td></tr>`;
+  // Only touch the DOM when something changed, and never during the fade-out of a view switch.
+  if (!viewToggle.isSwapping() && html !== lastHtml) { lastHtml = html; document.getElementById('companyRows').innerHTML = html; }
 }
 
 async function approveCompany(id, status) {

@@ -11,25 +11,56 @@
 <div class="container">
   <h3 class="mb-1">Vendor Verification</h3>
   <p class="text-muted">Every vendor that has registered on the platform. A vendor can't act on the platform (quote, invoice, etc.) until approved here — this is the human-gated step described in the onboarding flow. Expand a row to see everything they submitted before deciding.</p>
-  <table class="table table-centered bg-white">
+  <div class="d-flex justify-content-between align-items-center mb-2">
+    <h6 class="mb-0">Vendors</h6>
+    <div id="viewToggle"></div>
+  </div>
+  <div class="view-wrap" id="viewWrap">
+  <table class="table table-centered bg-white mb-0 view-table" id="viewTable">
     <thead><tr><th></th><th>Company</th><th>Contact</th><th>Phone</th><th>Email</th><th>GSTIN</th><th>Status</th><th>Registered</th><th>Action</th></tr></thead>
     <tbody id="rows"><tr><td colspan="9" class="text-muted">Loading...</td></tr></tbody>
   </table>
+  </div>
 </div>
 <script src="/shared/api.js"></script>
 <script src="/shared/navbar.js"></script>
 <script src="/shared/dashboard-widgets.js"></script>
+<script src="/shared/seg-toggle.js"></script>
 <script>
 requireLogin(['platform_admin']);
 let expandedId = null;
+let allVendors = [];
+let lastHtml = null;
+
+// Pending first (that's the queue that needs a decision), then Verified / Rejected. Same sliding
+// toggle and table swap as the Team page (shared/seg-toggle.js).
+const viewToggle = createViewToggle({
+  mountId: 'viewToggle', wrapId: 'viewWrap', tableId: 'viewTable',
+  views: [{ key: 'pending', label: 'Pending' }, { key: 'verified', label: 'Verified' }, { key: 'rejected', label: 'Rejected' }],
+  initial: 'pending',
+  onSwap: () => { lastHtml = null; renderVendors(); }
+});
+
+const EMPTY_MSG = {
+  pending: 'No vendors waiting for approval.',
+  verified: 'No verified vendors yet.',
+  rejected: 'No rejected vendors. Anyone you reject or revoke will appear here.'
+};
 
 async function load() {
   const res = await fetchWithAuth('/api/admin/vendors');
   if (!res) return;
-  const vendors = await res.json();
-  const rows = document.getElementById('rows');
-  if (!vendors.length) { rows.innerHTML = '<tr><td colspan="9" class="text-muted">No vendors registered yet.</td></tr>'; return; }
-  rows.innerHTML = vendors.map(v => `
+  allVendors = await res.json();
+  renderVendors();
+}
+
+function renderVendors() {
+  const counts = { pending: 0, verified: 0, rejected: 0 };
+  allVendors.forEach(v => { if (counts[v.verification_status] !== undefined) counts[v.verification_status]++; });
+  viewToggle.setCounts(counts);
+  const view = viewToggle.getView();
+  const vendors = allVendors.filter(v => v.verification_status === view);
+  const html = vendors.length ? vendors.map(v => `
     <tr>
       <td><button class="btn btn-sm btn-outline-secondary btn-icon" onclick="toggleDetail(${v.id})">${expandedId === v.id ? '▾' : '▸'}</button></td>
       <td>${v.company_name}</td>
@@ -62,12 +93,14 @@ async function load() {
           ${v.pan_proof_path ? `<button class="btn btn-sm btn-outline-secondary" onclick="viewPanProof(${v.id})">View PAN Proof</button>` : '<span class="small text-muted">No PAN proof</span>'}
         </div>
       </div>
-    </td></tr>` : ''}`).join('');
+    </td></tr>` : ''}`).join('') : `<tr><td colspan="9" class="text-muted">${EMPTY_MSG[view]}</td></tr>`;
+  // Only touch the DOM when something changed, and never during the fade-out of a view switch.
+  if (!viewToggle.isSwapping() && html !== lastHtml) { lastHtml = html; document.getElementById('rows').innerHTML = html; }
 }
 
 function toggleDetail(id) {
   expandedId = expandedId === id ? null : id;
-  load();
+  renderVendors();
 }
 
 async function viewProof(id) {

@@ -12,14 +12,35 @@
   <h3 class="mb-1">Payment Status</h3>
   <p class="text-muted">Where each of your invoices stands — what our verification system decided, and whether payment has gone through.</p>
   <div id="sortToolbar"></div>
-  <div id="cards" class="row g-3"></div>
+  <div class="d-flex justify-content-between align-items-center mb-2">
+    <h6 class="mb-0">Invoices</h6>
+    <div id="viewToggle"></div>
+  </div>
+  <div class="view-wrap" id="viewWrap">
+    <div id="cards" class="row g-3 view-cards"></div>
+  </div>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script src="/shared/api.js"></script>
 <script src="/shared/navbar.js"></script>
+<script src="/shared/seg-toggle.js"></script>
 <script>
 requireLogin(['vendor']);
 let getSortState = () => ({ sortBy: 'newest' });
+let allInvs = [];   // every invoice (after the search/sort box), whatever tab is showing
+
+// Not Paid = everything still on its way to payment (verification pending, under review, approved and
+// awaiting payment); Paid = payment completed. Same sliding toggle and swap as the Team page.
+const viewToggle = createViewToggle({
+  mountId: 'viewToggle', wrapId: 'viewWrap', tableId: 'cards',
+  views: [{ key: 'notpaid', label: 'Not Paid' }, { key: 'paid', label: 'Paid' }],
+  initial: 'notpaid',
+  onSwap: () => { renderCards(); }
+});
+const EMPTY_MSG = {
+  notpaid: 'Nothing waiting for payment.',
+  paid: 'No payments completed yet.'
+};
 
 function decisionBadge(inv) {
   if (!inv.final_decision) return '<span class="badge bg-secondary">Verification pending</span>';
@@ -37,11 +58,22 @@ async function load() {
   const res = await fetchWithAuth('/api/invoices/mine');
   if (!res) return;
   let invs = await res.json();
-  invs = sortAndFilterItems(invs, getSortState(), { dateField: 'submitted_at', numberField: 'id', searchFields: ['invoice_number', 'requirement_title'] });
-  const cards = document.getElementById('cards');
-  if (!invs.length) { cards.innerHTML = '<p class="text-muted">No invoices submitted yet.</p>'; return; }
+  allInvs = sortAndFilterItems(invs, getSortState(), { dateField: 'submitted_at', numberField: 'id', searchFields: ['invoice_number', 'requirement_title'] });
+  renderCards();
+}
 
-  cards.innerHTML = invs.map(i => {
+function renderCards() {
+  const paid = allInvs.filter(i => i.status === 'paid');
+  const notPaid = allInvs.filter(i => i.status !== 'paid');
+  viewToggle.setCounts({ notpaid: notPaid.length, paid: paid.length });
+  // Never write cards while the grid is fading out for a view switch.
+  if (viewToggle.isSwapping()) return;
+  const view = viewToggle.getView();
+  const invs = view === 'paid' ? paid : notPaid;
+  const cards = document.getElementById('cards');
+  if (!invs.length) { setHtmlPreserving(cards, `<p class="text-muted">${allInvs.length ? EMPTY_MSG[view] : 'No invoices submitted yet.'}</p>`); return; }
+
+  setHtmlPreserving(cards, invs.map(i => {
     // A flag driven solely by the vendor's own track record — Matching, Compliance
     // and Fraud all came back clean on this exact invoice (decide.js's
     // flaggedSolelyByReputation) — has nothing wrong on the document itself to
@@ -63,7 +95,7 @@ async function load() {
         ${canWithdraw ? `<span class="hbg hbg-danger d-inline-block mt-2"><button class="hbg-core" style="padding:6px 14px;font-size:0.85rem;" onclick="withButtonState(this, () => withdrawInvoice(${i.id}))">Withdraw &amp; Resubmit Corrected Invoice</button></span>` : ''}
       </div>
     </div>`;
-  }).join('');
+  }).join(''));
 }
 
 async function withdrawInvoice(id) {

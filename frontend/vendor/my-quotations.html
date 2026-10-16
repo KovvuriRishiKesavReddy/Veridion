@@ -11,24 +11,59 @@
 <div class="container">
   <h3 class="mb-4">My Quotations</h3>
   <div id="sortToolbar"></div>
-  <table class="table table-centered bg-white">
+  <div class="d-flex justify-content-between align-items-center mb-2">
+    <h6 class="mb-0">Quotations</h6>
+    <div id="viewToggle"></div>
+  </div>
+  <div class="view-wrap" id="viewWrap">
+  <table class="table table-centered bg-white mb-0 view-table" id="viewTable">
     <thead><tr><th>Requirement</th><th>Price</th><th>Delivery (days)</th><th>Status</th><th>Submitted</th><th>Message</th></tr></thead>
     <tbody id="rows"><tr><td colspan="6" class="text-muted">Loading...</td></tr></tbody>
   </table>
+  </div>
 </div>
 <script src="/shared/api.js"></script>
 <script src="/shared/navbar.js"></script>
+<script src="/shared/seg-toggle.js"></script>
 <script>
 requireLogin(['vendor']);
 let getSortState = () => ({ sortBy: 'newest' });
+let lastQs = [];   // every quotation (after the search/sort box), whatever tab is showing
+
+// "Submitted" = still awaiting the buyer's decision, so it stays visible (it is where Message /
+// price edits live); decided quotations are split into Selected / Rejected. Same sliding toggle and
+// table swap as the Team page (shared/seg-toggle.js).
+const viewToggle = createViewToggle({
+  mountId: 'viewToggle', wrapId: 'viewWrap', tableId: 'viewTable',
+  views: [{ key: 'submitted', label: 'Submitted' }, { key: 'selected', label: 'Selected' }, { key: 'rejected', label: 'Rejected' }],
+  initial: 'submitted',
+  onSwap: () => { renderQuotations(); }
+});
+
+const EMPTY_MSG = {
+  submitted: 'No quotations awaiting a decision.',
+  selected: 'No selected quotations yet. Quotations the buyer accepts will appear here.',
+  rejected: 'No rejected quotations.'
+};
+
 async function load() {
   const res = await fetchWithAuth('/api/quotations/mine');
   if (!res) return;
   let qs = await res.json();
-  qs = sortAndFilterItems(qs, getSortState(), { dateField: 'submitted_at', numberField: 'id', searchFields: ['requirement_title'] });
+  lastQs = sortAndFilterItems(qs, getSortState(), { dateField: 'submitted_at', numberField: 'id', searchFields: ['requirement_title'] });
+  renderQuotations();
+}
+
+function renderQuotations() {
+  const counts = { submitted: 0, selected: 0, rejected: 0 };
+  lastQs.forEach(q => { if (counts[q.status] !== undefined) counts[q.status]++; });
+  viewToggle.setCounts(counts);
+  // Never write rows while the table is fading out for a view switch.
+  if (viewToggle.isSwapping()) return;
+  const view = viewToggle.getView();
+  const qs = lastQs.filter(q => q.status === view);
   const rows = document.getElementById('rows');
-  if (!qs.length) { rows.innerHTML = '<tr><td colspan="6" class="text-muted">No quotations yet.</td></tr>'; return; }
-  lastQs = qs;
+  if (!qs.length) { setHtmlPreserving(rows, `<tr><td colspan="6" class="text-muted">${lastQs.length ? EMPTY_MSG[view] : 'No quotations yet.'}</td></tr>`); return; }
   setHtmlPreserving(rows, qs.map(q => `
     <tr>
       <td>${q.requirement_title}</td>
@@ -46,7 +81,6 @@ async function load() {
 // quoted on the same requirement never see it). While the quotation is still awaiting a
 // decision the vendor can also change their own price / delivery days from the dialog; once
 // it is accepted or rejected the thread is read-only history.
-let lastQs = [];
 function openQuotationThread(id) {
   const q0 = lastQs.find(x => x.id === id);
   openThreadModal({
