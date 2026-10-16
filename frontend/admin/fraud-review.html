@@ -35,7 +35,8 @@ async function loadFraudFlags() {
       <td>${f.flag_type}</td>
       <td><span class="badge ${f.severity === 'high' ? 'bg-danger' : f.severity === 'medium' ? 'bg-warning text-dark' : 'bg-secondary'}">${f.severity}</span></td>
       <td>${f.resolved ? '<span class="badge bg-success">Resolved</span>' : '<span class="badge bg-warning text-dark">Open</span>'}</td>
-      <td>${f.resolved ? '—' : `<button class="btn btn-sm btn-outline-secondary" onclick="resolveFlag(${f.id})">Mark Resolved</button>`}</td>
+      <td>${!f.resolved ? `<button class="btn btn-sm btn-outline-secondary" onclick="resolveFlag(${f.id})">Mark Resolved</button>`
+        : (!f.invoice_withdrawn && ['suspicious', 'flagged'].includes(f.invoice_status) ? `<button class="btn btn-sm btn-outline-secondary" title="Re-check this invoice's decision now that the flag is resolved" onclick="resolveFlag(${f.id})">Re-run decision</button>` : '—')}</td>
     </tr>`).join('');
 }
 
@@ -44,6 +45,13 @@ async function resolveFlag(id) {
   if (!res) return;
   const data = await res.json();
   if (!res.ok) { alert(data.error || 'Failed'); return; }
+  // Resolving re-runs the invoice's decision (in the background) once all of its flags are closed.
+  const r = data.rerun;
+  if (r && r.queued) {
+    alert('Flag resolved. The invoice is being re-checked now — Finance will see the updated decision (and be notified) in a moment.');
+  } else if (r && r.reason) {
+    alert('Flag resolved. The decision was not re-run because ' + r.reason + '.');
+  }
   loadFraudFlags();
 }
 

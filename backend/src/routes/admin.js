@@ -5,6 +5,8 @@ const { requireAuth } = require('../middleware/auth');
 const { requireRole } = require('../middleware/roles');
 
 const { notifyVendor, notifyCompanyRole, safely } = require('../utils/notify');
+const { syncVendorNode, detachVendorIdentity } = require('../utils/neo4jSync');
+const { callAiService } = require('../utils/aiService');
 
 const router = express.Router();
 
@@ -50,7 +52,25 @@ router.post('/vendors/:id/verify', requireAuth, requireRole('platform_admin'), a
     [status, req.params.id]
   );
   if (!result.rows[0]) return res.status(404).json({ error: 'Vendor not found' });
+
+  // Keep the fraud graph in step with the verification decision. Rejecting/revoking a
+  // vendor removes its bank-account/address edges, so it can no longer cause OTHER vendors
+  // to be flagged as sharing an identity with it (this was the "shell company still shows
+  // fraud after I revoked it" bug -- Neo4j was never told). Re-verifying restores the edges
+  // from Postgres. Fire-and-forget like every other graph write; fraud.js also filters
+  // rejected vendors against Postgres, so a failed graph write can't resurrect the flag.
+  const v = result.rows[0];
+  if (status === 'rejected') {
+    detachVendorIdentity(v.id);
+  } else {
+    syncVendorNode({ id: v.id, company_name: v.company_name, gstin: v.gstin, bank_account_number: v.bank_account_number, address: v.address });
+  }
+
   res.json(result.rows[0]);
+  // Revoking a vendor also re-checks every invoice that is CURRENTLY flagged/suspicious because
+  // of it (an open shell-company flag naming this vendor), so those invoices don't stay stuck
+  // on a signal that no longer applies. Background, same as resolving a flag by hand.
+  if (status === 'rejected') safely(rerunInvoicesAffectedByRevokedVendor(v.id), 'vendor-revoke decision re-runs');
   safely(notifyVendor(result.rows[0].id, status === 'verified' ? 'account_verified' : 'account_rejected',
     status === 'verified'
       ? 'Your Veridion vendor account has been verified. You can now browse requirements and submit quotations.'
@@ -68,7 +88,8 @@ router.get('/fraud-flags', requireAuth, requireRole('platform_admin'), async (re
             COALESCE(inv.invoice_number, ff.invoice_number_snapshot) AS invoice_number,
             COALESCE(inv.invoice_amount, ff.invoice_amount_snapshot) AS invoice_amount,
             COALESCE(ff.invoice_id, ff.invoice_ref_snapshot) AS invoice_ref,
-            (ff.invoice_id IS NULL AND ff.invoice_ref_snapshot IS NOT NULL) AS invoice_withdrawn
+            (ff.invoice_id IS NULL AND ff.invoice_ref_snapshot IS NOT NULL) AS invoice_withdrawn,
+            inv.status AS invoice_status
      FROM fraud_flags ff
      JOIN vendors v ON v.id = ff.vendor_id
      LEFT JOIN invoices inv ON inv.id = ff.invoice_id
@@ -77,14 +98,92 @@ router.get('/fraud-flags', requireAuth, requireRole('platform_admin'), async (re
   res.json(result.rows);
 });
 
-// POST /api/admin/fraud-flags/:id/resolve — mark a flag as reviewed. Doesn't change
-// the invoice's own status automatically (that's a deliberate human decision, made
-// separately, not something this endpoint should silently do) — it just closes out
-// the flag itself from the review queue.
+// POST /api/admin/fraud-flags/:id/resolve — mark a flag as reviewed, and RE-RUN the
+// Context Gate decision for that invoice once every flag on it is resolved. Previously
+// this only flipped fraud_flags.resolved, so the invoice kept its old 'suspicious'
+// decision and Finance (whose mark-paid gate reads decisions.final_decision) never saw
+// the outcome of the admin's review.
+//
+// The re-run does NOT blindly approve anything: it runs the normal decision stage again, with
+// two rules (see fraud.js / decide.js): a flag type the admin already resolved for this
+// invoice is not raised again (that review is final for that signal), and the vendor's
+// risk score isn't charged a second bad event for the same invoice. Matching, Compliance
+// and Vendor Risk still count, so the result can legitimately be auto_approved OR flagged.
+// Waits on any other still-open flag on the same invoice before re-running.
+//
+// The re-run happens IN THE BACKGROUND (this response never waits on ai-service): on a
+// free-tier host ai-service may be asleep and take a minute to wake, and resolving a flag
+// must stay instant and must never fail because of it. Finance is notified by the same
+// idempotent hook a first-time decision uses. Calling this endpoint again on an
+// already-resolved flag simply retries the re-run (the UPDATE is idempotent), which is
+// what the "Re-run decision" button on the Fraud Review page does.
+async function rerunDecisionInBackground(invoiceId) {
+  if (process.env.AI_SERVICE_URL) {
+    try { await fetch(`${process.env.AI_SERVICE_URL}/health`); } catch (e) { /* best-effort wake-up only */ }
+  }
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    const out = await callAiService('/agents/redecide-after-fraud-review', { invoice_id: invoiceId }, { timeoutMs: 90000 });
+    if (out) return;
+    if (attempt === 1) await new Promise(r => setTimeout(r, 5000));
+  }
+  console.error(`[admin] decision re-run for invoice ${invoiceId} failed after fraud-flag resolution — use "Re-run decision" on the Fraud Review page to retry`);
+}
+
+// rerunInvoicesAffectedByRevokedVendor: called after Platform Admin REJECTS (revokes) a vendor.
+// Finds invoices of OTHER vendors that are still flagged/suspicious because of an OPEN
+// shell-company flag whose evidence names the revoked vendor, and re-runs each one's decision.
+// fraud.js ignores revoked vendors (checked against Postgres, which was already updated before
+// this runs), so the shell flag no longer fires, gets closed automatically, and the invoice is
+// judged on its remaining evidence: it may become auto_approved, or stay flagged/suspicious if
+// something else (another open fraud flag, a Matching/Compliance issue) still applies.
+// The revoked vendor's OWN invoices are left alone. Text comparison on the evidence id (not a
+// numeric cast) so an unexpected stored shape can never make this query throw.
+async function rerunInvoicesAffectedByRevokedVendor(vendorId) {
+  const res = await db.query(
+    `SELECT DISTINCT ff.invoice_id
+     FROM fraud_flags ff
+     JOIN invoices inv ON inv.id = ff.invoice_id
+     WHERE ff.resolved = false
+       AND ff.flag_type IN ('shell_company_shared_bank_account', 'shell_company_shared_address')
+       AND inv.status IN ('suspicious', 'flagged')
+       AND inv.vendor_id <> $1
+       AND EXISTS (
+         SELECT 1
+         FROM jsonb_array_elements(CASE WHEN jsonb_typeof(ff.evidence) = 'array' THEN ff.evidence ELSE '[]'::jsonb END) e
+         WHERE e->>'other_vendor_id' = $2 OR e->'other_vendor_id'->>'low' = $2
+       )`,
+    [vendorId, String(vendorId)]
+  );
+  for (const row of res.rows) {
+    await rerunDecisionInBackground(row.invoice_id);
+  }
+}
+
 router.post('/fraud-flags/:id/resolve', requireAuth, requireRole('platform_admin'), async (req, res) => {
   const result = await db.query(`UPDATE fraud_flags SET resolved = true WHERE id = $1 RETURNING *`, [req.params.id]);
-  if (!result.rows[0]) return res.status(404).json({ error: 'Fraud flag not found' });
-  res.json(result.rows[0]);
+  const flag = result.rows[0];
+  if (!flag) return res.status(404).json({ error: 'Fraud flag not found' });
+
+  const rerun = { queued: false, reason: null };
+  try {
+    if (!flag.invoice_id) {
+      rerun.reason = 'the invoice was withdrawn';
+    } else {
+      const invRes = await db.query(`SELECT status FROM invoices WHERE id = $1`, [flag.invoice_id]);
+      const open = await db.query(`SELECT COUNT(*)::int AS n FROM fraud_flags WHERE invoice_id = $1 AND resolved = false`, [flag.invoice_id]);
+      if (!invRes.rows[0]) rerun.reason = 'the invoice no longer exists';
+      else if (!['suspicious', 'flagged'].includes(invRes.rows[0].status)) rerun.reason = `the invoice is already '${invRes.rows[0].status}'`;
+      else if (open.rows[0].n > 0) rerun.reason = `${open.rows[0].n} other fraud flag(s) on this invoice are still open`;
+      else {
+        rerun.queued = true;
+        safely(rerunDecisionInBackground(flag.invoice_id), 'fraud-resolve decision re-run');
+      }
+    }
+  } catch (err) {
+    console.error('[admin] could not evaluate decision re-run after resolving flag', flag.id, err.message);
+    rerun.reason = 'could not check the invoice state';
+  }
+  res.json({ ...flag, rerun });
 });
 
 // GET /api/admin/companies — every company registered on the platform, for approval
