@@ -710,6 +710,7 @@ function buildDisputeThread(c, vendorName) {
 //                      in the open list (decided), so the thread is treated as closed.
 //   closedNote       - text shown in place of the reply box when closed
 //   readOnly         - true: show history only, no reply box (e.g. Warehouse just reading)
+//   readOnlyNote     - optional text shown instead of the default read-only note
 //   propose          - optional { mode: 'update' | 'counter', putUrl?, onUpdated? }
 //        'update'  (vendor): inputs prefilled with the current terms; "Update my quotation"
 //                  calls PUT putUrl, then drops a one-line note in the thread.
@@ -775,7 +776,7 @@ function openThreadModal(opts) {
     badge.textContent = isClosed ? 'Closed' : (opts.openLabel || 'Open');
     const note = $('threadNote');
     const text = isClosed ? (serverNote || opts.closedNote || 'This conversation is closed — history stays visible.')
-      : (opts.readOnly ? 'Read-only — you can read this conversation but not post in it.' : '');
+      : (opts.readOnly ? (opts.readOnlyNote || 'Read-only — you can read this conversation but not post in it.') : '');
     note.textContent = text;
     note.style.display = text ? '' : 'none';
   }

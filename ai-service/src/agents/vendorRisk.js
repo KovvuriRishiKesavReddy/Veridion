@@ -20,6 +20,16 @@ const db = require('../db');
 // Scoped to (company_id, vendor_id) -- one company's experience with a vendor never affects
 // what another company sees (Part 5.7.1's isolation principle).
 //
+// weightFromColumn (optional, per metric): the column whose CURRENT value is how many events this
+// metric's running average already stands for (e.g. invoice_decision_count for invoice_accuracy_pct,
+// grn_count for on_time_delivery_pct). Without it the old value is weighted by the SHARED data_volume,
+// which counts every kind of event (GRNs, invoices, disputes, the legacy-import placeholder), so a
+// metric with few events of its own got averaged as if it had many: a legacy-imported vendor (data_volume
+// 12, no invoice accuracy supplied) whose first invoice was flagged and second was good ended at
+// (0 x 13 + 100) / 14 = 7% instead of 1 good of 2 = 50%. Reading the metric's own exact counter
+// (already kept for ranking, and seeded by legacyImport) fixes that. data_volume itself is unchanged:
+// it is still the overall "how much evidence" figure the Context Gate and ranking use for confidence.
+//
 // exactCounters (optional, per metric): { countColumn, successColumn } -- ALSO increments these
 // two columns atomically: countColumn always by 1, successColumn by 1 only when eventValue is a
 // "good" (100) outcome. This exists so quotation ranking can read an EXACT per-metric count
@@ -57,7 +67,9 @@ async function updateVendorMetrics(companyId, vendorId, metrics) {
     const params = [];
     for (const m of metrics) {
       const weight = m.weight != null ? Number(m.weight) : 1;
-      const oldWeight = m.weightColumn ? (Number(row[m.weightColumn]) || 0) : oldDataVolume;
+      const oldWeight = m.weightColumn ? (Number(row[m.weightColumn]) || 0)
+        : m.weightFromColumn ? (Number(row[m.weightFromColumn]) || 0)
+        : oldDataVolume;
       const newWeight = oldWeight + weight;
       const oldValue = row[m.name] != null ? Number(row[m.name]) : null;
       // First event for this metric specifically: no prior value to average with. A zero total
@@ -124,7 +136,7 @@ async function onGrnConfirmed(poId, grnId) {
   const receivedQty = Number(grn.received_quantity);
 
   return updateVendorMetrics(po.company_id, po.vendor_id, [
-    { name: 'on_time_delivery_pct', eventValue: onTime ? 100 : 0, exactCounters: { countColumn: 'grn_count', successColumn: 'grn_on_time_count' } },
+    { name: 'on_time_delivery_pct', eventValue: onTime ? 100 : 0, weightFromColumn: 'grn_count', exactCounters: { countColumn: 'grn_count', successColumn: 'grn_on_time_count' } },
     // Quality is weighted by units received (a 60-unit Excellent delivery outweighs a 40-unit
     // Very Poor one), not one flat vote per delivery. No exactCounters: quality isn't binary, so
     // forcing a "success count" onto it would throw away the Good-vs-Excellent distinction.
@@ -145,7 +157,12 @@ async function onInvoiceDecisionFinalised(invoiceId, finalDecision) {
   if (!invoice) throw new Error(`Invoice ${invoiceId} not found`);
 
   const wasAccurate = finalDecision === 'auto_approved';
-  return updateVendorMetric(invoice.company_id, invoice.vendor_id, 'invoice_accuracy_pct', wasAccurate ? 100 : 0, { countColumn: 'invoice_decision_count', successColumn: 'invoice_decision_success_count' });
+  // Weighted by invoice_decision_count (this metric's own event count), so the accuracy is
+  // "good decisions / all decisions on the platform" (plus a legacy figure at its discounted weight,
+  // if one was supplied) -- not diluted by GRNs, disputes or the legacy placeholder in data_volume.
+  return updateVendorMetrics(invoice.company_id, invoice.vendor_id, [
+    { name: 'invoice_accuracy_pct', eventValue: wasAccurate ? 100 : 0, weightFromColumn: 'invoice_decision_count', exactCounters: { countColumn: 'invoice_decision_count', successColumn: 'invoice_decision_success_count' } }
+  ]);
 }
 
 // onDisputeResolved: not wired to anything yet — the dispute/vendor_communications

@@ -53,9 +53,10 @@ async function load() {
   if (!pos.length) { cards.innerHTML = '<p class="text-muted">No purchase orders yet.</p>'; return; }
 
   const isWarehouse = user.role === 'warehouse';
-  // Procurement and Warehouse converse with the vendor post-award; Finance has no thread (the
-  // server refuses it by role), so no button for them.
-  const canMessage = user.role === 'procurement' || user.role === 'warehouse';
+  // Post-award, only Warehouse converses with the vendor (logistics). Procurement can open the same
+  // thread as read-only history; Finance has no thread (the server refuses it by role), so no button.
+  const canMessage = user.role === 'warehouse';
+  const canViewThread = user.role === 'procurement';
   lastPos = pos;
 
   setHtmlPreserving(cards, pos.map(po => `
@@ -77,20 +78,23 @@ async function load() {
           <button class="btn btn-sm btn-outline-secondary" onclick="viewDetails(${po.id})">View Fulfillment</button>
           ${po.po_document_path && !isWarehouse ? `<button class="btn btn-sm btn-amber" onclick="downloadPo(${po.id})">Download PO PDF</button>` : ''}
           ${canMessage ? `<button class="btn btn-sm btn-message" onclick="openPoThread(${po.id})">Message Vendor</button>` : ''}
+          ${canViewThread ? `<button class="btn btn-sm btn-outline-secondary" onclick="openPoThread(${po.id})">Message History</button>` : ''}
         </div>
       </div>
     </div>`).join(''));
 }
 
 // Post-award conversation with the vendor (logistics only -- price is locked on the PO).
-// The reply box is disabled, not the button, once an invoice on the PO is paid: the history
-// stays readable.
+// Warehouse posts; Procurement sees the same history read-only. The reply box is disabled, not the
+// button, once an invoice on the PO is paid: the history stays readable.
 let lastPos = [];
 function openPoThread(id) {
   const po = lastPos.find(p => p.id === id);
   openThreadModal({
     title: `PO #${id}${po ? ' — ' + po.requirement_title : ''}`,
-    subtitle: po ? `Conversation with ${po.vendor_name} · logistics only, the agreed price is locked` : 'Logistics only',
+    subtitle: po ? `Conversation between Warehouse and ${po.vendor_name} · logistics only, the agreed price is locked` : 'Logistics only',
+    readOnly: user.role === 'procurement',
+    readOnlyNote: 'Read-only — after the quotation is accepted, delivery conversations with the vendor are handled by Warehouse. You can follow the full history here.',
     listUrl: `/api/po-messages/${id}`,
     postUrl: `/api/po-messages/${id}`,
     statusUrl: `/api/po-messages/${id}/status`,

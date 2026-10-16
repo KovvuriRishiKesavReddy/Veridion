@@ -122,7 +122,9 @@ const login = async email => (await api('POST', '/api/auth/login', null, { email
   r = await api('POST', `/api/po-messages/${po.id}`, wh, { message: 'We can take 60 now and 40 on the 20th.' });
   check('warehouse can post', r.status === 201, JSON.stringify(r.body));
   r = await api('POST', `/api/po-messages/${po.id}`, proc, { message: 'Agreed.' });
-  check('procurement can post', r.status === 201);
+  check('procurement can NOT post post-award (read-only) -> 403 with an explanation', r.status === 403 && /Warehouse/.test(r.body.error || ''), JSON.stringify(r.body));
+  const procCount = await pool.query(`SELECT COUNT(*)::int AS n FROM po_messages WHERE po_id=$1 AND sender_role='procurement'`, [po.id]);
+  check('and nothing from procurement was stored', procCount.rows[0].n === 0);
   r = await api('POST', `/api/po-messages/${po.id}`, vA, { message: 'Confirmed: remainder ships on the 20th.' });
   check('vendor can post', r.status === 201);
   const planMsgId = r.body.id;
@@ -133,7 +135,13 @@ const login = async email => (await api('POST', '/api/auth/login', null, { email
   r = await api('GET', `/api/po-messages/${po.id}`, otherWh);
   check("other company's warehouse GET -> 404", r.status === 404);
   r = await api('GET', `/api/po-messages/${po.id}`, wh);
-  check('warehouse reads 3 messages', r.status === 200 && r.body.length === 3);
+  check('warehouse reads 2 messages (warehouse + vendor)', r.status === 200 && r.body.length === 2);
+  r = await api('GET', `/api/po-messages/${po.id}`, proc);
+  check('procurement can still READ the full history', r.status === 200 && r.body.length === 2 && r.body[0].sender_role === 'warehouse');
+  r = await api('GET', `/api/po-messages/${po.id}/status`, proc);
+  check('procurement can read the thread status too', r.status === 200 && r.body.closed === false);
+  const poNotes = await pool.query(`SELECT target_role AS role FROM notifications WHERE type='po_message' AND related_id=$1 AND related_type='po' AND target_role IS NOT NULL`, [po.id]);
+  check('a vendor message notifies Warehouse, not Procurement', poNotes.rows.some(x => x.role === 'warehouse') && !poNotes.rows.some(x => x.role === 'procurement'), JSON.stringify(poNotes.rows));
   r = await api('GET', `/api/po-messages/${po.id}/status`, vA);
   check('status says open', r.status === 200 && r.body.closed === false);
 
@@ -172,13 +180,13 @@ const login = async email => (await api('POST', '/api/auth/login', null, { email
   r = await api('POST', `/api/po-messages/${po.id}`, wh, { message: 'after fulfilled' });
   check('POST after fulfilled -> 400 (warehouse)', r.status === 400 && r.body.reason === 'fulfilled');
   r = await api('POST', `/api/po-messages/${po.id}`, proc, { message: 'after fulfilled' });
-  check('POST after fulfilled -> 400 (procurement)', r.status === 400);
+  check('POST after fulfilled -> 403 (procurement is read-only regardless)', r.status === 403);
   r = await api('POST', `/api/po-messages/${po.id}`, vA, { message: 'after fulfilled' });
   check('POST after fulfilled -> 400 (vendor)', r.status === 400);
   r = await api('GET', `/api/po-messages/${po.id}`, vA);
-  check('GET still returns the full history', r.status === 200 && r.body.length === 3);
+  check('GET still returns the full history', r.status === 200 && r.body.length === 2);
   r = await api('GET', `/api/po-messages/${po.id}`, wh);
-  check('warehouse can still read the history', r.status === 200 && r.body.length === 3);
+  check('warehouse can still read the history', r.status === 200 && r.body.length === 2);
   r = await api('GET', `/api/po-messages/${po.id}`, fin);
   check('finance still has no access to this thread (403) -- it uses Disputes', r.status === 403);
 

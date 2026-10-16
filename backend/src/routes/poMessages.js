@@ -8,6 +8,14 @@ const { notifyVendor, notifyCompanyRole, safely } = require('../utils/notify');
 
 const router = express.Router();
 
+// Who can do what in this thread:
+//   * Vendor and Warehouse converse -- post-award the only live topic is logistics (delivery dates,
+//     split shipments, handover), and Warehouse is the team that receives the goods and records the
+//     GRN, so it is the single buyer-side voice. That also keeps "the confirming message" for a
+//     partial GRN unambiguous (see grn.js): one person on the buyer's side set the date.
+//   * Procurement can READ the whole history (audit trail) but cannot post. Its negotiation with the
+//     vendor happened in the pre-award quotation thread, which closes when it accepts.
+//   * Finance has no access here at all (invoice questions go through Disputes).
 // A vendor reaches only THEIR OWN purchase orders; procurement / warehouse only their own
 // company's. Anything else is a 404 (not an empty thread), so existence isn't leaked.
 async function loadPoScoped(poId, user) {
@@ -64,11 +72,16 @@ router.get('/:poId/status', requireAuth, requireRole('vendor', 'procurement', 'w
   res.json(await poClosure(po));
 });
 
-// POST /api/po-messages/:poId (vendor, procurement or warehouse) -- logistics only. Nothing
-// here ever touches agreed_price; there is no field for it in this table at all. Finance (and
-// every other role) is refused by requireRole with a 403.
+// POST /api/po-messages/:poId (vendor or warehouse) -- logistics only. Nothing here ever touches
+// agreed_price; there is no field for it in this table at all. Procurement gets a clear 403 (it is
+// read-only here, see the note at the top); Finance and every other role are refused by
+// requireRole with a 403.
 router.post('/:poId',
-  requireAuth, requireRole('vendor', 'procurement', 'warehouse'),
+  requireAuth,
+  (req, res, next) => req.user && req.user.role === 'procurement'
+    ? res.status(403).json({ error: 'After the quotation is accepted, delivery conversations with the vendor are handled by Warehouse. Procurement can read this history but cannot post in it.' })
+    : next(),
+  requireRole('vendor', 'warehouse'),
   (req, res, next) => req.user.role === 'vendor' ? requireVerifiedVendor(req, res, next) : requireApprovedCompany(req, res, next),
   async (req, res) => {
     const { message } = req.body;
@@ -84,7 +97,7 @@ router.post('/:poId',
       [req.user.role === 'vendor' ? req.user.vendor_id : req.user.id]
     );
     const senderName = nameRes.rows[0]?.name ||
-      (req.user.role === 'vendor' ? 'Vendor' : req.user.role === 'warehouse' ? 'Warehouse' : 'Procurement');
+      (req.user.role === 'vendor' ? 'Vendor' : 'Warehouse');
 
     const result = await db.query(
       `INSERT INTO po_messages (po_id, sender_role, sender_name, message) VALUES ($1,$2,$3,$4) RETURNING *`,
@@ -92,12 +105,12 @@ router.post('/:poId',
     );
     res.status(201).json(result.rows[0]);
 
-    // Tell the other parties (fire-and-forget): a vendor's message goes to Procurement AND
-    // Warehouse (both act on it); a company-side message goes to the vendor.
+    // Tell the other party (fire-and-forget): a vendor's message goes to Warehouse (the only buyer-side
+    // team that converses here); a Warehouse message goes to the vendor.
     safely((async () => {
       const text = `${senderName} sent a message about purchase order #${po.id} ("${po.requirement_title}").`;
       if (req.user.role === 'vendor') {
-        await notifyCompanyRole(po.company_id, ['procurement', 'warehouse'], 'po_message', text, po.id, 'po');
+        await notifyCompanyRole(po.company_id, ['warehouse'], 'po_message', text, po.id, 'po');
       } else {
         await notifyVendor(po.vendor_id, 'po_message', text, po.id, 'po');
       }

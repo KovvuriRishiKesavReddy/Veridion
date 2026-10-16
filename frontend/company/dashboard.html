@@ -61,7 +61,6 @@
   <div id="deliverySection" class="mt-4" style="display:none;">
     <div class="dash-section-heading"><h5>Purchase Orders Awaiting Delivery</h5><span></span></div>
     <div id="deliveryCards" class="row g-3 mb-2"></div>
-    <a href="/company/grn-entry.html" class="small">Go to GRN Entry &rarr;</a>
   </div>
 
   <div id="requirementsSection" class="mt-4" style="display:none;">
@@ -243,11 +242,15 @@ if (user && user.role === 'warehouse') {
     section.style.display = 'block';
     document.getElementById('deliveryCards').innerHTML = pending.slice(0, 4).map(po => `
       <div class="col-md-6">
-        <div class="card p-3">
-          <h6 class="mb-1">${po.requirement_title}</h6>
-          <p class="small text-muted mb-1">Vendor: ${po.vendor_name} · Received: ${qtyWithUnit(po.received_so_far, po.unit)}/${qtyWithUnit(po.agreed_quantity, po.unit)}</p>
-          <span class="badge status-badge ${statusBadgeClass(po.fulfillment_status)}">${po.fulfillment_status}</span>
-        </div>
+        <!-- The whole tile is a link: it opens the GRN Entry page with THIS purchase order's
+             delivery form already open, so Warehouse can record what arrived in one click. -->
+        <a href="/company/grn-entry.html?po=${po.id}" class="card-link d-block text-decoration-none text-reset" title="Record a delivery for this purchase order">
+          <div class="card p-3">
+            <h6 class="mb-1">${po.requirement_title}</h6>
+            <p class="small text-muted mb-1">Vendor: ${po.vendor_name} · Received: ${qtyWithUnit(po.received_so_far, po.unit)}/${qtyWithUnit(po.agreed_quantity, po.unit)}</p>
+            <span class="badge status-badge ${statusBadgeClass(po.fulfillment_status)}">${po.fulfillment_status}</span>
+          </div>
+        </a>
       </div>`).join('');
   };
   // Poll every second so a delivery just recorded (in this tab or another) drops off

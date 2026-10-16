@@ -72,7 +72,7 @@ const DASH_FAQ = {
     ['Where do I see how much is owed in total?', 'The Amount Payable figure on this dashboard sums every invoice currently awaiting payment — click into Payments for the full breakdown by vendor.']
   ],
   warehouse: [
-    ['How do I record a delivery?', 'Go to GRN Entry, pick the purchase order that just arrived, and enter the received quantity and date — partial deliveries are supported.'],
+    ['How do I record a delivery?', 'Click the purchase order tile under Purchase Orders Awaiting Delivery — it opens that order\'s delivery form directly (or open GRN Entry and pick it there). Enter the received quantity and date — partial deliveries are supported.'],
     ['What if less arrives than expected?', 'Record what actually arrived; you can optionally note when the remaining quantity is expected next.'],
     ['Can I see pricing on this page?', 'No — GRN Entry is intentionally quantity-only. No price or payment information is shown to Warehouse.'],
     ['What happens when a PO is fully received?', 'Its fulfillment status automatically updates to "fulfilled", which is what makes it eligible for the vendor to invoice.'],

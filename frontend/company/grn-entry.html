@@ -11,6 +11,7 @@
 <div class="container">
   <h3 class="mb-1">Purchase Orders Awaiting Delivery</h3>
   <p class="text-muted">Click a purchase order below to record what arrived — including closing out a partial delivery. No price or payment information ever appears on this page.</p>
+  <div id="deepLinkNote" class="alert alert-secondary py-2 small" style="display:none;"></div>
   <div id="cards" class="row g-3 mb-4"></div>
 
   <div class="card p-4 mb-4" id="formCard" style="display:none;">
@@ -76,12 +77,16 @@ requireLogin(['warehouse']);
 let remainingQty = null; // remaining BEFORE this delivery, from the server
 let currentUnit = null; // the selected PO's requirement unit, e.g. "kg" — null if none was set
 let getMineSortState = () => ({ sortBy: 'newest' });
+let allPos = [];     // every PO of this company, from the latest fetch (used to resolve ?po=)
+let lastPending = []; // the ones still awaiting delivery
 
 async function loadAvailable() {
   const res = await fetchWithAuth('/api/purchase-orders/mine');
   if (!res) return;
   const pos = await res.json();
+  allPos = pos;
   const pending = pos.filter(po => po.fulfillment_status !== 'fulfilled');
+  lastPending = pending;
   const cards = document.getElementById('cards');
   if (!pending.length) { cards.innerHTML = '<p class="text-muted">Nothing awaiting delivery right now.</p>'; return; }
   cards.innerHTML = pending.map(po => `
@@ -261,6 +266,26 @@ getMineSortState = renderSortToolbar('mineSortToolbar', loadMine, { searchPlaceh
 // current; both only touch #cards/#rows, never the open entry form itself.
 pollEvery(loadAvailable, 1000, () => pollBlockedBy('cards'));
 pollEvery(loadMine, 1000, () => pollBlockedBy('rows'));
+
+// Deep link from the Warehouse dashboard tiles: /company/grn-entry.html?po=<id> opens that purchase
+// order's delivery form straight away. Runs once, then the parameter is dropped from the address so a
+// refresh (or Cancel) doesn't keep re-opening it. A PO that is already fully delivered, or isn't this
+// company's, just shows a short note instead of a form.
+(async function openRequestedPo() {
+  const wanted = Number(new URLSearchParams(location.search).get('po'));
+  if (!wanted) return;
+  history.replaceState(null, '', location.pathname);
+  await loadAvailable();
+  const po = lastPending.find(p => p.id === wanted);
+  if (po) { selectPo(po.id, po.requirement_title); return; }
+  const note = document.getElementById('deepLinkNote');
+  const done = allPos.find(p => p.id === wanted);
+  note.textContent = done
+    ? `PO #${wanted} — ${done.requirement_title} has already been fully delivered, so there is nothing left to record.`
+    : `PO #${wanted} was not found among your purchase orders.`;
+  note.style.display = '';
+  setTimeout(() => { note.style.display = 'none'; }, 8000);
+})();
 </script>
 </body>
 </html>

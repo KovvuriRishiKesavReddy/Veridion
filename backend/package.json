@@ -16,7 +16,8 @@
     "test:comms": "node scripts/with-test-db.js node scripts/test-communication-channel.js",
     "test:grn-corrections": "node scripts/with-test-db.js node scripts/test-grn-corrections.js",
     "test:grn-quality": "node scripts/with-test-db.js node scripts/test-grn-quality.js",
-    "test:fraud-fixes": "node scripts/with-test-db.js node scripts/test-fraud-fixes.js"
+    "test:fraud-fixes": "node scripts/with-test-db.js node scripts/test-fraud-fixes.js",
+    "test:vendor-risk": "node scripts/with-test-db.js node scripts/test-vendor-risk-weighting.js"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1149.0",
