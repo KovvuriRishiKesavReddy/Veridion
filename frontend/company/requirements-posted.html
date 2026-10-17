@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Requirements Posted — Veridion</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<link href="/shared/style.css" rel="stylesheet">
+</head>
+<body>
+<div id="navbar-root"></div>
+<div class="container">
+  <h3 class="mb-4">Requirements Posted</h3>
+  <div id="sortToolbar"></div>
+  <div class="d-flex justify-content-between align-items-center mb-2">
+    <h6 class="mb-0">Requirements</h6>
+    <div id="viewToggle"></div>
+  </div>
+  <div class="view-wrap" id="viewWrap">
+  <table class="table table-centered bg-white mb-0 view-table" id="viewTable">
+    <thead id="head"><tr><th>Goods Name</th><th>Quantity</th><th>Posted</th><th>Quotations Received</th><th>Vendor Accepted</th><th>Delivery (days)</th><th>Price Finalised</th></tr></thead>
+    <tbody id="rows"><tr><td colspan="7" class="text-muted">Loading...</td></tr></tbody>
+  </table>
+  </div>
+</div>
+<script src="/shared/api.js"></script>
+<script src="/shared/navbar.js"></script>
+<script src="/shared/seg-toggle.js"></script>
+<script>
+requireLogin(['procurement']);
+let getSortState = () => ({ sortBy: 'newest' });
+let allReqs = [];   // every requirement (after the search/sort box), whatever tab is showing
+let lastHead = null;
+
+// Confirmed = a vendor's quotation has been accepted (shows who, how many days and the finalised
+// price, as frozen on the purchase order). Not Confirmed = still waiting for a vendor to be
+// selected, so no vendor / price details exist or are shown. Same sliding toggle and table swap as
+// the Team page (shared/seg-toggle.js).
+const viewToggle = createViewToggle({
+  mountId: 'viewToggle', wrapId: 'viewWrap', tableId: 'viewTable',
+  views: [{ key: 'confirmed', label: 'Confirmed' }, { key: 'pending', label: 'Not Confirmed' }],
+  initial: 'confirmed',
+  onSwap: () => { lastHead = null; renderReqs(); }
+});
+
+const HEADS = {
+  confirmed: '<tr><th>Goods Name</th><th>Quantity</th><th>Posted</th><th>Quotations Received</th><th>Vendor Accepted</th><th>Delivery (days)</th><th>Price Finalised</th></tr>',
+  pending: '<tr><th>Goods Name</th><th>Quantity</th><th>Posted</th><th>Quotations Received</th><th>Status</th></tr>'
+};
+const EMPTY_MSG = {
+  confirmed: 'No requirement has a vendor selected yet. Once you accept a quotation it appears here with the vendor, delivery days and price.',
+  pending: 'Every requirement you posted has a vendor selected.'
+};
+
+async function load() {
+  const res = await fetchWithAuth('/api/requirements/posted');
+  if (!res) return;
+  const reqs = await res.json();
+  allReqs = sortAndFilterItems(reqs, getSortState(), { dateField: 'created_at', numberField: 'id', searchFields: ['title', 'vendor_name'] });
+  renderReqs();
+}
+
+function renderReqs() {
+  const confirmed = allReqs.filter(r => r.confirmed);
+  const pending = allReqs.filter(r => !r.confirmed);
+  viewToggle.setCounts({ confirmed: confirmed.length, pending: pending.length });
+  // Never write rows while the table is fading out for a view switch.
+  if (viewToggle.isSwapping()) return;
+  const view = viewToggle.getView();
+  const list = view === 'confirmed' ? confirmed : pending;
+  const cols = view === 'confirmed' ? 7 : 5;
+  if (lastHead !== view) { lastHead = view; document.getElementById('head').innerHTML = HEADS[view]; }
+  const rows = document.getElementById('rows');
+  if (!list.length) { setHtmlPreserving(rows, `<tr><td colspan="${cols}" class="text-muted">${allReqs.length ? EMPTY_MSG[view] : 'No requirements posted yet.'}</td></tr>`); return; }
+  // Goods, quantity, posted date and quotations received are shown on both tabs; the vendor,
+  // delivery days and price only exist (and are only shown) once a vendor has been selected.
+  const common = r => `
+      <td>${escapeHtml(r.title)}</td>
+      <td>${qtyWithUnit(r.quantity, r.unit)}</td>
+      <td>${new Date(r.created_at).toLocaleDateString()}</td>
+      <td>${r.quotations_received ?? '—'}</td>`; // '—' only if the backend is an older version that doesn't send the count (restart it)
+  setHtmlPreserving(rows, list.map(r => view === 'confirmed' ? `
+    <tr>${common(r)}
+      <td>${escapeHtml(r.vendor_name)}</td>
+      <td>${r.delivery_days}</td>
+      <td>₹${Number(r.agreed_price).toLocaleString('en-IN')}</td>
+    </tr>` : `
+    <tr>${common(r)}
+      <td><span class="badge status-badge ${statusBadgeClass(r.status)}">${r.status === 'open' ? 'Awaiting vendor selection' : escapeHtml(r.status)}</span></td>
+    </tr>`).join(''));
+}
+
+getSortState = renderSortToolbar('sortToolbar', load, {
+  searchPlaceholder: 'Search by goods or vendor...',
+  sortOptions: [
+    { value: 'text:title', label: 'Goods: A → Z' },
+    { value: 'text:vendor_name', label: 'Vendor: A → Z' }
+  ]
+});
+// Poll every second so a quotation being accepted moves its requirement to Confirmed live.
+pollEvery(load, 1000, () => pollBlockedBy('rows'));
+</script>
+</body>
+</html>

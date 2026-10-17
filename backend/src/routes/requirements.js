@@ -57,6 +57,31 @@ router.get('/mine', requireAuth, requireRole('procurement', 'finance'), async (r
   res.json(result.rows);
 });
 
+// GET /api/requirements/posted (procurement) — the "Requirements Posted" overview: every requirement
+// the company has posted, and for the ones where a vendor has been selected, who was accepted, the
+// delivery days that were negotiated and the finalised price (all frozen on the purchase order the
+// moment the quotation was accepted). Every row also carries the quantity, the posted date and how
+// many quotations vendors have submitted for it (all statuses). Requirements nobody has been selected for yet come back with
+// those fields null: the page deliberately shows no vendor / price details for them. Read-only; it
+// never changes anything and uses the same company scoping as /mine.
+router.get('/posted', requireAuth, requireRole('procurement'), async (req, res) => {
+  const result = await db.query(
+    `SELECT r.id, r.title, r.quantity, r.unit, r.status, r.created_at,
+            (SELECT COUNT(*)::int FROM quotations qc WHERE qc.requirement_id = r.id) AS quotations_received,
+            po.id AS po_id, po.agreed_price, q.delivery_days, v.company_name AS vendor_name
+     FROM requirements r
+     LEFT JOIN LATERAL (
+       SELECT * FROM purchase_orders p WHERE p.requirement_id = r.id ORDER BY p.id DESC LIMIT 1
+     ) po ON true
+     LEFT JOIN quotations q ON q.id = po.quotation_id
+     LEFT JOIN vendors v ON v.id = po.vendor_id
+     WHERE r.company_id = $1
+     ORDER BY r.created_at DESC`,
+    [req.user.company_id]
+  );
+  res.json(result.rows.map(r => ({ ...r, confirmed: r.po_id != null })));
+});
+
 // GET /api/requirements/:id/quotations (procurement) — AI-ranked via the Context Gate
 // (Agent 6). By default recomputes the ranking synchronously against the ai-service —
 // Procurement opening this page wants the current ranking, not a stale one. Pass

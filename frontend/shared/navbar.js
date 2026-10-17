@@ -34,6 +34,7 @@ const DOCK_ICONS = {
   'Team': 'bi-people',
   'Company Profile': 'bi-building',
   'Post Requirement': 'bi-plus-square',
+  'Requirements Posted': 'bi-card-checklist',
   'Quotations': 'bi-file-earmark-text',
   'GRN Documents': 'bi-clipboard-check',
   'GRN Corrections': 'bi-clipboard2-x',
@@ -130,6 +131,7 @@ function renderNavbar() {
     procurement: [
       ['/company/dashboard.html', 'Dashboard'],
       ['/company/post-requirement.html', 'Post Requirement'],
+      ['/company/requirements-posted.html', 'Requirements Posted'],
       ['/company/quotation-comparison.html', 'Quotations'],
       ['/company/purchase-orders.html', 'Purchase Orders'],
       ['/company/grn-documents.html', 'GRN Documents'],
