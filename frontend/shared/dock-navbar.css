@@ -408,3 +408,24 @@ body.has-dock-nav { padding-top: 84px; }
    benefit — see the delivery notes for why this was left out rather than
    built speculatively.
    --------------------------------------------------------------------------- */
+
+/* ---------------------------------------------------------------------------
+   Logged-out navbar (login / register / accept-invite): brand only, so it can afford to be a
+   broad, fully rounded pill. Only applies to .dock-public; the signed-in icon dock is untouched.
+   --------------------------------------------------------------------------- */
+.dock-wrap.dock-public { width: min(880px, 94vw); top: 12px; }
+.dock-public .dock-panel { min-width: 0; width: 100%; padding: 9px 24px; border-radius: 999px; }
+.dock-public .dock-brand { gap: 10px; padding: 0; font-size: 1.25rem; letter-spacing: 1.2px; }
+.dock-public .dock-brand .dock-mark { width: 34px; height: 34px; border-radius: 12px; font-size: 1.05rem; }
+body.has-dock-public { padding-top: 78px; }
+/* Registration pages (wider card): a broader pill to match. */
+body:has(.auth-container.auth-wide) .dock-wrap.dock-public { width: min(1040px, 94vw); }
+@media (max-width: 640px) {
+  .dock-wrap.dock-public { top: 10px; }
+  .dock-public .dock-panel { padding: 9px 16px; }
+  .dock-public .dock-brand { font-size: 1.1rem; }
+  .dock-public .dock-brand .dock-mark { width: 32px; height: 32px; font-size: 1rem; }
+  /* the signed-in dock hides the word on phones to save room; the logged-out pill has room, keep it */
+  .dock-public .dock-brand span.dock-label { display: inline; }
+  body.has-dock-public { padding-top: 76px; }
+}

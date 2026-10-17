@@ -100,12 +100,17 @@ function renderNavbar() {
   const user = getUser();
 
   if (!user) {
+    // Logged-out pages (login / register / accept-invite) show just the brand: a wider, larger pill
+    // (dock-public) than the icon dock used once you are signed in.
+    document.body.classList.add('has-dock-public');
     root.innerHTML = `
-      <div class="dock-wrap" id="dockNav">
+      <div class="dock-wrap dock-public" id="dockNav">
         <div class="dock-panel">
           <div class="dock-brand"><span class="dock-mark">V</span><span class="dock-label">VERIDION</span></div>
         </div>
       </div>`;
+    // Long pages (registration): the pill slides away while scrolling down and returns on scroll up.
+    initDockScrollHide();
     return;
   }
 
