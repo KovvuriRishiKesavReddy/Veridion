@@ -288,8 +288,12 @@ async function notificationFor(poId, waitForStatusNot = 'queued') {
   const fs = require('fs');
   const prof = fs.readFileSync(path.join(__dirname, '../../frontend/vendor/profile.html'), 'utf8');
   const regHtml = fs.readFileSync(path.join(__dirname, '../../frontend/vendor/register.html'), 'utf8');
-  check('profile.html calls /api/vendors/me/notifications', prof.includes('/api/vendors/me/notifications'));
-  check('register.html sends preferred_notification_channel', regHtml.includes("fd.append('preferred_notification_channel'"));
+  // The profile page no longer has a notification-channel setting (vendors are notified in-app); the server still
+  // accepts/validates the field above, so existing vendors and API clients are unaffected.
+  check('profile.html no longer has the notification channel setting', !prof.includes('preferred_notification_channel') && !prof.includes('Notification Channel'));
+  // The sign-up form no longer asks about a notification channel (the server defaults new vendors to 'sms'
+  // -- checked above -- and they can still change it later on their profile page).
+  check('register.html no longer asks for a notification channel', !regHtml.includes('preferred_notification_channel') && !regHtml.includes('notify you when a quotation is accepted'));
   const page = await fetch(BASE + '/vendor/profile.html');
   check('profile page served by backend', page.status === 200);
 
