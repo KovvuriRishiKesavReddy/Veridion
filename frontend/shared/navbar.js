@@ -342,8 +342,22 @@ function startGrnCorrectionNotifications() {
 }
 
 
+// Simple centred footer on every app page (green gradient, pinned to the bottom of
+// the viewport on short pages via body.has-site-footer's flex column in style.css).
+// index.html has its own richer footer and does not load this file.
+function renderSiteFooter() {
+  if (document.getElementById('siteFooter')) return;
+  const footer = document.createElement('footer');
+  footer.id = 'siteFooter';
+  footer.className = 'site-footer';
+  footer.innerHTML = `<span>\u00A9 ${new Date().getFullYear()} Veridion. All rights reserved to Veridion.</span>`;
+  document.body.classList.add('has-site-footer');
+  document.body.appendChild(footer);
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   renderNavbar();
+  renderSiteFooter();
   enforceVendorVerification();
   enforceCompanyApproval();
   startVendorNotifications();

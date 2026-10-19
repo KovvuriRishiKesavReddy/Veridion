@@ -191,12 +191,18 @@ p.section-lead { color: var(--ink-dim); font-size: 16px; line-height:1.7; max-wi
 .cta-band { text-align:center; padding: 90px 7% 60px; }
 .cta-band h2 { font-size: clamp(28px, 3.6vw, 46px); letter-spacing:-1px; margin: 0 0 16px; }
 .cta-band p { color: var(--ink-dim); margin: 0 0 34px; }
-footer { border-top: 1px solid var(--line); padding: 44px 7% 30px; color: var(--ink-dim); font-size: 0.85rem; }
-.footer-grid { display:flex; justify-content: space-between; flex-wrap: wrap; gap: 30px; max-width: 1280px; margin: 0 auto 30px; }
-footer h5 { color:#eafff2; font-size: 0.82rem; margin: 0 0 12px; }
-footer a { color: var(--ink-dim); text-decoration:none; display:block; margin-bottom: 7px; font-size: 0.84rem; }
-footer a:hover { color: var(--mint-soft); }
-footer .copyright { max-width: 1280px; margin: 0 auto; padding-top: 20px; border-top: 1px solid var(--line); font-size: 0.78rem; }
+footer { position: relative; z-index: 2; margin-top: 60px; padding: 56px 7% 0; color: #d7f5e3; font-size: 0.85rem;
+  background: linear-gradient(135deg, #0b3d20 0%, #14532d 35%, #1f9d55 72%, #4ade80 100%); }
+.footer-grid { display:grid; grid-template-columns: 1.6fr 1fr 1fr 1fr; gap: 36px; max-width: 1280px; margin: 0 auto 36px; }
+@media (max-width: 900px) { .footer-grid { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 560px) { .footer-grid { grid-template-columns: 1fr; } }
+footer h5 { color:#fff; font-size: 0.9rem; letter-spacing: 0.4px; margin: 0 0 14px; }
+footer a { color: #d7f5e3; text-decoration:none; display:block; margin-bottom: 9px; font-size: 0.88rem; opacity: 0.9; }
+footer a:hover { color: #fff; opacity: 1; }
+footer .foot-text { color:#d7f5e3; font-size: 0.88rem; line-height: 1.65; margin: 0 0 8px; }
+footer .foot-chips { display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; }
+footer .foot-chips span { border:1px solid rgba(255,255,255,0.35); border-radius:999px; padding:5px 12px; font-size:0.76rem; color:#fff; background:rgba(255,255,255,0.08); }
+footer .copyright { margin: 0 -7.5%; padding: 22px 7%; text-align:center; font-size: 1rem; color:#fff; background: rgba(0,0,0,0.18); }
 </style>
 </head>
 <body>
@@ -335,15 +341,30 @@ final_score&#9;= &#931;(gate_weight_i &#215; agent_verdict_score_i)</div>
 
 <footer>
   <div class="footer-grid">
-    <div style="max-width:280px;">
-      <div class="dock-brand" style="margin-bottom:10px;"><span class="mark">V</span>VERIDION</div>
-      <p style="color:var(--ink-dim); font-size:0.84rem; line-height:1.6;">Enterprise agentic AI for vendor &amp; procurement management — confidence-weighted decisions, explained in plain English.</p>
+    <div>
+      <div class="dock-brand" style="margin-bottom:12px;"><span class="mark">V</span>VERIDION</div>
+      <p class="foot-text">Enterprise agentic AI for vendor &amp; procurement management — eight specialised agents, one confidence-weighted Context Gate, every decision explained in plain English.</p>
+      <div class="foot-chips"><span>OCR</span><span>GST compliance</span><span>Fraud graph</span><span>Vendor risk</span><span>Explainable AI</span></div>
     </div>
-    <div><h5>Platform</h5><a href="#platform">How it works</a><a href="#agents">AI agents</a><a href="#gate">Context Gate</a><a href="#workflow">Workflow</a></div>
-    <div><h5>Account</h5><a href="/login.html">Log in</a><a href="/company/register.html">Register a company</a><a href="/vendor/register.html">Register as vendor</a></div>
+    <div>
+      <h5>Platform</h5>
+      <a href="#platform">How it works</a><a href="#agents">The 8 AI agents</a><a href="#gate">Context Gate</a><a href="#workflow">End-to-end workflow</a>
+    </div>
+    <div>
+      <h5>Built for every role</h5>
+      <p class="foot-text">Vendors — register, quote, track payment</p>
+      <p class="foot-text">Procurement — post, rank, accept</p>
+      <p class="foot-text">Warehouse — record deliveries and quality</p>
+      <p class="foot-text">Finance — review and pay with reasoning</p>
+    </div>
+    <div>
+      <h5>Get started</h5>
+      <a href="/login.html">Log in</a><a href="/company/register.html">Register a company</a><a href="/vendor/register.html">Register as a vendor</a>
+    </div>
   </div>
-  <div class="copyright">© 2026 Veridion. Built for procurement teams who want to know why, not just what.</div>
+  <div class="copyright">© <span id="footYear">2026</span> Veridion. All rights reserved to Veridion.</div>
 </footer>
+<script>document.getElementById('footYear').textContent = new Date().getFullYear();</script>
 
 <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
 <script>

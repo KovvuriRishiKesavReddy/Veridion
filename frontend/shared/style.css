@@ -776,3 +776,30 @@ body.has-dock-nav > .container.auth-container.auth-wide { max-width: 800px; }
 .thread-x { position: absolute; top: 8px; right: 12px; border: 0; background: transparent; font-size: 1.6rem; line-height: 1; color: #6c757d; cursor: pointer; }
 .thread-x:hover { color: #111; }
 .thread-head-main { padding-right: 28px; }
+
+
+/* ============================================================================
+   Site footer — green gradient (dark to bright, like the Zyva footer but green),
+   centred copyright line. Injected by shared/navbar.js on every app page.
+   body.has-site-footer is a flex column so the footer sits at the very bottom of
+   the viewport even when the page content is short (margin-top:auto).
+   ============================================================================ */
+/* min-height is one viewport PLUS the footer's height, so on a short page the footer is
+   pushed just below the fold and only appears once the user scrolls to the very bottom. */
+body.has-site-footer { --site-footer-h: 60px; display: flex; flex-direction: column; min-height: calc(100vh + var(--site-footer-h)); }
+body.has-site-footer > * { flex-shrink: 0; }
+.site-footer {
+  margin-top: auto;
+  width: 100%;
+  height: var(--site-footer-h, 60px);
+  display: flex; align-items: center; justify-content: center;
+  padding: 0 1rem;
+  text-align: center;
+  color: #fff;
+  font-size: 0.95rem;
+  letter-spacing: 0.01em;
+  background: linear-gradient(135deg, #0b3d20 0%, #14532d 35%, #1f9d55 70%, #4ade80 100%);
+  position: relative;
+  z-index: 1;
+}
+body.has-site-footer > .container { margin-bottom: 2rem; }
