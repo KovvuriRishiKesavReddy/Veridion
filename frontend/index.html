@@ -118,11 +118,11 @@ body {
 @media (max-width: 820px) { .dock-links { display:none; } }
 
 /* ---------------------------------------------------------------------------
-   Hover Border Gradient buttons — green ring, expands on hover
+  Hover Border Gradient buttons — green ring, expands on hover
    --------------------------------------------------------------------------- */
 .hbg { position:relative; isolation:isolate; border-radius:999px; padding:2px; overflow:hidden; display:inline-block; }
 .hbg::before { content:''; position:absolute; inset:-60%; z-index:-1; background: conic-gradient(from 0deg, #14532d, #22c55e, #6ee7b7, #14532d); opacity:0; transition:opacity .35s ease; animation: hbg-spin 4s linear infinite paused; }
-.hbg:hover::before, .hbg:focus-within::before { opacity:1; animation-play-state running; }
+.hbg:hover::before, .hbg:focus-within::before { opacity:1; animation-play-state: running; }
 @keyframes hbg-spin { to { transform:rotate(360deg); } }
 .hbg .hbg-core { position:relative; z-index:1; display:inline-block; border-radius:999px; background:#14532d; color:#eafff2; border:none; padding:13px 26px; font-weight:700; font-size:0.95rem; cursor:pointer; text-decoration:none; transition:background .25s ease, transform .15s ease; }
 .hbg:hover .hbg-core { background:#1a6b3a; }
