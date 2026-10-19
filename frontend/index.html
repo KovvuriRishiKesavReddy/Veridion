@@ -89,18 +89,29 @@ body {
 .dock-wrap.dock-hidden { transform: translateX(-50%) translateY(-140%); opacity: 0; }
 .dock-panel {
   display: flex; align-items: center; justify-content: space-between; gap: 14px;
-  padding: 10px 16px; border-radius: 22px;
-  background: linear-gradient(135deg, rgba(6, 32, 15, 0.85), rgba(20, 83, 45, 0.5));
-  backdrop-filter: blur(20px) saturate(160%); -webkit-backdrop-filter: blur(20px) saturate(160%);
-  border: 1px solid var(--line);
-  box-shadow: 0 20px 45px -12px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.08), 0 0 32px rgba(74,222,128,0.14);
-  position: relative; overflow: hidden;
+  padding: 11px 20px; border-radius: 44px;
+  background: linear-gradient(135deg, rgba(255,255,255,0.14) 0%, rgba(110,231,183,0.07) 45%, rgba(20,83,45,0.28) 100%);
+  backdrop-filter: blur(28px) saturate(190%) brightness(1.08); -webkit-backdrop-filter: blur(28px) saturate(190%) brightness(1.08);
+  border: 1px solid rgba(255,255,255,0.22);
+  box-shadow: 0 24px 50px -14px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.35), inset 0 -1px 0 rgba(255,255,255,0.06), 0 0 38px rgba(74,222,128,0.18);
+  position: relative; overflow: visible;
 }
-.dock-panel::before { content:''; position:absolute; inset:0; background: linear-gradient(180deg, rgba(255,255,255,0.07), transparent 55%); pointer-events:none; }
+.dock-panel::after { content:''; position:absolute; inset:0; border-radius:inherit; pointer-events:none;
+  background: linear-gradient(105deg, transparent 38%, rgba(255,255,255,0.14) 50%, transparent 62%); background-size: 260% 100%; background-position: 160% 0; animation: dock-sheen 7s ease-in-out infinite; }
+@keyframes dock-sheen { 0%, 65% { background-position: 160% 0; } 100% { background-position: -60% 0; } }
+.reg-menu { position: relative; }
+.reg-drop { position:absolute; top:100%; right:0; padding-top:14px; width:270px; opacity:0; visibility:hidden; transform:translateY(-6px); transition: opacity .2s ease, transform .2s ease, visibility .2s; z-index:60; }
+.reg-menu:hover .reg-drop, .reg-menu:focus-within .reg-drop, .reg-menu.open .reg-drop { opacity:1; visibility:visible; transform:none; }
+.reg-drop-box { border-radius:22px; padding:8px; background: linear-gradient(150deg, rgba(8,40,20,0.97), rgba(20,83,45,0.95)); border:1px solid rgba(255,255,255,0.2); box-shadow: 0 22px 44px -12px rgba(0,0,0,0.65), inset 0 1px 0 rgba(255,255,255,0.25); }
+.reg-drop-box a { display:block; padding:12px 14px; border-radius:16px; color:#eafff2; text-decoration:none; transition: background .2s ease; }
+.reg-drop-box a:hover { background: rgba(110,231,183,0.16); }
+.reg-drop-box b { display:block; font-size:0.92rem; }
+.reg-drop-box small { display:block; margin-top:2px; font-size:0.75rem; color: var(--ink-dim); line-height:1.4; }
+.dock-panel::before { content:''; position:absolute; inset:0; border-radius:inherit; background: linear-gradient(180deg, rgba(255,255,255,0.16), transparent 50%); pointer-events:none; }
 .dock-brand { display:flex; align-items:center; gap:9px; font-weight:800; letter-spacing:0.5px; white-space:nowrap; z-index:1; }
 .dock-brand .mark { width:28px; height:28px; display:grid; place-items:center; border-radius:8px; background:linear-gradient(135deg,#22c55e,#14532d); box-shadow:0 0 14px rgba(74,222,128,0.4); font-size:0.85rem; }
 .dock-links { display:flex; align-items:center; gap:2px; z-index:1; }
-.dock-links a { color:#d7f5e3; text-decoration:none; font-size:0.85rem; padding:9px 14px; border-radius:12px; transition:background .2s ease, color .2s ease; }
+.dock-links a { color:#d7f5e3; text-decoration:none; font-size:0.85rem; padding:9px 14px; border-radius:999px; transition:background .2s ease, color .2s ease; }
 .dock-links a:hover { background: rgba(110,231,183,0.14); color:#eafff2; }
 .dock-actions { display:flex; align-items:center; gap:8px; z-index:1; }
 .dock-actions a.login-link { color:#d7f5e3; text-decoration:none; font-size:0.85rem; padding:8px 14px; }
@@ -109,11 +120,11 @@ body {
 /* ---------------------------------------------------------------------------
    Hover Border Gradient buttons — green ring, expands on hover
    --------------------------------------------------------------------------- */
-.hbg { position:relative; isolation:isolate; border-radius:14px; padding:2px; overflow:hidden; display:inline-block; }
+.hbg { position:relative; isolation:isolate; border-radius:999px; padding:2px; overflow:hidden; display:inline-block; }
 .hbg::before { content:''; position:absolute; inset:-60%; z-index:-1; background: conic-gradient(from 0deg, #14532d, #22c55e, #6ee7b7, #14532d); opacity:0; transition:opacity .35s ease; animation: hbg-spin 4s linear infinite paused; }
 .hbg:hover::before, .hbg:focus-within::before { opacity:1; animation-play-state running; }
 @keyframes hbg-spin { to { transform:rotate(360deg); } }
-.hbg .hbg-core { position:relative; z-index:1; display:inline-block; border-radius:12px; background:#14532d; color:#eafff2; border:none; padding:13px 26px; font-weight:700; font-size:0.95rem; cursor:pointer; text-decoration:none; transition:background .25s ease, transform .15s ease; }
+.hbg .hbg-core { position:relative; z-index:1; display:inline-block; border-radius:999px; background:#14532d; color:#eafff2; border:none; padding:13px 26px; font-weight:700; font-size:0.95rem; cursor:pointer; text-decoration:none; transition:background .25s ease, transform .15s ease; }
 .hbg:hover .hbg-core { background:#1a6b3a; }
 .hbg:active .hbg-core { transform:scale(0.97); }
 .hbg.hbg-ghost .hbg-core { background: rgba(255,255,255,0.04); color:#eafff2; }
@@ -135,11 +146,12 @@ p.section-lead { color: var(--ink-dim); font-size: 16px; line-height:1.7; max-wi
    Hero
    --------------------------------------------------------------------------- */
 #globe { position: fixed; inset: 0; z-index: 1; }
-.hero { min-height: 100vh; display:flex; align-items:center; padding-top: 90px; }
+.hero { min-height: 100vh; display:flex; align-items:center; padding-top: 100px; padding-bottom: 70px; }
 .hero-inner { width: min(600px, 46%); }
-.hero h1 { font-size: clamp(42px, 5vw, 68px); line-height: 1.02; letter-spacing:-2.5px; margin: 0 0 22px;
+.hero h1 { font-size: clamp(42px, 5vw, 68px); line-height: 0.98; letter-spacing:-2.5px; margin: 0 0 14px;
   background: linear-gradient(105deg, #eafff2 10%, #a7f3d0 55%, #6ee7b7 90%); -webkit-background-clip:text; background-clip:text; color:transparent; }
-.hero p.sub { color: var(--ink-dim); font-size: 17.5px; line-height: 1.75; max-width: 520px; margin: 0 0 34px; }
+.hero p.sub { color: var(--ink-dim); font-size: 17.5px; line-height: 1.6; max-width: 520px; margin: 0 0 20px; }
+.hero .eyebrow { margin-bottom: 14px; }
 .hero .cta-row { display:flex; gap: 14px; flex-wrap: wrap; }
 .hero .stats { display:flex; gap: 34px; margin-top: 56px; }
 .hero .stats div b { display:block; font-size: 1.5rem; color:#eafff2; }
@@ -203,6 +215,34 @@ footer .foot-text { color:#d7f5e3; font-size: 0.88rem; line-height: 1.65; margin
 footer .foot-chips { display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; }
 footer .foot-chips span { border:1px solid rgba(255,255,255,0.35); border-radius:999px; padding:5px 12px; font-size:0.76rem; color:#fff; background:rgba(255,255,255,0.08); }
 footer .copyright { margin: 0 -7.5%; padding: 22px 7%; text-align:center; font-size: 1rem; color:#fff; background: rgba(0,0,0,0.18); }
+
+/* ---- Polish: reveal-on-scroll, hero decision card, stat strip, comparison ---- */
+.reveal { opacity:0; transform:translateY(26px); transition: opacity .7s ease, transform .7s cubic-bezier(.22,1,.36,1); transition-delay: var(--d, 0s); }
+.reveal.in { opacity:1; transform:none; }
+.agent-card { position:relative; overflow:hidden; }
+.agent-card::before { content:''; position:absolute; inset:0 0 auto 0; height:2px; background:linear-gradient(90deg,transparent,var(--mint),transparent); opacity:0; transition:opacity .3s; }
+.agent-card:hover::before { opacity:1; }
+.agent-card:hover { box-shadow: 0 18px 40px -18px rgba(74,222,128,.35); }
+.gate-section .fill { transition: width 1.2s cubic-bezier(.22,1,.36,1) .2s; }
+.gate-section:not(.in) .fill { width:0 !important; }
+.flow-step { transition: transform .25s ease, border-color .25s ease; }
+.flow-step:hover { transform: translateY(-4px); border-color: rgba(110,231,183,.4); }
+.stat-strip { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; padding:20px 7% 0; max-width:1280px; margin:0 auto; position:relative; }
+.stat-strip div { border:1px solid var(--line); border-radius:18px; padding:22px 18px; text-align:center; background:linear-gradient(160deg, rgba(20,83,45,.25), rgba(6,32,15,.45)); }
+.stat-strip b { display:block; font-size:2.2rem; letter-spacing:-1px; background:linear-gradient(105deg,#eafff2,#6ee7b7); -webkit-background-clip:text; background-clip:text; color:transparent; }
+.stat-strip span { font-size:.82rem; color:var(--ink-dim); }
+@media (max-width: 700px) { .stat-strip { grid-template-columns:repeat(2,1fr); } }
+.compare { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+@media (max-width: 800px) { .compare { grid-template-columns:1fr; } }
+.compare .col { border:1px solid var(--line); border-radius:20px; padding:26px; background:rgba(255,255,255,.02); }
+.compare .col.good { border-color:rgba(110,231,183,.35); background:linear-gradient(160deg, rgba(20,83,45,.3), rgba(6,32,15,.5)); box-shadow:0 0 40px -14px rgba(74,222,128,.3); }
+.compare h3 { margin:0 0 16px; font-size:1.05rem; }
+.compare ul { list-style:none; margin:0; padding:0; }
+.compare li { padding:9px 0 9px 26px; position:relative; color:var(--ink-dim); font-size:.9rem; line-height:1.5; border-bottom:1px solid var(--line); }
+.compare li:last-child { border-bottom:0; }
+.compare li::before { position:absolute; left:0; top:9px; font-weight:800; }
+.compare .bad li::before { content:'\2715'; color:#f87171; }
+.compare .good li::before { content:'\2713'; color:var(--mint); }
 </style>
 </head>
 <body>
@@ -224,7 +264,13 @@ footer .copyright { margin: 0 -7.5%; padding: 22px 7%; text-align:center; font-s
     </nav>
     <div class="dock-actions">
       <a class="login-link" href="/login.html">Log in</a>
-      <span class="hbg hbg-amber"><a class="hbg-core" href="/company/register.html">Register</a></span>
+      <div class="reg-menu" id="regMenu">
+        <span class="hbg hbg-amber"><a class="hbg-core" href="#" id="regBtn" aria-haspopup="true">Register &#9662;</a></span>
+        <div class="reg-drop"><div class="reg-drop-box">
+          <a href="/company/register.html"><b>As a company</b><small>Post requirements, rank quotes, review and pay invoices</small></a>
+          <a href="/vendor/register.html"><b>As a vendor</b><small>Quote on requirements, track deliveries and payments</small></a>
+        </div></div>
+      </div>
     </div>
   </div>
 </div>
@@ -241,13 +287,16 @@ footer .copyright { margin: 0 -7.5%; padding: 22px 7%; text-align:center; font-s
         <span class="hbg hbg-amber"><a class="hbg-core" href="/company/register.html">Register your company →</a></span>
         <span class="hbg hbg-ghost"><a class="hbg-core" href="/vendor/register.html">Register as a vendor</a></span>
       </div>
-      <div class="stats">
-        <div><b>8</b><span>specialised AI agents</span></div>
-        <div><b>4</b><span>signals fused per decision</span></div>
-        <div><b>1</b><span>formula, fully explainable</span></div>
-      </div>
     </div>
+
   </section>
+
+  <div class="stat-strip">
+    <div class="reveal"><b data-count="8">8</b><span>specialised AI agents</span></div>
+    <div class="reveal" style="--d:.08s"><b data-count="4">4</b><span>signals fused per decision</span></div>
+    <div class="reveal" style="--d:.16s"><b data-count="7">7</b><span>steps, requirement to payment</span></div>
+    <div class="reveal" style="--d:.24s"><b>100%</b><span>of decisions explained</span></div>
+  </div>
 
   <!-- ============================= PLATFORM ============================= -->
   <section id="platform">
@@ -327,6 +376,25 @@ final_score&#9;= &#931;(gate_weight_i &#215; agent_verdict_score_i)</div>
     </div>
   </section>
 
+  <!-- ============================= COMPARE ============================= -->
+  <section id="why" style="padding-top:60px;">
+    <div class="eyebrow">Why Veridion</div>
+    <h2 class="section-title">Stop approving invoices on faith.</h2>
+    <p class="section-lead">Manual three-way matching is slow and opaque. Veridion keeps people in charge and shows its work.</p>
+    <div class="compare">
+      <div class="col bad reveal"><h3>Approving by hand</h3><ul>
+        <li>Invoices re-keyed and checked against paper POs</li>
+        <li>Partial deliveries and GST errors slip through</li>
+        <li>Duplicate bank accounts and split invoices go unnoticed</li>
+        <li>A pass/fail stamp with no reasoning behind it</li></ul></div>
+      <div class="col good reveal" style="--d:.1s"><h3>With Veridion</h3><ul>
+        <li>OCR reads the invoice and matches it to what was actually received</li>
+        <li>GST recalculated independently at today's rate</li>
+        <li>Fraud graph spots shared accounts and threshold-dodging</li>
+        <li>A confidence score and a plain-English reason, every time</li></ul></div>
+    </div>
+  </section>
+
   <!-- ============================= CTA ============================= -->
   <section class="cta-band">
     <h2>See the reasoning behind every decision.</h2>
@@ -366,6 +434,29 @@ final_score&#9;= &#931;(gate_weight_i &#215; agent_verdict_score_i)</div>
 </footer>
 <script>document.getElementById('footYear').textContent = new Date().getFullYear();</script>
 
+<script>
+/* Reveal-on-scroll, count-up numbers, gate bars fill when visible */
+(function () {
+  const auto = document.querySelectorAll('.agent-card, .flow-step, .gate-section, section > .eyebrow, section > h2, section > .section-lead, .cta-band > *');
+  auto.forEach((el, i) => { el.classList.add('reveal'); el.style.setProperty('--d', ((i % 4) * 0.07) + 's'); });
+  const io = new IntersectionObserver((entries) => {
+    entries.forEach(e => {
+      if (!e.isIntersecting) return;
+      e.target.classList.add('in'); io.unobserve(e.target);
+      const n = e.target.querySelector('[data-count]');
+      if (n) { const to = +n.dataset.count; let v = 0; const t = setInterval(() => { v++; n.textContent = v; if (v >= to) clearInterval(t); }, 90); n.textContent = 0; }
+    });
+  }, { threshold: 0.15 });
+  document.querySelectorAll('.reveal').forEach(el => io.observe(el));
+})();
+</script>
+<script>
+(function () {
+  const m = document.getElementById('regMenu'), b = document.getElementById('regBtn');
+  b.addEventListener('click', e => { e.preventDefault(); m.classList.toggle('open'); });
+  document.addEventListener('click', e => { if (!m.contains(e.target)) m.classList.remove('open'); });
+})();
+</script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
 <script>
 /* ============================================================================
@@ -429,6 +520,22 @@ document.addEventListener('mousemove', (e) => {
   }, { passive: true });
 })();
 
+(function globeFade() {
+  const g = document.getElementById('globe');
+  function update() {
+    const max = document.documentElement.scrollHeight - innerHeight;
+    const p = max > 0 ? scrollY / max : 0;
+    const t = Math.min(1, Math.max(0, (p - 0.4) / 0.5));
+    const e = t * t * (3 - 2 * t);
+    g.style.opacity = (1 - e).toFixed(3);
+    g.style.transform = 'scale(' + (1 - 0.18 * e).toFixed(3) + ') translateY(' + (-50 * e).toFixed(1) + 'px)';
+    globeHidden = e >= 0.99;
+  }
+  window.addEventListener('scroll', update, { passive: true });
+  window.addEventListener('resize', update);
+  update();
+})();
+
 /* ============================================================================
    3D Earth — continuous idle rotation, plus a mouse-follow offset while the
    cursor is anywhere on the page (not just hovering the canvas), inside/near
@@ -445,7 +552,15 @@ if (renderer.outputColorSpace !== undefined) renderer.outputColorSpace = THREE.S
 document.getElementById('globe').appendChild(renderer.domElement);
 
 const group = new THREE.Group();
-group.position.set(1.1, -0.2, 0); // off-center, behind the hero copy on wide screens
+// Anchored to the right edge so roughly 3/4 of the globe is visible and the rest
+// runs off-screen. Recomputed on resize from the camera's visible width.
+const GLOBE_R = 1.7;
+function positionGlobe() {
+  const halfW = 5 * Math.tan((38 / 2) * Math.PI / 180) * camera.aspect;
+  const x = innerWidth < 900 ? 0.6 : halfW - GLOBE_R * 0.9;
+  group.position.set(x, -0.2, 0);
+}
+positionGlobe();
 scene.add(group);
 
 const loader = new THREE.TextureLoader();
@@ -470,10 +585,10 @@ const atmosphereGlow = new THREE.Mesh(
 );
 group.add(atmosphereGlow);
 
-const light = new THREE.DirectionalLight(0xffffff, 2.4);
+const light = new THREE.DirectionalLight(0xffffff, 3.0);
 light.position.set(3, 2, 5);
 scene.add(light);
-scene.add(new THREE.AmbientLight(0x2f6e46, 0.5));
+scene.add(new THREE.AmbientLight(0x6fbf8e, 1.1));
 
 // Office/network markers — a few global hubs, mint-colored to match the brand
 const points = [[40.7128, -74.006], [51.5074, -0.1278], [35.6762, 139.6503], [28.6139, 77.209], [1.3521, 103.8198], [25.2048, 55.2708]];
@@ -519,12 +634,14 @@ addEventListener('mousemove', (e) => {
   targetY = (e.clientY / innerHeight - 0.5) * 0.25;
 });
 addEventListener('resize', () => {
-  camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
+  camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); positionGlobe();
   renderer.setSize(innerWidth, innerHeight);
 });
 
+var globeHidden = false;
 function animate() {
   requestAnimationFrame(animate);
+  if (globeHidden) return;
 
   // Continuous idle rotation, always running — plus a gentle offset toward
   // wherever the cursor currently is, so the globe visibly "looks toward"
