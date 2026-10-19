@@ -13,26 +13,21 @@
   <p class="text-muted">AI-drafted dispute messages for flagged invoices, and verification requests for invoices under fraud review — review, edit if needed, then send to the vendor.</p>
   <div id="sortToolbar"></div>
 
-  <h6 class="mt-4">Pending — needs your review</h6>
-  <div id="pending"><p class="text-muted">Loading...</p></div>
-
-  <h6 class="mt-5">Sent — awaiting resolution</h6>
-  <div id="sentList"><p class="text-muted">Loading...</p></div>
-
-  <h6 class="mt-5">Resolved</h6>
-  <div id="resolvedList"><p class="text-muted">Loading...</p></div>
-
-  <h6 class="mt-5">Finance Accepted</h6>
-  <p class="text-muted small mb-2">Disputes closed automatically because the invoice was paid or auto-approved — nothing further to do, and no effect on the vendor's score.</p>
-  <div id="acceptedList"><p class="text-muted">Loading...</p></div>
-
-  <h6 class="mt-5">Withdrawn by Vendor</h6>
-  <p class="text-muted small mb-2">Disputes closed automatically because the vendor withdrew the invoice.</p>
-  <div id="withdrawnList"><p class="text-muted">Loading...</p></div>
+  <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mt-4 mb-2">
+    <div>
+      <h6 class="mb-0" id="viewTitle">Pending — needs your review</h6>
+      <div class="small text-muted" id="viewCaption"></div>
+    </div>
+    <div id="viewToggle"></div>
+  </div>
+  <div class="view-wrap" id="viewWrap">
+    <div id="list" class="view-cards"><p class="text-muted">Loading...</p></div>
+  </div>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script src="/shared/api.js"></script>
 <script src="/shared/navbar.js"></script>
+<script src="/shared/seg-toggle.js"></script>
 <script>
 requireLogin(['finance']);
 let getSortState = () => ({ sortBy: 'newest' });
@@ -190,33 +185,63 @@ async function loadAll() {
   all.forEach(c => { seenMessageCounts[c.id] = (c.messages || []).filter(m => m.sender_role === 'vendor').length; });
   firstLoad = false;
 
+  allDisputes = all;
+  renderDisputes();
+}
+
+// One list, five tabs. Same sliding toggle and swap as the Team page (shared/seg-toggle.js).
+let allDisputes = [];
+const VIEW_INFO = {
+  pending:   { title: 'Pending — needs your review', caption: '' },
+  sent:      { title: 'Sent — awaiting resolution', caption: '' },
+  resolved:  { title: 'Resolved', caption: '' },
+  accepted:  { title: 'Finance Accepted', caption: "Disputes closed automatically because the invoice was paid or auto-approved — nothing further to do, and no effect on the vendor's score." },
+  withdrawn: { title: 'Withdrawn by Vendor', caption: 'Disputes closed automatically because the vendor withdrew the invoice.' }
+};
+const viewToggle = createViewToggle({
+  mountId: 'viewToggle', wrapId: 'viewWrap', tableId: 'list',
+  views: [{ key: 'pending', label: 'Pending' }, { key: 'sent', label: 'Sent' }, { key: 'resolved', label: 'Resolved' },
+          { key: 'accepted', label: 'Accepted' }, { key: 'withdrawn', label: 'Withdrawn' }],
+  initial: 'pending',
+  onSwap: () => { renderDisputes(); }
+});
+
+function renderDisputes() {
+  const all = allDisputes;
   const pending = all.filter(c => c.status === 'pending_send' && !c.resolved);
   const sent = all.filter(c => c.status === 'sent' && !c.resolved);
   const resolved = all.filter(c => c.resolved && !c.closed_reason);
   const accepted = all.filter(c => c.closed_reason === 'payment' || c.closed_reason === 'verified' || c.closed_reason === 'reputation_only');
   const withdrawn = all.filter(c => c.closed_reason === 'withdrawn');
+  viewToggle.setCounts({ pending: pending.length, sent: sent.length, resolved: resolved.length, accepted: accepted.length, withdrawn: withdrawn.length });
+  // Never write cards while the list is fading out for a view switch.
+  if (viewToggle.isSwapping()) return;
+  const view = viewToggle.getView();
+  document.getElementById('viewTitle').textContent = VIEW_INFO[view].title;
+  document.getElementById('viewCaption').textContent = VIEW_INFO[view].caption;
+  const list = document.getElementById('list');
 
-  setHtmlPreserving(document.getElementById('pending'), pending.length
+  if (view === 'pending') setHtmlPreserving(list, pending.length
     ? pending.map(c => card(c, `
         <span class="hbg hbg-outline d-inline-block"><button class="hbg-core dispute-btn" onclick="withButtonState(this, () => saveEdit(${c.id}))">Save Edit</button></span>
         <span class="hbg d-inline-block"><button class="hbg-core dispute-btn" onclick="withButtonState(this, () => sendDispute(${c.id}))">Send to Vendor</button></span>`)).join('')
     : '<p class="text-muted small">Nothing pending — every flagged invoice has already had its dispute message sent.</p>');
 
-  setHtmlPreserving(document.getElementById('sentList'), sent.length
+  else if (view === 'sent') setHtmlPreserving(list, sent.length
     ? sent.map(c => card(c, `<span class="hbg d-inline-block"><button class="hbg-core dispute-btn" onclick="withButtonState(this, () => resolveDispute(${c.id}))">Mark Resolved</button></span>`)).join('')
     : '<p class="text-muted small">No open disputes waiting on the vendor right now.</p>');
 
-  setHtmlPreserving(document.getElementById('resolvedList'), resolved.length
+  else if (view === 'resolved') setHtmlPreserving(list, resolved.length
     ? resolved.map(c => resolvedCard(c)).join('')
     : '<p class="text-muted small">No resolved disputes yet.</p>');
 
-  setHtmlPreserving(document.getElementById('acceptedList'), accepted.length
+  else if (view === 'accepted') setHtmlPreserving(list, accepted.length
     ? accepted.map(c => closedCard(c, c.closed_reason === 'reputation_only' ? 'Flagged only by the vendor risk score — invoice itself was correct, no dispute needed.' : c.closed_reason === 'verified' ? 'Invoice was verified and auto-approved — dispute closed.' : 'Finance accepted — invoice paid, dispute closed.')).join('')
     : '<p class="text-muted small">None.</p>');
-  setHtmlPreserving(document.getElementById('withdrawnList'), withdrawn.length
+
+  else setHtmlPreserving(list, withdrawn.length
     ? withdrawn.map(c => closedCard(c, 'Vendor withdrew the invoice, dispute closed.')).join('')
     : '<p class="text-muted small">None.</p>');
-
 }
 
 getSortState = renderSortToolbar('sortToolbar', loadAll, {
@@ -230,7 +255,7 @@ getSortState = renderSortToolbar('sortToolbar', loadAll, {
 // response shows up without a manual refresh. Rendering is non-destructive (unchanged
 // data = no DOM change; typed text, focus and scroll position survive a refresh), so the
 // only thing worth pausing for is an active text selection, which a rebuild would clear.
-pollEvery(loadAll, 1000, () => ['pending', 'sentList', 'resolvedList', 'acceptedList', 'withdrawnList'].some(hasSelectionWithin));
+pollEvery(loadAll, 1000, () => hasSelectionWithin('list'));
 </script>
 </body>
 </html>

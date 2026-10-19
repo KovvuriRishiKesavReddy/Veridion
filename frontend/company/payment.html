@@ -13,69 +13,87 @@
   <p class="text-muted">Payment can only be approved once the AI verification pipeline has auto-approved an invoice — that's a hard rule, not just a suggestion. Anything flagged needs review first.</p>
   <div id="sortToolbar"></div>
 
-  <h5 class="mt-4">Ready to Pay <span class="badge bg-success">Auto-Approved</span></h5>
-  <table class="table table-centered bg-white mb-4">
-    <thead><tr><th>Invoice</th><th>Vendor</th><th>Requirement</th><th>Amount to Pay (incl. GST)</th><th>Confidence Score</th><th>Action</th></tr></thead>
-    <tbody id="readyRows"><tr><td colspan="6" class="text-muted">Loading...</td></tr></tbody>
+  <div class="d-flex justify-content-between align-items-center mt-4 mb-2">
+    <div>
+      <h6 class="mb-0" id="viewTitle">Ready to Pay</h6>
+      <div class="small text-muted" id="viewCaption"></div>
+    </div>
+    <div id="viewToggle"></div>
+  </div>
+  <div class="view-wrap" id="viewWrap">
+  <table class="table table-centered bg-white mb-0 view-table" id="viewTable">
+    <thead id="viewHead"></thead>
+    <tbody id="viewRows"><tr><td colspan="6" class="text-muted">Loading...</td></tr></tbody>
   </table>
-
-  <h5>Needs Review Before Payment <span class="badge bg-danger">Flagged</span></h5>
-  <table class="table table-centered bg-white mb-4">
-    <thead><tr><th>Invoice</th><th>Vendor</th><th>Requirement</th><th>Amount to Pay (incl. GST)</th><th>Why Flagged</th><th>Action</th></tr></thead>
-    <tbody id="flaggedRows"><tr><td colspan="6" class="text-muted">Loading...</td></tr></tbody>
-  </table>
-
-  <h5>Already Paid</h5>
-  <table class="table table-centered bg-white">
-    <thead><tr><th>Invoice</th><th>Vendor</th><th>Requirement</th><th>Amount Paid (incl. GST)</th><th>Submitted</th></tr></thead>
-    <tbody id="paidRows"><tr><td colspan="5" class="text-muted">Loading...</td></tr></tbody>
-  </table>
+  </div>
 </div>
 <script src="/shared/api.js"></script>
 <script src="/shared/navbar.js"></script>
+<script src="/shared/seg-toggle.js"></script>
 <script>
 const user = requireLogin(['finance']);
 let getSortState = () => ({ sortBy: 'newest' });
+
+let allInvs = [];   // every invoice (after the search/sort box), whatever tab is showing
+
+// Ready to Pay = auto-approved and unpaid; Needs Review = unpaid but flagged / still being verified;
+// Paid = done. Same sliding toggle and table swap as the Team page (shared/seg-toggle.js).
+const link = i => `<a href="/company/invoice-review.html?id=${i.id}">${i.invoice_number || '#' + i.id}</a>`;
+const VIEWS = {
+  ready: {
+    title: 'Ready to Pay', caption: 'Auto-approved by the AI pipeline — payment can be approved.',
+    head: ['Invoice', 'Vendor', 'Requirement', 'Amount to Pay (incl. GST)', 'Confidence Score', 'Action'],
+    empty: 'Nothing ready to pay right now.',
+    row: i => [link(i), i.vendor_name, i.requirement_title, formatInvoiceTotal(i), i.final_score != null ? Number(i.final_score).toFixed(2) : '—',
+      `<button class="btn btn-sm btn-amber" onclick="approvePay(${i.id})">Approve Payment</button>`]
+  },
+  review: {
+    title: 'Needs Review Before Payment', caption: 'Flagged, or the AI verification is still running.',
+    head: ['Invoice', 'Vendor', 'Requirement', 'Amount to Pay (incl. GST)', 'Why Flagged', 'Action'],
+    empty: 'Nothing needs review right now.',
+    row: i => [link(i), i.vendor_name, i.requirement_title, formatInvoiceTotal(i),
+      `<span class="small">${i.final_decision ? `${i.final_decision} — see review page` : 'AI verification still running'}</span>`,
+      `<a href="/company/invoice-review.html?id=${i.id}" class="btn btn-sm btn-outline-secondary">Review</a>`]
+  },
+  paid: {
+    title: 'Already Paid', caption: 'Invoices Finance has paid.',
+    head: ['Invoice', 'Vendor', 'Requirement', 'Amount Paid (incl. GST)', 'Submitted'],
+    empty: 'No payments made yet.',
+    row: i => [link(i), i.vendor_name, i.requirement_title, formatInvoiceTotal(i), new Date(i.submitted_at).toLocaleDateString()]
+  }
+};
+const viewToggle = createViewToggle({
+  mountId: 'viewToggle', wrapId: 'viewWrap', tableId: 'viewTable',
+  views: [{ key: 'ready', label: 'Ready to Pay' }, { key: 'review', label: 'Needs Review' }, { key: 'paid', label: 'Paid' }],
+  initial: 'ready',
+  onSwap: () => { renderPayments(); }
+});
 
 async function load() {
   const res = await fetchWithAuth('/api/invoices/company');
   if (!res) return;
   let invs = await res.json();
-  invs = sortAndFilterItems(invs, getSortState(), { dateField: 'submitted_at', numberField: 'id', searchFields: ['invoice_number', 'vendor_name', 'requirement_title'] });
+  allInvs = sortAndFilterItems(invs, getSortState(), { dateField: 'submitted_at', numberField: 'id', searchFields: ['invoice_number', 'vendor_name', 'requirement_title'] });
+  renderPayments();
+}
 
-  const unpaid = invs.filter(i => i.status !== 'paid');
-  const ready = unpaid.filter(i => i.final_decision === 'auto_approved');
-  const flagged = unpaid.filter(i => i.final_decision !== 'auto_approved');
-  const paid = invs.filter(i => i.status === 'paid');
-
-  document.getElementById('readyRows').innerHTML = ready.length ? ready.map(i => `
-    <tr>
-      <td><a href="/company/invoice-review.html?id=${i.id}">${i.invoice_number || '#' + i.id}</a></td>
-      <td>${i.vendor_name}</td>
-      <td>${i.requirement_title}</td>
-      <td>${formatInvoiceTotal(i)}</td>
-      <td>${i.final_score != null ? Number(i.final_score).toFixed(2) : '—'}</td>
-      <td><button class="btn btn-sm btn-amber" onclick="approvePay(${i.id})">Approve Payment</button></td>
-    </tr>`).join('') : '<tr><td colspan="6" class="text-muted">Nothing ready to pay right now.</td></tr>';
-
-  document.getElementById('flaggedRows').innerHTML = flagged.length ? flagged.map(i => `
-    <tr>
-      <td><a href="/company/invoice-review.html?id=${i.id}">${i.invoice_number || '#' + i.id}</a></td>
-      <td>${i.vendor_name}</td>
-      <td>${i.requirement_title}</td>
-      <td>${formatInvoiceTotal(i)}</td>
-      <td class="small">${i.final_decision ? `${i.final_decision} — see review page` : 'AI verification still running'}</td>
-      <td><a href="/company/invoice-review.html?id=${i.id}" class="btn btn-sm btn-outline-secondary">Review</a></td>
-    </tr>`).join('') : '<tr><td colspan="6" class="text-muted">Nothing needs review right now.</td></tr>';
-
-  document.getElementById('paidRows').innerHTML = paid.length ? paid.map(i => `
-    <tr>
-      <td><a href="/company/invoice-review.html?id=${i.id}">${i.invoice_number || '#' + i.id}</a></td>
-      <td>${i.vendor_name}</td>
-      <td>${i.requirement_title}</td>
-      <td>${formatInvoiceTotal(i)}</td>
-      <td>${new Date(i.submitted_at).toLocaleDateString()}</td>
-    </tr>`).join('') : '<tr><td colspan="5" class="text-muted">No payments made yet.</td></tr>';
+function renderPayments() {
+  const unpaid = allInvs.filter(i => i.status !== 'paid');
+  const groups = {
+    ready: unpaid.filter(i => i.final_decision === 'auto_approved'),
+    review: unpaid.filter(i => i.final_decision !== 'auto_approved'),
+    paid: allInvs.filter(i => i.status === 'paid')
+  };
+  viewToggle.setCounts({ ready: groups.ready.length, review: groups.review.length, paid: groups.paid.length });
+  // Never write rows while the table is fading out for a view switch.
+  if (viewToggle.isSwapping()) return;
+  const view = viewToggle.getView(), v = VIEWS[view], list = groups[view];
+  document.getElementById('viewTitle').textContent = v.title;
+  document.getElementById('viewCaption').textContent = v.caption;
+  document.getElementById('viewHead').innerHTML = '<tr>' + v.head.map(h => `<th>${h}</th>`).join('') + '</tr>';
+  document.getElementById('viewRows').innerHTML = list.length
+    ? list.map(i => '<tr>' + v.row(i).map(c => `<td>${c}</td>`).join('') + '</tr>').join('')
+    : `<tr><td colspan="${v.head.length}" class="text-muted">${v.empty}</td></tr>`;
 }
 
 async function approvePay(id) {
@@ -96,7 +114,7 @@ getSortState = renderSortToolbar('sortToolbar', load, {
 });
 // Poll every second so an invoice moving between "ready to pay" and "flagged" (or a
 // payment made in another tab) is reflected live.
-pollEvery(load, 1000, () => pollBlockedBy('readyRows', 'flaggedRows', 'paidRows'));
+pollEvery(load, 1000, () => pollBlockedBy('viewRows'));
 </script>
 </body>
 </html>

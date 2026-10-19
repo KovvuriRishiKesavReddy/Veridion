@@ -11,7 +11,13 @@
 <div class="container">
   <h3 class="mb-4">Purchase Orders</h3>
   <div id="sortToolbar"></div>
-  <div id="cards" class="row g-3"></div>
+  <div class="d-flex justify-content-between align-items-center mb-2">
+    <h6 class="mb-0">Purchase Orders</h6>
+    <div id="viewToggle"></div>
+  </div>
+  <div class="view-wrap" id="viewWrap">
+    <div id="cards" class="row g-3 view-cards"></div>
+  </div>
 </div>
 
 <div class="modal fade" id="poModal" tabindex="-1">
@@ -26,10 +32,23 @@
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script src="/shared/api.js"></script>
 <script src="/shared/navbar.js"></script>
+<script src="/shared/seg-toggle.js"></script>
 <script>
 const user = requireLogin(['procurement', 'finance', 'warehouse']);
 let poModal;
 let getSortState = () => ({ sortBy: 'newest' });
+// Pending = not fully delivered yet (partially fulfilled ones keep their own badge); Fulfilled = fully
+// delivered. Same sliding toggle and swap as the Team page (shared/seg-toggle.js).
+const viewToggle = createViewToggle({
+  mountId: 'viewToggle', wrapId: 'viewWrap', tableId: 'cards',
+  views: [{ key: 'pending', label: 'Pending' }, { key: 'fulfilled', label: 'Fulfilled' }],
+  initial: 'pending',
+  onSwap: () => { renderPos(); }
+});
+const EMPTY_MSG = {
+  pending: 'No pending purchase orders.',
+  fulfilled: 'No fulfilled purchase orders yet. An order moves here once everything has been delivered.'
+};
 document.addEventListener('DOMContentLoaded', () => {
   poModal = new bootstrap.Modal(document.getElementById('poModal'));
   getSortState = renderSortToolbar('sortToolbar', load, {
@@ -48,17 +67,25 @@ async function load() {
   const res = await fetchWithAuth('/api/purchase-orders/mine');
   if (!res) return;
   let pos = await res.json();
-  pos = sortAndFilterItems(pos, getSortState(), { dateField: 'created_at', numberField: 'id', searchFields: ['requirement_title', 'vendor_name'] });
+  lastPos = sortAndFilterItems(pos, getSortState(), { dateField: 'created_at', numberField: 'id', searchFields: ['requirement_title', 'vendor_name'] });
+  renderPos();
+}
+
+function renderPos() {
+  const isFulfilled = po => po.fulfillment_status === 'fulfilled';
+  viewToggle.setCounts({ pending: lastPos.filter(po => !isFulfilled(po)).length, fulfilled: lastPos.filter(isFulfilled).length });
+  // Never write cards while the grid is fading out for a view switch.
+  if (viewToggle.isSwapping()) return;
+  const view = viewToggle.getView();
+  const pos = lastPos.filter(po => (view === 'fulfilled') === isFulfilled(po));
   const cards = document.getElementById('cards');
-  if (!pos.length) { cards.innerHTML = '<p class="text-muted">No purchase orders yet.</p>'; return; }
+  if (!pos.length) { setHtmlPreserving(cards, `<p class="text-muted">${lastPos.length ? EMPTY_MSG[view] : 'No purchase orders yet.'}</p>`); return; }
 
   const isWarehouse = user.role === 'warehouse';
   // Post-award, only Warehouse converses with the vendor (logistics). Procurement can open the same
   // thread as read-only history; Finance has no thread (the server refuses it by role), so no button.
   const canMessage = user.role === 'warehouse';
   const canViewThread = user.role === 'procurement';
-  lastPos = pos;
-
   setHtmlPreserving(cards, pos.map(po => `
     <div class="col-md-6">
       <div class="card p-3">

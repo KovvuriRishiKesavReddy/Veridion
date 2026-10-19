@@ -12,24 +12,56 @@
   <h3 class="mb-1">Invoices</h3>
   <p class="text-muted">Every invoice submitted against your purchase orders — vendors can only submit one once a PO is fully delivered, so everything here represents a completed order awaiting payment (or already paid).</p>
   <div id="sortToolbar"></div>
-  <table class="table table-centered bg-white">
+  <div class="d-flex justify-content-between align-items-center mb-2">
+    <h6 class="mb-0">Invoices</h6>
+    <div id="viewToggle"></div>
+  </div>
+  <div class="view-wrap" id="viewWrap">
+  <table class="table table-centered bg-white mb-0 view-table" id="viewTable">
     <thead><tr><th>Invoice #</th><th>Requirement</th><th>Vendor</th><th>Amount</th><th>GST</th><th>Total (incl. GST)</th><th>Status</th><th>Submitted</th><th>Action</th></tr></thead>
     <tbody id="rows"><tr><td colspan="9" class="text-muted">Loading...</td></tr></tbody>
   </table>
+  </div>
 </div>
 <script src="/shared/api.js"></script>
 <script src="/shared/navbar.js"></script>
+<script src="/shared/seg-toggle.js"></script>
 <script>
 const user = requireLogin(['finance']);
 let getSortState = () => ({ sortBy: 'newest' });
+let allInvs = [];   // every invoice (after the search/sort box), whatever tab is showing
+
+// "In Decision" = anything not paid yet; "Paid" = Finance has paid it. Same sliding toggle and table
+// swap as the Team page (shared/seg-toggle.js).
+const viewToggle = createViewToggle({
+  mountId: 'viewToggle', wrapId: 'viewWrap', tableId: 'viewTable',
+  views: [{ key: 'decision', label: 'In Decision' }, { key: 'paid', label: 'Paid' }],
+  initial: 'decision',
+  onSwap: () => { renderInvoices(); }
+});
+const EMPTY_MSG = {
+  decision: 'No invoices waiting on a decision or payment.',
+  paid: 'No paid invoices yet. An invoice moves here once Finance has paid it.'
+};
 
 async function load() {
   const res = await fetchWithAuth('/api/invoices/company');
   if (!res) return;
   let invs = await res.json();
-  invs = sortAndFilterItems(invs, getSortState(), { dateField: 'submitted_at', numberField: 'id', searchFields: ['invoice_number', 'requirement_title', 'vendor_name'] });
+  allInvs = sortAndFilterItems(invs, getSortState(), { dateField: 'submitted_at', numberField: 'id', searchFields: ['invoice_number', 'requirement_title', 'vendor_name'] });
+  renderInvoices();
+}
+
+function renderInvoices() {
+  const paid = allInvs.filter(i => i.status === 'paid');
+  const inDecision = allInvs.filter(i => i.status !== 'paid');
+  viewToggle.setCounts({ decision: inDecision.length, paid: paid.length });
+  // Never write rows while the table is fading out for a view switch.
+  if (viewToggle.isSwapping()) return;
+  const view = viewToggle.getView();
+  const invs = view === 'paid' ? paid : inDecision;
   const rows = document.getElementById('rows');
-  if (!invs.length) { rows.innerHTML = '<tr><td colspan="9" class="text-muted">No invoices submitted yet.</td></tr>'; return; }
+  if (!invs.length) { rows.innerHTML = `<tr><td colspan="9" class="text-muted">${allInvs.length ? EMPTY_MSG[view] : 'No invoices submitted yet.'}</td></tr>`; return; }
   rows.innerHTML = invs.map(i => `
     <tr>
       <td><a href="/company/invoice-review.html?id=${i.id}">${i.invoice_number || '#' + i.id}</a></td>
