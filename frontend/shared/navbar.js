@@ -185,7 +185,7 @@ function renderNavbar() {
         <div class="dock-items">${links}</div>
         <div class="dock-divider"></div>
         <div class="dock-user">
-          <span class="dock-user-name">${user.name} · <span class="dock-user-role">${user.role}</span></span>
+          <span class="dock-user-name"><b>${user.name}</b><span class="dock-user-role">${String(user.role).replace(/_/g, ' ')}</span></span>
           <button class="dock-bell" id="notificationBell" data-title="Notifications" aria-label="Notifications"><i class="bi bi-bell-fill"></i><span class="notification-badge"></span></button>
           <button class="dock-logout" data-title="Log out" onclick="logout()"><i class="bi bi-box-arrow-right"></i></button>
         </div>
