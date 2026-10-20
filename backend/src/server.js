@@ -128,8 +128,13 @@ function pingAiService() {
   if (!process.env.AI_SERVICE_URL) return;
   fetchPing(`${process.env.AI_SERVICE_URL}/health`).catch(() => {});
 }
+const { checkSafely: checkPaymentDeadlines } = require('./utils/paymentDeadlines');
 server.listen(PORT, () => {
   console.log(`Veridion backend listening on http://localhost:${PORT}`);
   pingAiService();
   setInterval(pingAiService, 10 * 60 * 1000);
+  // Payment-deadline warnings for Finance: once now, then every 15 minutes while the backend is awake
+  // (Finance page loads also trigger a throttled check, so a sleeping free-tier server still catches up).
+  checkPaymentDeadlines({ force: true });
+  setInterval(() => checkPaymentDeadlines({ force: true }), 15 * 60 * 1000);
 });

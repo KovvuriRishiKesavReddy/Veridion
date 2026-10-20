@@ -10,6 +10,7 @@ const { uploadBuffer, makeKey } = require('../utils/storage');
 const fetch = require('node-fetch');
 const { publishInvoiceSubmitted } = require('../utils/queue');
 const { syncInvoiceNode } = require('../utils/neo4jSync');
+const { checkSafely: checkDeadlines, closeSafely: closeDeadlineNotices } = require('../utils/paymentDeadlines');
 const { callAiService } = require('../utils/aiService');
 
 const router = express.Router();
@@ -115,6 +116,7 @@ router.get('/eligible-pos', requireAuth, requireRole('vendor'), requireVerifiedV
 // this company's POs. This is the missing piece: previously there was no way for anyone
 // on the company side to even see an invoice existed, let alone act on it.
 router.get('/company', requireAuth, requireRole('finance'), async (req, res) => {
+  checkDeadlines();   // throttled to once a minute; creates 'deadline approaching/overdue' notifications
   const result = await db.query(
     `SELECT inv.*, v.company_name as vendor_name, po.agreed_price, po.agreed_quantity, r.title as requirement_title,
             d.final_decision, d.final_score, d.reasoning_text as decision_reasoning
@@ -170,6 +172,7 @@ router.post('/:id/mark-paid', requireAuth, requireRole('finance'), requireApprov
     [req.params.id]
   );
   await closeDisputesFor(db, req.params.id, 'payment', req.user.id);
+  closeDeadlineNotices();   // paid: close any 'deadline approaching/overdue' notification
   res.json(result.rows[0]);
   safely(notifyPaid(invoice), 'invoice_paid');
 });
@@ -219,6 +222,7 @@ router.post('/:id/override-and-pay', requireAuth, requireRole('finance'), requir
       [req.params.id, decision.id, req.user.id, reason.trim()]
     );
     await client.query('COMMIT');
+    closeDeadlineNotices();
   } catch (err) {
     await client.query('ROLLBACK');
     console.error(err);
@@ -338,6 +342,7 @@ router.delete('/:id', requireAuth, requireRole('vendor'), requireVerifiedVendor,
          invoice_amount_snapshot = COALESCE(ff.invoice_amount_snapshot, inv.invoice_amount)
      FROM invoices inv WHERE inv.id = ff.invoice_id AND ff.invoice_id = $1`, [req.params.id]);
   await db.query(`DELETE FROM invoices WHERE id = $1`, [req.params.id]);
+  closeDeadlineNotices();   // withdrawn (deleted): close its deadline notifications
   res.json({ withdrawn: true, po_id: invoice.po_id });
 });
 

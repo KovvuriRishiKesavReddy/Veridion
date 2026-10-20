@@ -64,7 +64,7 @@ function renderInvoices() {
   if (!invs.length) { rows.innerHTML = `<tr><td colspan="9" class="text-muted">${allInvs.length ? EMPTY_MSG[view] : 'No invoices submitted yet.'}</td></tr>`; return; }
   rows.innerHTML = invs.map(i => `
     <tr>
-      <td><a href="/company/invoice-review.html?id=${i.id}">${i.invoice_number || '#' + i.id}</a></td>
+      <td><a href="/company/invoice-review.html?id=${i.id}">${i.invoice_number || '#' + i.id}</a>${dueBadgeHtml(i)}</td>
       <td>${i.requirement_title}</td>
       <td>${i.vendor_name}</td>
       <td>₹${i.invoice_amount}</td>

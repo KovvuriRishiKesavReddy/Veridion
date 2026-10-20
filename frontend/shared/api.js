@@ -930,3 +930,22 @@ function openGrnCorrectionDialog(grnId, label, onDone) {
   });
   overlay.querySelector('#corrReason').focus();
 }
+
+// ---- Payment-deadline badge (Finance) ----------------------------------------------------------
+// The vendor may give an optional payment due date on an invoice. For an UNPAID invoice this returns
+// an amber "Due in N days" badge inside the warning window, "Due today", or a red "Overdue by N days"
+// once the date has passed; otherwise ''. It disappears on its own when the invoice is paid.
+// DUE_SOON_DAYS must match the server (backend/src/utils/paymentDeadlines.js).
+const DUE_SOON_DAYS = 3;
+function dueBadgeHtml(inv) {
+  if (!inv || !inv.due_date || inv.status === 'paid') return '';
+  const m = String(inv.due_date).slice(0, 10).split('-').map(Number);
+  if (m.length < 3 || m.some(isNaN)) return '';
+  const due = new Date(m[0], m[1] - 1, m[2]);
+  const now = new Date(); const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const days = Math.round((due - today) / 86400000);
+  if (days < 0) return `<span class="due-badge due-over" title="Payment due date has passed">Overdue by ${-days} day${days === -1 ? '' : 's'}</span>`;
+  if (days === 0) return `<span class="due-badge due-soon" title="Payment is due today">Due today</span>`;
+  if (days <= DUE_SOON_DAYS) return `<span class="due-badge due-soon" title="Payment deadline is approaching">Due in ${days} day${days === 1 ? '' : 's'}</span>`;
+  return '';
+}

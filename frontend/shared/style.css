@@ -651,7 +651,7 @@ body.has-dock-nav > .container.auth-container .alert {
    (compact card, ~1.2x its width) so the whole form fits on one laptop screen. Scoped to
    .login-page so the register / accept-invite pages that share .auth-container are not affected.
    ============================================================================ */
-body.has-dock-nav > .container.auth-container.login-page { max-width: 480px; margin-top: 0; padding: 12px; }
+body.has-dock-nav > .container.auth-container.login-page { max-width: 560px; margin-top: 0; padding: 12px; }
 .login-page .card { padding: 1.5rem 2.25rem 1.2rem !important; }
 .login-page .auth-hero { margin-bottom: 1rem; }
 .login-page .auth-hero h4 { font-size: 1.9rem; letter-spacing: -0.02em; margin-bottom: 0.3rem; }
@@ -883,3 +883,8 @@ input[type="button"], input[type="submit"], input[type="reset"],
   background: linear-gradient(135deg, #16a34a, #22c55e); color: #fff; box-shadow: 0 8px 18px -8px rgba(22, 163, 74, 0.7);
 }
 #threadReplyBox .hbg:hover .hbg-core { background: linear-gradient(135deg, #15803d, #16a34a); color: #fff; }
+
+/* Payment-deadline badge (Finance): amber when the vendor's due date is close, red once it has passed. */
+.due-badge { display: inline-block; margin-left: 6px; padding: 0.2em 0.7em; border-radius: 999px; font-size: 0.7rem; font-weight: 700; white-space: nowrap; vertical-align: middle; }
+.due-badge.due-soon { background: #fff3cd; color: #7a5b00; border: 1px solid #f0c75e; }
+.due-badge.due-over { background: #fde2e2; color: #9b1c1c; border: 1px solid #f3a5a5; }

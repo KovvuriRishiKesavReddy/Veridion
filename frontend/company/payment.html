@@ -38,7 +38,7 @@ let allInvs = [];   // every invoice (after the search/sort box), whatever tab i
 
 // Ready to Pay = auto-approved and unpaid; Needs Review = unpaid but flagged / still being verified;
 // Paid = done. Same sliding toggle and table swap as the Team page (shared/seg-toggle.js).
-const link = i => `<a href="/company/invoice-review.html?id=${i.id}">${i.invoice_number || '#' + i.id}</a>`;
+const link = i => `<a href="/company/invoice-review.html?id=${i.id}">${i.invoice_number || '#' + i.id}</a>${dueBadgeHtml(i)}`;
 const VIEWS = {
   ready: {
     title: 'Ready to Pay', caption: 'Auto-approved by the AI pipeline — payment can be approved.',

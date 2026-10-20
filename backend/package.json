@@ -14,6 +14,7 @@
     "migrate:test": "node scripts/with-test-db.js node scripts/migrate.js",
     "seed:test": "node scripts/with-test-db.js node scripts/seed.js",
     "test:comms": "node scripts/with-test-db.js node scripts/test-communication-channel.js",
+    "test:payment-deadlines": "node scripts/test-payment-deadlines.js",
     "test:grn-corrections": "node scripts/with-test-db.js node scripts/test-grn-corrections.js",
     "test:grn-quality": "node scripts/with-test-db.js node scripts/test-grn-quality.js",
     "test:fraud-fixes": "node scripts/with-test-db.js node scripts/test-fraud-fixes.js",
