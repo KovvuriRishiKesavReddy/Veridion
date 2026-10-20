@@ -438,3 +438,52 @@ body:has(.auth-container.auth-wide) .dock-wrap.dock-public { width: min(1040px, 
   .dock-public .dock-brand span.dock-label { display: inline; }
   body.has-dock-public { padding-top: 76px; }
 }
+
+/* ============================================================================
+   Responsive dock (tablets / small laptops). ADD-ONLY: every rule is bounded with a min-width so
+   desktop (>1100px) and the existing phone rules (<=640px) are untouched. Items shrink and the
+   name/brand labels drop out in steps so the pill always fits inside the screen.
+   ============================================================================ */
+@media (min-width: 961px) and (max-width: 1100px) {
+  .dock-items { gap: 11px; }
+  .dock-user-name b { font-size: 0.82rem; }
+}
+@media (min-width: 641px) and (max-width: 960px) {
+  .dock-user-name { display: none; }
+  .dock-items { gap: 8px; max-width: 70vw; }
+  .dock-item, .dock-logout, .dock-bell { width: 40px; height: 40px; font-size: 1rem; }
+  .dock-panel { padding-left: 16px; padding-right: 16px; min-width: 0; }
+}
+@media (min-width: 641px) and (max-width: 760px) {
+  .dock-brand span.dock-label { display: none; }
+  .dock-items { gap: 6px; }
+  .dock-item, .dock-logout, .dock-bell { width: 38px; height: 38px; }
+}
+
+/* ============================================================================
+   Phones (<=640px), signed-in dock: the pill used to be wider than the screen (icons + bell + logout
+   spilled off the right edge). Now the pill is exactly the screen width minus a small margin, the
+   brand / bell / logout stay put, and the page icons in the middle scroll sideways if there are
+   more of them than fit. (No hover-magnify on touch, so a scroll axis is safe here.)
+   ============================================================================ */
+@media (max-width: 640px) {
+  .dock-wrap:not(.dock-public) { width: calc(100vw - 16px); max-width: none; }
+  .dock-wrap:not(.dock-public) .dock-panel { width: 100%; min-width: 0; box-sizing: border-box; align-items: center; }
+  .dock-wrap:not(.dock-public) .dock-brand,
+  .dock-wrap:not(.dock-public) .dock-bell,
+  .dock-wrap:not(.dock-public) .dock-logout { flex: 0 0 auto; }
+  .dock-wrap:not(.dock-public) .dock-items {
+    flex: 1 1 0; min-width: 0; max-width: none;
+    gap: 6px; align-items: center;
+    overflow-x: auto; overflow-y: hidden;
+    scrollbar-width: none; -webkit-overflow-scrolling: touch;
+    padding: 2px 4px;
+  }
+  .dock-wrap:not(.dock-public) .dock-items::-webkit-scrollbar { display: none; }
+  .dock-wrap:not(.dock-public) .dock-item { flex: 0 0 auto; }
+}
+@media (max-width: 360px) {
+  .dock-wrap:not(.dock-public) .dock-item,
+  .dock-wrap:not(.dock-public) .dock-logout,
+  .dock-wrap:not(.dock-public) .dock-bell { width: 33px; height: 33px; }
+}

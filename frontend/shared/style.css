@@ -803,3 +803,48 @@ body.has-site-footer > * { flex-shrink: 0; }
   z-index: 1;
 }
 body.has-site-footer > .container { margin-bottom: 2rem; }
+
+/* ============================================================================
+   Responsive layer for phones, tablets and very large screens. ADD-ONLY: every rule sits inside
+   a media query that only matches screens NARROWER than a laptop (or wider than 2000px), so the
+   existing 13"/14"/16" laptop layouts and everything already written above are not changed.
+   ============================================================================ */
+img { max-width: 100%; }
+
+/* Very large screens (18" and up, 4K monitors): let the content panel use a little more width. */
+@media (min-width: 2000px) {
+  body.has-dock-nav > .container:not(.auth-container):not([style*="max-width"]) { max-width: 1680px; }
+}
+
+/* Tablets and phones: the panel uses the full screen width instead of Bootstrap's stepped widths. */
+@media (max-width: 991.98px) {
+  body.has-dock-nav > .container:not(.auth-container):not([style*="max-width"]) {
+    max-width: calc(100vw - 24px);
+    padding: 1.75rem 1.5rem 2.25rem;
+  }
+}
+
+@media (max-width: 767.98px) {
+  body.has-dock-nav > .container h3 { font-size: 1.45rem; }
+  body.has-dock-nav > .container h4 { font-size: 1.25rem; }
+  /* Title + button rows wrap instead of squeezing */
+  body.has-dock-nav > .container .d-flex.justify-content-between.align-items-center { flex-wrap: wrap; gap: 0.5rem; }
+  .filter-toolbar .flex-grow-1 { min-width: 100% !important; }
+}
+
+@media (max-width: 575.98px) {
+  body.has-dock-nav > .container:not(.auth-container):not([style*="max-width"]) { padding: 1.25rem 1rem 1.75rem; }
+  /* 16px fields stop iOS from zooming the page when a field is focused */
+  .form-control, .form-select, .form-control-sm, .form-select-sm { font-size: 16px; }
+  /* Several tabs (e.g. the 5-way Disputes toggle) scroll sideways inside the pill instead of overflowing */
+  .seg-toggle { max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+  .seg-toggle::-webkit-scrollbar { display: none; }
+  .seg-btn { white-space: nowrap; }
+  /* Card action buttons wrap onto a second line */
+  .card .d-flex.gap-2 { flex-wrap: wrap; }
+  .modal-dialog { margin: 0.6rem; }
+}
+
+@media (max-width: 420px) {
+  .site-footer { font-size: 0.8rem; padding: 0 0.6rem; }
+}

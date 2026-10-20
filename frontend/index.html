@@ -243,6 +243,48 @@ footer .copyright { margin: 0 -7.5%; padding: 22px 7%; text-align:center; font-s
 .compare li::before { position:absolute; left:0; top:9px; font-weight:800; }
 .compare .bad li::before { content:'\2715'; color:#f87171; }
 .compare .good li::before { content:'\2713'; color:var(--mint); }
+
+/* ---- Small phones: tighter hero, full-width buttons, dropdown fits the screen. Add-only. ---- */
+@media (max-width: 480px) {
+  .dock-panel { padding: 9px 12px; }
+  .hero h1 { font-size: 2.15rem; letter-spacing: -1.2px; }
+  .hero p.sub { font-size: 15.5px; }
+  .hero .cta-row .hbg { display: block; width: 100%; }
+  .hero .cta-row .hbg-core { display: block; width: 100%; text-align: center; box-sizing: border-box; }
+  .reg-drop { width: min(270px, 86vw); }
+  .stat-strip b { font-size: 1.8rem; }
+  .compare .col { padding: 20px; }
+  footer { padding: 44px 6% 0; }
+}
+@media (min-width: 2000px) { .hero-inner { width: min(680px, 42%); } }
+
+/* ---- Phones: keep the navbar inside the screen (brand + Log in + Register). Add-only. ---- */
+@media (max-width: 600px) {
+  .dock-wrap { width: calc(100vw - 20px); }
+  .dock-panel { padding: 8px 10px 8px 14px; gap: 6px; border-radius: 36px; }
+  .dock-brand { font-size: 0.9rem; gap: 7px; letter-spacing: 0.2px; }
+  .dock-brand .mark { width: 26px; height: 26px; }
+  .dock-actions { gap: 2px; }
+  .dock-actions a.login-link { padding: 8px 8px; font-size: 0.82rem; white-space: nowrap; }
+  .hbg .hbg-core { white-space: nowrap; }
+  .dock-actions .hbg .hbg-core { padding: 9px 14px; font-size: 0.85rem; }
+}
+@media (max-width: 380px) {
+  .dock-brand { font-size: 0; gap: 0; }   /* logo mark only on the smallest phones */
+}
+
+/* ---- Phones/tablets: the decorative glow layers are wider than the screen on purpose; stop them
+   from stretching the page sideways. Add-only (desktop untouched). ---- */
+@media (max-width: 900px) {
+  html, body { overflow-x: hidden; max-width: 100%; }
+}
+
+/* ---- Phones/tablets: grid columns may shrink below their content, so the formula box scrolls inside
+   itself instead of stretching the whole section. Add-only. ---- */
+@media (max-width: 900px) {
+  .gate-grid > * { min-width: 0; }
+  .gate-formula { max-width: 100%; box-sizing: border-box; }
+}
 </style>
 </head>
 <body>
