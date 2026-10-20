@@ -848,3 +848,38 @@ img { max-width: 100%; }
 @media (max-width: 420px) {
   .site-footer { font-size: 0.8rem; padding: 0 0.6rem; }
 }
+
+/* ============================================================================
+   Rounded corners everywhere: tables and buttons. Appended last so it wins over the earlier,
+   page-specific radii. Buttons become pills; tables get curved outer corners (each corner cell is
+   rounded so header/row backgrounds never poke out as sharp squares).
+   ============================================================================ */
+.btn:not(.btn-close),
+button:not(.btn-close):not(.thread-x):not(.seg-btn):not(.auth-eye-toggle):not(.eye-toggle):not([class*="dock-"]),
+input[type="button"], input[type="submit"], input[type="reset"],
+.hbg-core, .dispute-btn, .copy-link-btn, a.btn {
+  border-radius: 999px !important;
+}
+.hbg { border-radius: 999px; }
+.btn-group > .btn { border-radius: 999px !important; }
+
+.table { border-collapse: separate; border-spacing: 0; border-radius: 18px; }
+.table-bordered { border-collapse: collapse; }
+.table > :first-child > tr:first-child > *:first-child { border-top-left-radius: 18px; }
+.table > :first-child > tr:first-child > *:last-child  { border-top-right-radius: 18px; }
+.table > :last-child > tr:last-child > *:first-child   { border-bottom-left-radius: 18px; }
+.table > :last-child > tr:last-child > *:last-child    { border-bottom-right-radius: 18px; }
+/* a lone header-only table (empty list) still rounds its bottom corners */
+.table > thead:only-child > tr:last-child > *:first-child { border-bottom-left-radius: 18px; }
+.table > thead:only-child > tr:last-child > *:last-child  { border-bottom-right-radius: 18px; }
+.table-responsive, .view-wrap, .table-wrap { border-radius: 18px; }
+/* the last row has no divider line when the table itself ends there */
+.table > tbody > tr:last-child > * { border-bottom-width: 0; }
+
+/* Communication channel (quotation / purchase-order conversation dialog): Send Message is green and
+   sits at the bottom-right of the box instead of the left. */
+#threadReplyBox .dispute-actions { justify-content: flex-end; }
+#threadReplyBox .hbg .hbg-core {
+  background: linear-gradient(135deg, #16a34a, #22c55e); color: #fff; box-shadow: 0 8px 18px -8px rgba(22, 163, 74, 0.7);
+}
+#threadReplyBox .hbg:hover .hbg-core { background: linear-gradient(135deg, #15803d, #16a34a); color: #fff; }
