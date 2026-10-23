@@ -2,56 +2,181 @@
 
 **Enterprise Agentic AI Platform for Vendor & Procurement Management**
 
-Veridion automates the full B2B procurement lifecycle — from requirement posting through vendor quotation, purchase order generation, delivery confirmation, and AI-verified invoice approval — using a coordinated pipeline of specialized AI agents built around a **Context Gate**: a confidence-weighted decision engine that fuses multiple AI signals into one explainable, auditable decision rather than a black-box verdict.
+Veridion automates the full B2B procurement lifecycle — requirement posting, vendor quotations, purchase orders, delivery confirmation (GRN), and AI-verified invoice approval — using a pipeline of specialised AI agents built around a **Context Gate**: a confidence-weighted decision engine that fuses several AI signals into one explainable, auditable decision instead of a black-box verdict. The AI recommends; the company always decides.
 
-This README covers **Flow 1 through Flow 7**. Flows 4–5 (quotation ranking, vendor communication, legacy import, platform aggregate) are described in `Checklist.md`; Flow 6 (real-time and persistent vendor notifications) is described below. Admin completion and the synthetic evaluation (Flow 7) are described below; deployment (Flow 8) is still to come.
+**Live deployment**
+
+| Service | URL |
+|---|---|
+| Web app + API (backend serves the frontend) | https://veridion-w0yp.onrender.com |
+| AI service (health check) | https://veridion-ai-service.onrender.com/health |
+
+> Both services run on Render's free tier and go to sleep after ~15 minutes without traffic. The first request after a sleep can take up to a minute. See [Free-tier behaviour](#free-tier-behaviour).
 
 ---
 
-## What's actually built (Flow 1–3)
+## Contents
+
+1. [What's built](#whats-built)
+2. [Architecture](#architecture)
+3. [Roles and pages](#roles-and-pages)
+4. [The agents and the Context Gate](#the-agents-and-the-context-gate)
+5. [Business rules worth knowing](#business-rules-worth-knowing)
+6. [Repository structure](#repository-structure)
+7. [Running locally](#running-locally)
+8. [Environment variables](#environment-variables)
+9. [Database and migrations](#database-and-migrations)
+10. [Deployment (Render + Supabase + CloudAMQP + Neo4j Aura)](#deployment)
+11. [Notifications](#notifications)
+12. [Testing and evaluation](#testing-and-evaluation)
+13. [Troubleshooting](#troubleshooting)
+14. [Known limitations](#known-limitations)
+
+---
+
+## What's built
+
+The project was built in eight flows, followed by several rounds of hardening and polish found through live testing.
 
 | Flow | What it covers |
 |---|---|
-| **Flow 1** | Core lifecycle with no AI: registration, requirement posting (multi-item), quotations, purchase orders, GRN (goods receipt) recording, invoice upload |
-| **Flow 2** | The AI verification pipeline: OCR & structuring, semantic matching, GST compliance checking, and the Context Gate decision engine |
-| **Flow 3** | Fraud detection (shell-company patterns, vendor identity consistency, split-billing) and event-triggered vendor risk scoring |
+| **1 — Core lifecycle** | Vendor and company registration with Platform Admin approval, team invitations, requirement posting, quotations, purchase orders (with PDF), GRN (goods receipt) recording, invoice upload |
+| **2 — AI verification** | OCR and structuring (born-digital PDFs, scanned PDFs, photos — fully offline), semantic matching against PO/GRN, GST compliance check, and the Context Gate decision engine |
+| **3 — Fraud and vendor risk** | Shell-company detection through a Neo4j graph (shared bank account / address), vendor-identity consistency check, split-billing check, and event-triggered vendor risk scoring |
+| **4 — Ranking and communication** | AI-ranked quotation comparison; AI-drafted dispute messages with a full Finance ↔ vendor thread |
+| **5 — Legacy import and aggregate** | One-time legacy history import for vendors with prior offline history, plus a platform-wide, verified-only vendor summary |
+| **6 — Notifications** | Persistent in-app notifications (bell) plus real-time toasts over Socket.io, for every role |
+| **7 — Admin completion and evaluation** | Platform Admin Override Log, synthetic evaluation dataset, ablation against an equal-weight baseline |
+| **8 — Deployment** | Render (backend + AI service), Supabase Postgres and Storage, CloudAMQP, Neo4j Aura |
 
-### Architecture
+Added after the original flows:
 
-```
-Client (HTML/CSS/Bootstrap + vanilla JS)
-        │ REST / JWT
-        ▼
-Backend API (Node.js / Express)  ──────►  PostgreSQL
-        │                                  ▲
-        │ publishes to queue                │ writes results back
-        ▼                                  │
-   RabbitMQ  ──────►  AI Service (Node.js, Groq — Llama 3.3 / Qwen 3)
-                          │
-                          ├─ Agent 1: OCR & Structuring
-                          ├─ Agent 2: Semantic Matching
-                          ├─ Agent 3: Compliance (GST)
-                          ├─ Agent 4: Fraud Detection
-                          ├─ Agent 5: Vendor Risk Scoring
-                          ├─ Agent 8: Decision Engine (Context Gate)
-                          │
-                          ▼
-                        Neo4j (graph — vendor relationship / fraud pattern queries)
-```
+- **Vendor ↔ company messaging** — a private pre-award thread per quotation (price and delivery can be negotiated) and a post-award thread per purchase order (logistics only).
+- **GRN corrections** — support-style correction requests instead of editing an audit record.
+- **GRN quality rating** — Warehouse rates every delivery 1–5; quality becomes the fourth signal in quotation ranking.
+- **Fraud fixes** — stale Neo4j edge clean-up, revoked vendors stop triggering shell-company flags, and the decision is re-run after Platform Admin resolves a fraud flag.
+- **Payment-deadline warnings** — optional invoice due date, amber/red badges, and one-time Finance notifications.
+- **Dispute lifecycle clean-up** — disputes auto-close (without being scored) when an invoice is paid or withdrawn.
+- **UI polish** — dock navigation bar, sliding toggle tabs with animated table swaps, rounded tables and buttons, green-gradient footer, redesigned landing and auth pages, and a responsive layer for phones, tablets and large screens.
 
-RabbitMQ exists specifically so that once OCR finishes reading an invoice, Matching, Compliance, and Fraud Detection can all run **concurrently** rather than sequentially — none of them depend on each other's output.
+---
 
-### The Context Gate
-
-Every agent that feeds a decision returns three things, not just a verdict: **confidence** (how sure the agent is) and **data_volume** (how much history informed it). The gate combines them:
+## Architecture
 
 ```
-raw_weight_i    = confidence_i × log(1 + data_volume_i)
-gate_weight_i   = raw_weight_i / Σ(raw_weight of all agents)
-final_score     = Σ(gate_weight_i × agent_verdict_score_i)
+Browser (HTML / CSS / Bootstrap 5 + vanilla JS — no build step)
+      │  REST (JWT)  +  Socket.io
+      ▼
+Backend  (Node.js / Express)  ── serves the frontend, same origin ──►  Supabase Postgres
+      │                                                                ▲
+      │  publishes invoice.submitted                                   │ reads / writes
+      ▼                                                                │
+  RabbitMQ (CloudAMQP)  ───────►  AI Service (Node.js, Groq)  ─────────┘
+                                      │      │
+                                      │      └─► Neo4j Aura (graph: fraud patterns)
+                                      └─► calls back POST /api/internal/pipeline-complete
+                                          (so the backend can send notifications)
+
+File storage:  Supabase Storage (S3 protocol)  — local disk when no S3_* variables are set
 ```
 
-This is a deliberate, explainable formula rather than a trained model — there's no labeled dataset to train a gate on for a brand-new platform, and every weighting decision needs to be explainable to a non-technical Finance reviewer without extra tooling. A high-severity fraud signal bypasses this weighting entirely and routes straight to a `suspicious` decision for Platform Admin review.
+Key design points:
+
+- **One origin.** The backend serves the whole `frontend/` folder and the API from the same port; the frontend calls the API with relative URLs (`API_BASE = ''`). There is no separate frontend host or CORS setup to maintain.
+- **RabbitMQ** exists so that once OCR has read an invoice, Matching, Compliance and Fraud Detection run **concurrently** rather than in sequence.
+- **The AI service has no Socket.io.** It tells the backend a decision is ready via `POST /api/internal/pipeline-complete`, and the backend sends the notifications.
+- **Fire-and-forget side effects.** Queue publishing, graph sync and notifications can fail without ever failing the business action that triggered them; the database write is always the source of truth.
+
+---
+
+## Roles and pages
+
+| Interface | Role | Pages (dock navigation) |
+|---|---|---|
+| **Vendor** | `vendor` | Dashboard · Browse Requirements · My Quotations · Purchase Orders · Deliveries (GRN) · My Invoices · Disputes · Payment Status · My Profile |
+| **Company** | `company_admin` | Dashboard · Team · GRN Corrections · Vendor Directory · Company Profile |
+| | `procurement` | Dashboard · Post Requirement · Requirements Posted · Quotations · Purchase Orders · GRN Documents · GRN Corrections · Vendor Directory |
+| | `finance` | Dashboard · Purchase Orders · GRN Documents · Invoices · Disputes · Payments |
+| | `warehouse` | Dashboard · GRN Entry · Purchase Orders · GRN Documents · GRN Corrections |
+| **Platform** | `platform_admin` | Dashboard · Vendor Verification · Company Verification · Fraud Review Queue · Override Log |
+
+- A company is one account boundary with four internal roles. **Company Admin is deliberately limited to team management and the company profile** (plus legacy-history import and GRN-correction review); it cannot see requirements, quotations, POs, GRNs or invoices.
+- Registrations (vendor and company) start `pending` and wait on an "Awaiting Approval" page, which redirects automatically once Platform Admin approves.
+- Many list pages use a sliding segmented toggle with counts (for example Pending / Sent / Resolved / Accepted / Withdrawn on Finance Disputes).
+
+---
+
+## The agents and the Context Gate
+
+| Agent | Role |
+|---|---|
+| 1 — OCR & Structuring | Reads the invoice (text layer, scanned PDF via `pdftoppm` + Tesseract, or photo) and structures it with Groq |
+| 2 — Semantic Matching | Compares the invoice with the PO and the **GRN-confirmed** quantity (a partial delivery is not a mismatch) |
+| 3 — Compliance | Recomputes GST independently of the PO's estimate |
+| 4 — Fraud Detection | Shell-company patterns (Neo4j), vendor-identity consistency (GSTIN / name / bank account), split-billing |
+| 5 — Vendor Risk | Event-triggered running averages: on-time delivery, invoice accuracy, dispute rate, quality |
+| 6 — Quotation Ranking | Ranks quotes by price, delivery, past performance and delivery quality |
+| 7 — Vendor Communication | Drafts a factual, non-accusatory dispute message for a flagged invoice |
+| 8 — Decision Engine | The Context Gate: fuses Matching, Compliance, Fraud and Vendor Risk into `auto_approved` or `flagged` |
+
+Every signal that feeds a decision carries a **verdict**, a **confidence** and a **data volume**:
+
+```
+raw_weight_i  = confidence_i × log(1 + data_volume_i)
+gate_weight_i = raw_weight_i / Σ raw_weight
+final_score   = Σ gate_weight_i × verdict_score_i
+```
+
+- `final_score ≥ 0.70` → `auto_approved`; otherwise `flagged`.
+- A **high-severity fraud signal bypasses the weighting** and routes straight to `suspicious`, which goes to Platform Admin rather than Finance.
+- A brand-new vendor has no history, so its Past Performance signal has weight 0 by design — new vendors compete on price and delivery, never on a fabricated score.
+- The same formula is reused for quotation ranking, with four signals: Price, Delivery, Past Performance and Quality.
+- It is a deliberate, explainable formula rather than a trained model: a new platform has no labelled data, and every weighting has to be explainable to a non-technical Finance reviewer.
+
+---
+
+## Business rules worth knowing
+
+**Money and tax**
+- `invoice_amount` and `agreed_price` are **pre-tax**; GST is separate and recomputed by the Compliance agent (shared `computeBaseAmount()` helper).
+- Amounts are shown in ₹ everywhere, including AI-written text.
+
+**Requirements and quotations**
+- One requirement = one item. Title, category, quantity, unit and deadline are required; description is optional. Unit is a preset dropdown with an "Other (specify)" option.
+- The requirement **deadline never blocks** anything. It only gives a mild ranking nudge; a vendor quoting past the deadline is scored lower on delivery, not disqualified.
+- Procurement may accept **any** quotation, not just the top-ranked one.
+- "Successful deals" in ranking = distinct POs whose invoice Finance approved **and paid** (one per deal), plus any discounted legacy-import history.
+
+**Delivery (GRN)**
+- Warehouse must give a **quality rating (1–5)** on every GRN.
+- A **partial** GRN needs a confirmed next-delivery date **and** the PO-conversation message that agreed it; the server rejects a message from a different PO.
+- On-time delivery compares the GRN's received date to the PO's `agreed_delivery_date` only — never the requirement's original deadline.
+- After award, the PO conversation is **Warehouse ↔ Vendor**: both can post. Procurement can read the full history ("Message History") but not post; Finance has no thread. The thread closes to everyone once the PO is fulfilled or any invoice on it is paid, but history stays visible.
+- A GRN is never edited or deleted. A mistaken GRN goes through a **correction request**: raised by Warehouse or Procurement with a reason, reviewed by Procurement or Company Admin (never the person who raised it), and an approval **voids** the GRN (kept on record, struck from every total). Only the newest active GRN on an order can be corrected; nothing can be corrected once an invoice on the order is paid; payment is on hold while a request is open.
+
+**Invoices and payment**
+- A vendor can only invoice a **fulfilled** PO, and only one invoice per PO (a second is rejected with 409).
+- An optional **Payment Due Date** can be entered. Finance sees an amber badge within 3 days of the date and a red one when overdue, and gets a single notification for each stage.
+- `auto_approved` invoices can be paid directly. `flagged` invoices need **Override & Approve Payment Anyway** with a typed reason, which is logged and summarised monthly in the Platform Admin Override Log.
+- Withdrawing an invoice keeps the dispute and fraud-flag history (snapshot columns), so Finance and Platform Admin never lose the trail.
+
+**Disputes**
+- A dispute draft is created automatically when an invoice is `flagged` (not `suspicious`). If the flag was driven solely by the vendor's reputation score — Matching, Compliance and Fraud all clean — the draft is closed automatically, kept as a record, and never shown to the vendor.
+- Disputes close automatically — and are **not scored** — when the invoice is paid ("Accepted") or withdrawn ("Withdrawn").
+
+**Vendor risk**
+- Each running average is weighted by **its own event counter** (`grn_count`, `invoice_decision_count`), not by one shared `data_volume`.
+- Scores are scoped per company: one company's experience with a vendor never leaks into another company's view. The platform-wide summary counts platform-verified events only.
+- **Legacy import** (Company Admin only, one time per company/vendor pair, refused if real activity already exists): the reported transaction count is halved and capped at a data volume of 12, and the vendor is labelled "Self-reported".
+
+**Accounts**
+- Password policy (8+ characters, one uppercase, one special character) is enforced identically on the client and server for vendor registration, company registration and accept-invite.
+- Removing a team member is a soft delete (`is_active`). A removed member can then be **permanently deleted**; if foreign keys block a real delete, the row is anonymised in place so audit trails stay intact.
+- Repeating "Send Invite" for the same email reuses the existing pending invitation instead of orphaning the first link.
+
+**Fraud**
+- Platform Admin rejecting or removing a vendor stops that vendor from triggering shell-company flags on others, and affected invoices are re-checked.
+- When Platform Admin resolves every fraud flag on an invoice, the decision is re-run and Finance sees the updated outcome.
 
 ---
 
@@ -59,280 +184,335 @@ This is a deliberate, explainable formula rather than a trained model — there'
 
 ```
 veridion/
-├── backend/          Node.js/Express API — auth, core lifecycle, RBAC
+├── backend/                 Express API, RBAC, Socket.io, static frontend host
 │   ├── src/
-│   │   ├── routes/
-│   │   ├── middleware/
-│   │   └── utils/
-│   └── scripts/       migrate.js, seed.js, seed-synthetic-data.js, evaluate.js, evaluate-vendor-states.js
-├── ai-service/        The 8-agent AI pipeline
-│   ├── src/
-│   │   ├── agents/     ocr.js, matching.js, compliance.js, fraud.js, decide.js, vendorRisk.js
-│   │   └── utils/
-│   └── tessdata/       bundled Tesseract language data (offline OCR, no network dependency)
-├── frontend/
-│   ├── vendor/          Vendor interface
-│   ├── company/          Company Profile interface (Company Admin, Procurement, Finance, Warehouse)
-│   ├── admin/            Platform Admin interface
-│   └── shared/           shared CSS/JS, navbar, API helper
-├── docs/              Setup guides
-└── db/                18 migrations, applied in order (001–018)
+│   │   ├── server.js
+│   │   ├── routes/          auth, company, requirements, quotations, purchaseOrders, grn,
+│   │   │                    grnCorrections, invoices, vendors, vendorCommunications,
+│   │   │                    quotationMessages, poMessages, notifications, admin, internal
+│   │   ├── middleware/      auth, roles, companyApproval, vendorVerification
+│   │   └── utils/           notify, storage (S3 / local), queue, pgSsl, neo4jSync, pdf, upload,
+│   │                        validation, paymentDeadlines, invoiceLifecycle, aiService
+│   ├── scripts/             migrate, seed, seed-synthetic-data, evaluate, evaluate-vendor-states,
+│   │                        with-test-db, test-* suites
+│   └── uploads/             local file storage (development only; git-ignored)
+├── ai-service/              the agent pipeline
+│   ├── src/agents/          ocr, matching, compliance, fraud, vendorRisk, rankQuotations,
+│   │                        vendorCommunication, decide
+│   ├── tessdata/            bundled Tesseract language data (offline OCR)
+│   └── Dockerfile           used by Render (installs poppler-utils)
+├── frontend/                plain HTML / CSS / JS
+│   ├── vendor/  company/  admin/
+│   ├── shared/              api.js, navbar.js, notifications.js, seg-toggle.js, dashboard widgets, CSS
+│   └── index.html  login.html  accept-invite.html
+├── db/                      26 SQL migrations (001–026), applied in order
+├── README.md
+└── Checklist.md             manual verification checklist
 ```
-
-### The three interfaces
-
-| Interface | Who | Notes |
-|---|---|---|
-| **Vendor** | External vendors | One account boundary per vendor company |
-| **Company Profile** | Company Admin, Procurement, Finance, Warehouse | One account boundary per company, four internal roles. **Company Admin is scoped to team management and the company's own profile only** — it has no access to requirements, quotations, purchase orders, GRNs, or invoices; that's Procurement/Finance/Warehouse's territory exclusively. |
-| **Platform Admin** | Veridion's own admins | Company-agnostic; approves vendor and company registrations, reviews fraud flags |
 
 ---
 
-## Prerequisites
+## Running locally
+
+### Prerequisites
 
 - **Node.js** 20+
 - **PostgreSQL** 16+
-- **RabbitMQ**
-- **poppler-utils** (provides `pdftoppm`/`pdfinfo` — used for scanned-PDF OCR; no native Node binding required)
-- **Neo4j** (optional — shell-company fraud detection degrades gracefully to "no signal" without it; everything else works fine)
-- A **Groq API key** (free tier at [console.groq.com](https://console.groq.com)) — the pipeline degrades to deterministic fallback reasoning without one, but the natural-language explanations are worth having
+- **RabbitMQ** (local install or a free CloudAMQP instance)
+- **poppler-utils** — provides `pdftoppm`/`pdfinfo` for scanned-PDF OCR
+  - macOS `brew install poppler` · Debian/Ubuntu `sudo apt install poppler-utils` · Windows `winget install oschwartz10612.Poppler` (then add its `bin` folder to `PATH`)
+- **Groq API key** (free tier at console.groq.com). Without it the pipeline falls back to deterministic reasoning text.
+- **Neo4j** — optional. Without it, shell-company detection reports "no signal" and everything else works.
 
-### Installing poppler-utils
-
-```bash
-# macOS
-brew install poppler
-
-# Ubuntu/Debian
-sudo apt install poppler-utils
-
-# Windows
-winget install oschwartz10612.Poppler
-# then ensure its \bin folder is on PATH
-```
-
----
-
-## Setup
-
-### 1. Clone and install dependencies
+### 1. Install
 
 ```bash
-git clone <this-repo>
-cd veridion
-
-cd backend && npm install
+cd backend    && npm install
 cd ../ai-service && npm install
 ```
 
-> **If you're restoring from a zip that included `node_modules`:** delete and reinstall cleanly in both `backend` and `ai-service` (`rm -rf node_modules package-lock.json && npm install`). Prebuilt native bindings (`bcrypt`, `canvas`) are platform-specific and will crash if built on a different OS than the one you're running on.
+If you restored from a zip that included `node_modules`, delete it and reinstall — native modules such as `bcrypt` are platform-specific.
 
-### 2. Configure environment variables
+### 2. Configure
 
-`backend/.env`:
+Create `backend/.env` and `ai-service/.env` (see [Environment variables](#environment-variables)). A minimal local setup:
+
 ```
-DATABASE_URL=postgres://<user>:<password>@localhost:5432/veridion
-JWT_SECRET=<any random string>
+# backend/.env
+DATABASE_URL=postgres://postgres:<password>@localhost:5432/veridion
+JWT_SECRET=<any long random string>
 PORT=4000
-```
+AI_SERVICE_URL=http://localhost:4100
 
-`ai-service/.env`:
-```
-DATABASE_URL=postgres://<user>:<password>@localhost:5432/veridion
+# ai-service/.env
+DATABASE_URL=postgres://postgres:<password>@localhost:5432/veridion
 RABBITMQ_URL=amqp://localhost
-GROQ_API_KEY=<your Groq key>
+GROQ_API_KEY=<your key>
 PORT=4100
-NEO4J_URI=<optional>
-NEO4J_USER=<optional>
-NEO4J_PASSWORD=<optional>
+BACKEND_URL=http://localhost:4000
+# NEO4J_URI / NEO4J_USER / NEO4J_PASSWORD are optional
 ```
 
-### 3. Create the database and run migrations
+With no `S3_*` variables, uploads go to `backend/uploads/`.
+
+### 3. Database
 
 ```bash
 psql -U postgres -c "CREATE DATABASE veridion;"
 cd backend
-npm run migrate
-```
-This applies every migration under `db/` in order (001–018) — core schema, AI/Context Gate tables, vendor risk scoring, registration hardening, company approval, user deactivation, dispute messaging, legacy import, permanent delete, and (Flow 6) `notifications`.
-
-### 4. Seed test data (optional but recommended)
-
-```bash
-npm run seed
+npm run migrate        # applies db/001 … 026 in order, tracked in schema_migrations
+npm run seed           # sample data (see below)
 ```
 
-This creates a Platform Admin, two pre-approved companies (each with all four internal roles), and four vendors in different verification states — including two vendors that deliberately share a bank account, so shell-company fraud detection has something to catch out of the box.
+`seed` **erases every table** and therefore refuses to run unless the database name contains `test`. For a throw-away database use `FORCE_SEED=1 npm run seed`, or use test mode below.
 
-**All seeded passwords: `password123`**
+Seeded logins (password for all: `password123`):
 
 | Role | Login |
 |---|---|
 | Platform Admin | `admin@veridion.dev` |
-| BrightBuild — Company Admin / Procurement / Finance / Warehouse | `admin@brightbuild.test`, `proc@brightbuild.test`, `finance@brightbuild.test`, `warehouse@brightbuild.test` |
-| SteelCorp — same four roles | `admin@steelcorp.test`, `proc@steelcorp.test`, `finance@steelcorp.test`, `warehouse@steelcorp.test` |
+| BrightBuild | `admin@brightbuild.test`, `proc@brightbuild.test`, `finance@brightbuild.test`, `warehouse@brightbuild.test` |
+| SteelCorp | `admin@steelcorp.test`, `proc@steelcorp.test`, `finance@steelcorp.test`, `warehouse@steelcorp.test` |
 | Vendor One (verified) | `vendor1@test.dev` |
-| Vendor Two (pending approval) | `vendor2@test.dev` |
+| Vendor Two (pending) | `vendor2@test.dev` |
 | Vendor Three (rejected) | `vendor3@test.dev` |
-| Vendor Four (verified — **shares a bank account with Vendor One**, for testing fraud detection) | `vendor4@test.dev` |
+| Vendor Four (verified — shares a bank account with Vendor One, for fraud testing) | `vendor4@test.dev` |
 
----
+### 4. Run
 
-## Running it
-
-Four processes, in four terminals:
+Two processes (and RabbitMQ running):
 
 ```bash
-# 1. PostgreSQL and RabbitMQ — start these first if not already running as services
-
-# 2. Backend API
-cd backend
-npm run dev
-# → Veridion backend listening on http://localhost:4000
-
-# 3. AI service (OCR / Matching / Compliance / Fraud / Decision Engine)
-cd ai-service
-npm run dev
-# → Veridion AI service listening on http://localhost:4100
-# → RabbitMQ consumer listening on queue: invoice.submitted
-
-# 4. Frontend (static files, no build step)
-cd frontend
-npx http-server -p 8080
+cd backend    && npm run dev      # http://localhost:4000  (API + frontend)
+cd ai-service && npm run dev      # http://localhost:4100
 ```
 
-Open **http://localhost:8080/login.html**.
+Open **http://localhost:4000** — the backend serves the frontend itself. There is no separate frontend server.
 
----
+These scripts run plain `node` with no auto-reload, so restart both processes after changing code.
 
-## Walking through Flow 1 (core lifecycle)
+### Test mode (recommended for development)
 
-1. **Register a company** at `/company/register.html` (or use a seeded one). New registrations start `pending` and land on an awaiting-approval page — log in as Platform Admin to approve it under Company Verification.
-2. **Register a vendor** at `/vendor/register.html`, similarly approved by Platform Admin.
-3. As **Procurement**, post a requirement — supports **multiple line items in a single requirement** (e.g. "100 bags cement + 5 AC units" in one post).
-4. As the **vendor**, browse open requirements and submit a quotation, pricing each item individually.
-5. As **Procurement**, accept the quotation. Each item in the requirement becomes its **own independent Purchase Order** — this is a deliberate design choice: it means every downstream step (GRN recording, invoicing, AI verification) treats each item as a normal single-item PO, with zero special-casing needed anywhere else in the pipeline. The generated POs stay linked back to the same requirement/quotation for traceability.
-6. As **Warehouse**, record a GRN (Goods Receipt Note) against a PO — supports full, partial, and over-delivery, all handled without treating a partial delivery as a discrepancy.
-7. As the **vendor**, upload an invoice against the PO/GRN.
+Test mode runs everything against a separate database and queue so it can never touch real data:
 
-## Walking through Flow 2 (AI verification)
-
-8. Watch the `ai-service` terminal — uploading an invoice triggers OCR → Matching + Compliance (concurrently) → the Decision Engine, ending in `auto_approved` or `flagged`.
-9. As **Finance**, open the invoice's review page — shows the confidence badge, any mismatched fields with OCR bounding-box context, and a plain-English explanation of the decision.
-10. OCR handles three input types: born-digital PDFs (fast text-layer extraction), scanned PDFs (rendered to images via `pdftoppm`, then OCR'd), and plain photo uploads — all fully offline, no network dependency at inference time.
-
-## Walking through Flow 3 (fraud & vendor risk)
-
-11. Vendor risk scores (`on_time_delivery_pct`, `invoice_accuracy_pct`) update automatically and immediately after every GRN confirmation and invoice decision — an event-triggered running average, scoped per-company so one company's experience with a vendor never silently affects another's view of that same vendor.
-12. Fraud Detection runs three checks: shell-company patterns (shared bank account/address across nominally different vendors, via Neo4j), vendor identity consistency (does the invoice document's claimed GSTIN/name/bank account match the account actually uploading it?), and split-billing detection. Any high-severity match bypasses the normal weighted decision and routes straight to `suspicious`.
-13. Submit an invoice from **Vendor Four** (shares a bank account with Vendor One in the seed data) to see shell-company detection fire without any manual setup.
-
----
-
-## Flow 7 — Admin completion & evaluation
-
-Platform Admin now has a full picture of the decision-override pattern across the whole platform, not just a per-invoice log buried in each company's own Invoice Review page.
-
-- **Override Log** (`/admin/override-log.html`, "Override Log" in the Platform Admin dock) — every time Finance overrides a flagged/suspicious invoice and approves payment anyway, the reason they gave is already recorded (`invoice_overrides`, since Flow 2). This page aggregates those by month — how many overrides, by how many distinct reviewers, with the full list of reasons (collapsible per month; invoice IDs are shown as plain text because Platform Admin has no route into a single company's Invoice Review page) — **a feedback loop for tuning the system over time**: a month with a spike in overrides is a concrete signal that the Context Gate's auto-approve threshold (currently a fixed `0.7` in `decide.js`) may be too conservative, flagging invoices Finance keeps having to manually rescue.
-  - Backend: `GET /api/admin/overrides/monthly` (the page) and `GET /api/admin/overrides/count` (a cheap running total for the dock dot). Both `platform_admin` only.
-  - A red dot appears on the Override Log icon whenever the override total is higher than the last count that admin saw, and clears when they open the page (same `updateDot` mechanism as the other three admin dots, polled every 5 seconds).
-- **No `settings.html`, on purpose.** The only candidate content was making `AUTO_APPROVE_THRESHOLD` live-editable. That constant decides every future invoice's outcome platform-wide, and a slider in a UI is a materially weaker safeguard than a code change that goes through a commit and a redeploy. Everything else in the admin section is a queue or a log, so there is nothing else to put on such a page.
-- **Synthetic evaluation harness** (`backend/scripts/seed-synthetic-data.js` + `evaluate.js`) — 15 invoices with a known-correct outcome (8 clean, 4 legitimate-variance, 2 genuine mismatch, 1 planted fraud), built end-to-end through the real API (register → admin approval → requirement → quotation → accept → GRN → real generated PDF invoice upload → async pipeline) rather than fabricated database rows, so the resulting accuracy number reflects the system as a whole, not just the downstream decision math. `evaluate.js` also re-scores the same results under flat equal-weighting instead of the Context Gate formula, as a direct ablation comparison (set `STRICT_BASELINE=1` to give the baseline no partial credit on the fraud case).
-- **Vendor-state cases** (second half of `seed-synthetic-data.js`, scored by `evaluate-vendor-states.js`) — eight *structural* checks on how the system reacts to a vendor's accumulated state: legacy-imported history, earned history, ranking between vendors with different histories, a degraded vendor, shell-company fraud (shared bank account), the reputation-only-flag correction, compounding mismatches, and the 0.70 threshold boundary. These are pass/fail checks, not extra data points averaged into the accuracy percentage.
-
-Running it — **test mode keeps it away from your real data.** The `:test` scripts (and `seed:synthetic`, `evaluate`, `evaluate:vendor-states`) all run through `backend/scripts/with-test-db.js`, which uses the database in `backend/.env.test`, refuses to start unless its name contains `test` (or if it is the same database as `backend/.env`), gives the pipeline its own RabbitMQ queue (`invoice.submitted.test`), and turns Neo4j off (set `TEST_USE_NEO4J=1` to keep it). Your `.env` files and normal `npm run dev` are never changed. `npm run seed` (which erases all tables) now refuses to run on any database whose name lacks `test`; use `FORCE_SEED=1 npm run seed` to deliberately re-seed a non-test dev database.
-
-```
-# one time
+```bash
 psql -U postgres -c "CREATE DATABASE veridion_test;"
-# backend/.env.test  (see .env.test.example):  DATABASE_URL=postgres://postgres:PASSWORD@localhost:5432/veridion_test
-cd backend && npm install
+# backend/.env.test:  DATABASE_URL=postgres://postgres:<password>@localhost:5432/veridion_test
 
-# stop your normal backend + ai-service (same ports), then in separate terminals:
-cd backend    && npm run dev:test        # test-mode backend
-cd ai-service && npm run dev:test        # test-mode ai-service  (RabbitMQ must be running)
-
-# third terminal, in backend/
-npm run migrate:test
-npm run seed:test                 # creates admin@veridion.dev / password123 in the TEST database
-npm run seed:synthetic            # SEED_ONLY=main | vendor-state to run half
-npm run evaluate                  # the accuracy table / ablation result
-npm run evaluate:vendor-states    # the structural checks + the three-way comparison table
+cd backend    && npm run dev:test      # backend against veridion_test
+cd ai-service && npm run dev:test      # ai-service against veridion_test
+cd backend    && npm run migrate:test && npm run seed:test
 ```
 
-Afterwards Ctrl+C the test-mode servers and start `npm run dev` as usual.
-
-Needs nothing new: no extra API keys or env vars beyond Flows 1–4 (it does spend your Groq free-tier quota on ~30 invoices, so avoid re-running it repeatedly). Tunables: `EVAL_BASE_URL`, `EVAL_DECISION_TIMEOUT_MS`, `EVAL_DEGRADED_WARMUPS` (default 3), `EVAL_BOUNDARY_WARMUPS` (default 1).
-
-Where the scenarios differ from the written spec, and why (these are constraints of the real routes/agents, not shortcuts):
-- **Partial-GRN variance case.** `POST /api/invoices` refuses an invoice while a PO is still `partially_fulfilled`, so "GRN 90, invoice 90 against a PO of 100" can't be built through the real API. `variance-1` is instead a delivery split over two GRNs (90 + 10) that cumulatively fulfil the PO.
-- **"Identical shortfall" for legacy / degraded vendors.** Any quantity delta sets `overall_match = false`, which hard-flags regardless of vendor trust, so history can never rescue a mismatched invoice. The reference scenario for all four vendor histories is therefore the clean two-GRN delivery; what history changes is the decision for degraded vendors (clean invoice → flagged) and the gate weight vendor risk carries.
-- **Degrading a vendor.** The Context Gate reads `invoice_accuracy_pct` for the vendor-risk verdict, not on-time delivery, so late deliveries alone cannot move a decision. The "bad" warm-ups are late **and** carry a quantity mismatch.
-- **Ranking.** A new vendor's Past Performance signal has weight 0 by design (so new vendors get a fair chance), so with Price and Delivery tied it scores exactly 1.0 and a vendor with a good-but-imperfect record cannot beat it. `ranking-1` (good history vs a vendor with none) therefore prints as an expected **design property**, not a failure; `ranking-2` (good vs degraded history) is the comparison the signal can actually order.
-- **Boundary case.** Steered through vendor history (any quantity delta would hard-flag), and the evaluator reports how close to 0.70 it actually landed. It is a mechanical `>=` check, not a realistic scenario.
-- **Equal-weight comparison on vendor history.** `evaluate-vendor-states.js` also prints what a plain equal average of the stored verdicts would have decided for each vendor history (the baseline in `evaluate.js` is unchanged). The degraded vendor's clean invoice is flagged by the Context Gate (≈0.62) but would score 0.75 and be auto-approved by a plain average.
-- **OCR fallback is tracked.** `evaluate.js` prints the OCR source of any invoice that did not go through real OCR structuring (`vendor_submitted_fallback`) and a secondary accuracy line excluding them. When structuring fails the pipeline falls back to the vendor-submitted form values and the GSTIN identity check cannot run, so a planted-fraud invoice can come back `flagged` instead of `suspicious`. Headline figures always cover all invoices; the extra line separates OCR failures from decision-logic failures.
-- **Groq rate-limit retries.** The ai-service now retries rate-limited (429) Groq calls up to 6 times with growing waits (about 20 s in total; set `GROQ_MAX_RETRIES` to change) instead of the library default of 2. This was added after one evaluation run lost its fraud case to a tokens-per-minute 429 (see OCR fallback above). Decisions are unchanged when Groq works; if Groq stays unavailable the existing fallbacks apply as before.
-- **Shell-company check** prints `NOT TESTED` in test mode, because test mode switches Neo4j off; use a separate Neo4j instance with `TEST_USE_NEO4J=1` to run it.
-- **Not tested, by design:** split-billing (`fraud.js` Check 3) is dormant because Flow 1 blocks a second invoice on the same PO. Worth a sentence under "future work" in the report.
+`scripts/with-test-db.js` refuses to start unless the database name contains `test` or if it matches the database in `backend/.env`, uses its own RabbitMQ queue (`invoice.submitted.test`), and switches Neo4j off unless `TEST_USE_NEO4J=1`.
 
 ---
 
-## Flow 6 — Real-time & persistent notifications (all roles)
+## Environment variables
 
-Every important event produces a notification for the right people, through two free, self-hosted layers (no external account, no browser permission prompt):
+### Backend
 
-1. **Persistent in-app notification** — a row in the `notifications` table, shown under the **bell icon** in the top bar (with an unread badge). It is there whenever the user next opens the app, even if their tab was closed. The dropdown closes as soon as the page is scrolled.
-2. **Real-time toast via Socket.io** — if the recipient has any page open at that moment, a toast pops up instantly, no refresh. Sockets are authenticated with the login JWT; the private room a socket joins is derived only from the verified token (`vendor_<id>`, `company_<id>_<role>`, or `platform_admin`), so no one can receive another account's notifications.
+| Variable | Required | Purpose |
+|---|---|---|
+| `DATABASE_URL` | yes | PostgreSQL connection string. SSL is enabled automatically for any non-localhost host (`PGSSL=off` disables it) |
+| `JWT_SECRET` | yes | Signs login tokens and authenticates Socket.io connections |
+| `PORT` | no | Defaults to 4000 (Render provides its own) |
+| `RABBITMQ_URL` | yes (deployed) | Queue used to hand invoices to the AI service; defaults to `amqp://localhost` |
+| `AI_SERVICE_URL` | yes (deployed) | Base URL of the AI service. Also used to keep it awake on free tiers |
+| `INTERNAL_API_SECRET` | recommended | If set, `/api/internal/*` requires it in the `x-internal-secret` header. Use the same value on the AI service |
+| `S3_ENDPOINT`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_BUCKET` | deployed | S3-compatible storage (Supabase Storage). All of endpoint/key/secret/bucket must be set to switch it on |
+| `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME` | alternative | Cloudflare R2, used only if the `S3_*` set is absent |
+| `NEO4J_URI`, `NEO4J_USER`, `NEO4J_PASSWORD` | optional | Graph sync for shell-company detection |
+| `DEFAULT_COUNTRY_CODE` | no | Phone-number normalisation default |
+| `LOCAL_UPLOAD_DIR` | no | Overrides the local uploads folder |
 
-Who is notified of what:
+### AI service
+
+| Variable | Required | Purpose |
+|---|---|---|
+| `DATABASE_URL` | yes | Same database as the backend |
+| `RABBITMQ_URL` | yes | Consumes `invoice.submitted` |
+| `GROQ_API_KEY` | yes | Natural-language reasoning and structuring (Llama / Qwen models on Groq) |
+| `BACKEND_URL` | yes (deployed) | Where to send the `pipeline-complete` callback |
+| `INTERNAL_API_SECRET` | recommended | Sent as `x-internal-secret` on that callback |
+| `S3_*` / `R2_*` | deployed | Same storage as the backend — the AI service downloads invoice files |
+| `NEO4J_URI`, `NEO4J_USER`, `NEO4J_PASSWORD` | optional | Fraud graph queries |
+| `PORT` | no | Defaults to 4100 |
+| `GROQ_MAX_RETRIES` | no | Retries on Groq 429 rate-limit errors (default 6, roughly 20 s of waiting in total) |
+| `INVOICE_QUEUE`, `PGSSL`, `LOCAL_UPLOAD_DIR` | no | As above |
+
+### Test and evaluation only
+
+`TEST_DATABASE_URL`, `TEST_USE_NEO4J`, `FORCE_SEED`, `SEED_ONLY` (`main` or `vendor-state`), `EVAL_BASE_URL`, `EVAL_DECISION_TIMEOUT_MS`, `EVAL_DEGRADED_WARMUPS`, `EVAL_BOUNDARY_WARMUPS`, `EVAL_ADMIN_EMAIL`, `EVAL_ADMIN_PASSWORD`, `STRICT_BASELINE`, `VERBOSE`.
+
+> Never commit `.env` files. They are git-ignored, and the project zip is built without them.
+
+---
+
+## Database and migrations
+
+`npm run migrate` (in `backend/`) applies every file in `db/` in filename order and records each in a `schema_migrations` table, so re-running is always safe and only new files run.
+
+| # | Migration | Purpose |
+|---|---|---|
+| 001 | core_schema | Companies, users, vendors, requirements, quotations, POs, GRNs, invoices |
+| 002 | ai_schema | OCR results, matching, compliance and Context Gate decision tables |
+| 003 | vendor_risk | Vendor risk scores and fraud flags |
+| 004 | vendor_bank_address | Vendor address; bank fields start being collected |
+| 005 | registration_hardening | Company and PAN proof documents; invoice override audit trail |
+| 006 | company_approval | Platform Admin approval for companies |
+| 007 | user_deactivation | Soft-delete (`is_active`) for team members |
+| 008 | vendor_communications | AI-drafted dispute records |
+| 009 | dispute_messages | Dispute message thread |
+| 010 | dispute_withdrawal_resilience | Disputes survive an invoice being withdrawn |
+| 011 | dispute_message_sender_names | Sender name captured on each dispute message |
+| 012 | exact_success_counters | Exact per-metric event counters |
+| 013 | legacy_import_support | Legacy import audit trail and platform summary view |
+| 014 | pending_invite_unique | One pending invitation per company/email |
+| 015 | user_permanent_delete | `deleted_at` for permanent deletion |
+| 016 | outbound_notifications | Old voice-call notifications table (no longer written to) |
+| 017 | notifications | Persistent in-app notifications |
+| 018 | notifications_all_roles | Notifications for company roles and Platform Admin |
+| 019 | dispute_cleanup_on_close | `closed_reason` and dispute clean-up |
+| 020 | dispute_auto_close | Auto-closed disputes are not resolutions |
+| 021 | close_reputation_only_drafts | Close drafts driven only by vendor reputation |
+| 022 | fraud_flag_invoice_snapshot | Fraud flags keep invoice details after withdrawal |
+| 023 | communication_channels | Quotation and PO message threads; GRN source-message link |
+| 024 | grn_corrections | GRN voiding and correction requests |
+| 025 | grn_quality | Per-GRN quality rating and vendor quality roll-up |
+| 026 | fix_vendor_metric_weighting | One-time repair of stored vendor metrics |
+
+**Deployments do not run migrations.** After adding a migration, run it against the production database yourself *before* deploying the code that needs it (see below).
+
+---
+
+## Deployment
+
+The deployed stack:
+
+| Part | Service | Notes |
+|---|---|---|
+| Backend (API + frontend + Socket.io) | **Render** web service | Node runtime, Root Directory `backend` |
+| AI service | **Render** web service | **Docker** runtime, Root Directory `ai-service` (the Dockerfile installs `poppler-utils`) |
+| Database | **Supabase** Postgres | SSL handled automatically |
+| File storage | **Supabase Storage** | Through its S3-compatible endpoint (`S3_*` variables) |
+| Queue | **CloudAMQP** | `RABBITMQ_URL` (`amqps://…`) |
+| Graph | **Neo4j Aura** | `NEO4J_URI` (`neo4j+s://…`) |
+| LLM | **Groq** | `GROQ_API_KEY` |
+
+The repository has no `render.yaml`, and the backend has no `start` script; the backend's start command is `node src/server.js` (`npm run dev` runs the same file). The backend serves `../frontend`, so keep the `backend/` and `frontend/` folders as siblings.
+
+### First-time setup
+
+1. **Supabase** — create a project. Copy the Postgres connection string. If Render cannot reach the direct connection (Render is IPv4), use Supabase's pooler connection string instead.
+2. **Supabase Storage** — create a **private** bucket and generate S3 access keys. You need the S3 endpoint, region, access key id, secret and bucket name for the `S3_*` variables.
+3. **CloudAMQP** — create an instance and copy its AMQP URL.
+4. **Neo4j Aura** — create a free instance and keep its URI, username and password.
+5. **Run the migrations** from your machine against Supabase: put the Supabase URL in `backend/.env` as `DATABASE_URL`, then `cd backend && npm run migrate`.
+6. **Create the first Platform Admin.** `npm run seed` erases data and is blocked on a non-test database, so insert one admin directly:
+   ```bash
+   node -e "console.log(require('bcrypt').hashSync('<strong password>', 10))"
+   ```
+   ```sql
+   INSERT INTO users (name, email, password_hash, role)
+   VALUES ('Platform Admin', 'you@example.com', '<hash from above>', 'platform_admin');
+   ```
+7. **Deploy the AI service** (Docker). Set `DATABASE_URL`, `RABBITMQ_URL`, `NEO4J_*`, `S3_*`, `GROQ_API_KEY`, `INTERNAL_API_SECRET`, and `BACKEND_URL` once the backend URL exists.
+8. **Deploy the backend.** Set `DATABASE_URL`, `RABBITMQ_URL`, `NEO4J_*`, `S3_*`, `INTERNAL_API_SECRET`, `JWT_SECRET`, `AI_SERVICE_URL` (the AI service's public URL) and `DEFAULT_COUNTRY_CODE`.
+9. Each service needs the other's URL, so deploy both, then fill in `BACKEND_URL` / `AI_SERVICE_URL` and redeploy.
+10. **Verify** — `/health` on the backend returns `{"status":"ok"}`; `/health` on the AI service shows `groq_configured` and `neo4j_configured` as `true`; log in as Platform Admin.
+
+### Releasing a change
+
+1. Run any **new migration** against Supabase (`npm run migrate` with the Supabase `DATABASE_URL`).
+2. Push; Render redeploys both services.
+3. Wake the AI service (open its `/health`) before testing quotation ranking or invoice verification.
+
+If you reset the Supabase database password, update `DATABASE_URL` on **both** Render services.
+
+### Free-tier behaviour
+
+- Render free services sleep after ~15 minutes without an HTTP request. The AI service's RabbitMQ consumer does not count as traffic, so the backend pings the AI service's `/health` on start and every 10 minutes while it is awake. If the **backend** is asleep, nothing wakes the AI service until someone loads the site.
+- If quotations show no rank, AI score or reasoning — or a submitted invoice just sits in verification — the AI service is asleep. Open its `/health` and try again.
+- The backend also checks payment deadlines on start and every 15 minutes while awake; Finance page loads trigger a throttled check, so a sleeping server catches up when someone opens the app.
+- Free Neo4j Aura instances pause when idle; shell-company detection returns "no signal" until the instance is resumed.
+
+### Security checklist before real use
+
+- Use a long random `JWT_SECRET` and set the **same** `INTERNAL_API_SECRET` on both services.
+- Never run the seed script against production, and never keep the seeded `password123` accounts there.
+- Keep the storage bucket private; files are only served through authenticated API routes.
+- Socket.io currently accepts connections from any origin (`cors: { origin: '*' }` in `server.js`). Authentication is by JWT, but tighten the origin to your site URL for a real deployment.
+
+---
+
+## Notifications
+
+Every important event creates a **persistent notification** (a row in `notifications`, shown under the bell with an unread badge) and, if the recipient has a page open, a **real-time toast** over Socket.io. Sockets authenticate with the login JWT, and the private room a socket joins (`vendor_<id>`, `company_<id>_<role>`, `platform_admin`) comes only from the verified token.
 
 | Recipient | Events |
 |---|---|
-| Vendor | quotation accepted (names the company) · quotation not selected · goods received (fully received → "please submit your invoice", naming the company and order; partial with remaining quantity and expected date / over-delivery) · invoice verified and approved · dispute raised, new dispute message, dispute resolved · invoice paid · account verified / rejected |
-| Procurement | new quotation received (names the vendor and the company) · delivery recorded |
-| Finance | invoice flagged and needs review · invoice verified and ready for payment · vendor replied on a dispute |
-| Warehouse | new purchase order ready to receive against |
-| Company Admin | company approved / rejected |
-| Platform Admin | new vendor or company waiting for verification · new fraud flag |
+| Vendor | quotation accepted / not selected · goods received (full, partial with remaining quantity and date, or over-delivery) · delivery voided after an approved GRN correction · invoice verified · dispute raised, new message, resolved · invoice paid · account verified / rejected |
+| Procurement | new quotation received · delivery recorded · vendor price/delivery update and messages · GRN correction requested / approved |
+| Finance | invoice flagged · invoice verified and ready for payment · vendor replied on a dispute · invoice withdrawn after a GRN correction · payment due soon · payment overdue |
+| Warehouse | new purchase order ready to receive · PO message from the vendor · GRN correction approved |
+| Company Admin | company approved / rejected · GRN correction requested |
+| Requester of a GRN correction | correction rejected (with the reviewer's reason) |
+| Platform Admin | new vendor or company awaiting verification · new fraud flag |
 
-Key properties:
-- **Non-blocking by design.** Every notification is fired after the business action has committed and the response has gone out (`safely(...)` in `utils/notify.js`). The DB write is the guaranteed layer; the socket emit is best-effort and can never throw.
-- **Reusable.** `notifyVendor`, `notifyCompanyRole(companyId, roles, ...)` and `notifyPlatformAdmins(...)` cover every recipient type; a new event is one call at the place it happens.
-- **Invoice decisions** are made in the separate ai-service process, which has no Socket.io. It calls `POST /api/internal/pipeline-complete` on the backend (idempotent per decision; optional shared secret `INTERNAL_API_SECRET`), and the backend does the notifying.
-- **Endpoints (any logged-in role, scoped to that user):** `GET /api/notifications/mine`, `GET /api/notifications/unread-count`, `POST /api/notifications/:id/read`.
-- **Read state for company roles is shared** by everyone holding that role in that company (all Finance users of a company share one bell).
-- **Frontend:** `frontend/shared/notifications.js` is loaded automatically by `navbar.js` on every page; toast/bell styles are in `shared/dock-navbar.css`.
-- Not built (deliberately): Firebase push, phone/SMS, email. The earlier OmniDimension voice-call integration was removed; its `outbound_notifications` table (migration 016) is left in place but is no longer written to.
+Read state for company roles is shared by everyone holding that role in the company. Notification endpoints: `GET /api/notifications/mine`, `GET /api/notifications/unread-count`, `POST /api/notifications/:id/read`.
 
-Install after pulling this change: `cd backend && npm install` (adds `socket.io`), `npm run migrate` (applies `017` and `018`), add `BACKEND_URL=http://localhost:4000` to `ai-service/.env` (see `.env.example`), then restart the backend and ai-service.
+Not built, by design: SMS, email and mobile push. An earlier voice-call integration was removed; its table (migration 016) remains but is never written to.
 
 ---
 
-## Vendor–Company communication channel
+## Testing and evaluation
 
-Two private message threads sit alongside (and entirely separate from) the dispute channel:
+All test scripts run against the **test database only** (through `with-test-db.js`). Run them from `backend/`:
 
-- **Pre-award** (`quotation_messages`, `/api/quotation-messages/:quotationId`): one thread per quotation, private to that vendor and the company's Procurement team (another vendor, or another company, gets a 404). Price and delivery-days are negotiated here. The vendor changes their own numbers with `PUT /api/quotations/:id` (only while the quotation is still `submitted`); Procurement sends counter-proposals as messages and never edits a quotation. Accepting a quotation reads the latest price / delivery days, so the PO carries the negotiated numbers. Once the quotation is accepted or rejected the thread is read-only history.
-- **Post-award** (`po_messages`, `/api/po-messages/:poId`): one thread per purchase order, logistics only — `agreed_price` is locked and nothing here can touch it. Vendor, Procurement and Warehouse can read and post; Finance cannot (403). The thread closes to new messages — for everyone, vendor included — as soon as the PO is **fulfilled** (every unit confirmed by a GRN) or any invoice on it is `paid`; history stays readable. From there, anything about the invoice continues through the Disputes channel with Finance. `GET /api/po-messages/:poId/status` reports `{ closed, reason, note }`.
-- **Sourced delivery dates**: when Warehouse records a partial GRN they can cite the thread message that agreed the remaining-delivery date (`goods_receipt_notes.expected_next_delivery_source_message_id`). The server rejects a message from a different PO. The cited text and sender are shown next to the date on the PO fulfilment modals and both GRN Documents pages.
-- New messages create in-app notifications (bell + toast) for the other side, and a vendor's price/delivery update notifies Procurement.
+| Command | Covers |
+|---|---|
+| `npm run test:comms` | Quotation and PO message threads, sourced delivery dates, thread closing |
+| `npm run test:grn-corrections` | Correction request lifecycle, voiding, payment hold, guard rails |
+| `npm run test:grn-quality` | Quality rating validation and quantity-weighted ranking signal |
+| `npm run test:fraud-fixes` | Stale-edge clean-up, revoked-vendor handling, re-decision after fraud review |
+| `npm run test:vendor-risk` | Per-metric weighting of the running averages |
+| `npm run test:payment-deadlines` | Due-soon and overdue notifications, de-duplication, auto-close |
+| `npm run seed:synthetic` | Builds the 15-invoice evaluation set through the real API |
+| `npm run evaluate` | Context Gate accuracy against an equal-weight baseline |
+| `npm run evaluate:vendor-states` | Eight structural checks on how vendor history changes decisions |
 
-Migration `023_communication_channels.sql` adds the tables and the GRN column. `npm run test:comms` (test database only) runs the end-to-end test in `backend/scripts/test-communication-channel.js`.
+**Evaluation dataset.** Fifteen invoices with a known correct outcome — 8 clean, 4 legitimate variance, 2 genuine mismatch, 1 planted fraud — built end-to-end through the real API (register → approve → requirement → quotation → accept → GRN → generated PDF invoice → async pipeline).
 
-## GRN corrections (support-style)
+**Reference result.** Context Gate 15/15 vs 13/15 for a plain equal-weight average. In the vendor-state checks 7 passed; `shell-company-1` shows *NOT TESTED* because test mode switches Neo4j off (use a separate Neo4j instance with `TEST_USE_NEO4J=1`), and `ranking-1` is reported as an expected design property (a vendor with no history scores exactly 1.0 when price and delivery tie). The degraded vendor's clean invoice is flagged by the Context Gate (≈ 0.62) but would score 0.75 and auto-approve under a plain average. Running it spends roughly 30 Groq calls' worth of free-tier quota, so avoid repeating it needlessly.
 
-A goods receipt note is an audit record and is never edited or deleted, so a GRN entered by mistake (say "all goods received" keyed by accident) is fixed through a **correction request**, like a support ticket:
+For a manual, click-through verification of every feature see **`Checklist.md`**.
 
-1. **Raise** — Warehouse or Procurement requests a correction on a GRN from GRN Entry or GRN Documents, with a written reason.
-2. **Review** — Procurement or the Company Admin reviews it on the **GRN Corrections** page. Never the person who raised it. A rejection needs a reason, and a new request can be raised afterwards.
-3. **Approve = void** — the GRN stays on record, marked voided (who, when, why), and stops counting everywhere (order fulfilment, PO totals, invoice matching, fraud checks). The order's status is recalculated from the receipts that still count, so it can drop from `fulfilled` back to `partially_fulfilled` or `pending`, and its conversation reopens. Any **unpaid** invoice on the order is withdrawn through the normal withdraw sequence so the vendor resubmits it against the corrected receipt and it is verified afresh. Warehouse then records the correct GRN.
+---
 
-Guard rails: only the **most recent** active GRN on an order can be corrected (void newest-first); one open request per GRN; nothing can be corrected once an invoice on the order is **paid**; while a request is open, payment of invoices on that order is **on hold** (mark-paid and override-and-pay return 409). Voiding does not reverse the vendor's on-time-delivery score event from the mistaken GRN — scores are only ever changed by new events.
+## Troubleshooting
 
-Migration `024_grn_corrections.sql`; `npm run test:grn-corrections` (test database only) runs `backend/scripts/test-grn-corrections.js`.
+| Symptom | Likely cause and fix |
+|---|---|
+| Quotations show no rank / AI score | AI service asleep (free tier) — open its `/health`, then reload |
+| Invoice stuck on "verifying" | AI service asleep, RabbitMQ unreachable, or Groq rate-limited (retries up to 6 times) |
+| Uploads fail or files 404 after deploy | `S3_*` variables incomplete on one of the two services — all of endpoint, key, secret and bucket must be set on **both** |
+| `relation … does not exist` / missing column | A migration wasn't run on the production database |
+| Backend can't connect to Postgres from Render | Use Supabase's pooler connection string; make sure `DATABASE_URL` was updated on both services after any password reset |
+| No toasts appear | Socket connection rejected — confirm the same `JWT_SECRET` is set and the user's role has a notification room |
+| Shell-company check reports no signal | `NEO4J_*` not set, or the Aura instance is paused |
+| `Refusing to seed` | By design — the seed script only runs on a database with `test` in its name |
+| Scanned-PDF OCR fails locally | `poppler-utils` is not installed or not on `PATH` |
+| Code change has no effect locally | Scripts run plain `node` — restart the backend and ai-service |
 
-## A note on scope
+---
 
-This is an actively evolving build — the codebase includes a substantial amount of hardening beyond the original spec, found through real testing rather than assumed upfront: offline-capable OCR (no external CDN dependency), a GST/pre-tax amount calculation shared consistently across every agent that touches it, a vendor-identity-consistency fraud check, a pipeline failure safety net (no invoice can silently vanish if something goes wrong mid-processing), and a company approval workflow mirroring vendor verification. Treat the code comments as the authoritative source for *why* something is built the way it is — several of the less obvious design choices are explained inline at the point they matter.
+## Known limitations
+
+- **Multi-item requirements are not supported.** One requirement is one item; the original idea of fanning one requirement into one PO per item was designed but is not part of this build.
+- **Split-billing detection (Fraud check 3) is dormant**, because only one invoice is allowed per PO.
+- **Voiding a GRN does not reverse** the on-time-delivery score event it created.
+- The password policy applies to account **creation** forms only; there is no password-change flow.
+- No SMS, email or push notifications (in-app only).
+- `backend/src/server.js` requires `node-fetch` at runtime but `package.json` lists it under `devDependencies`. It works where dev dependencies are installed; move it to `dependencies` if a host omits them.
+- Free-tier hosting means cold starts, and a free Neo4j instance that pauses when idle.
