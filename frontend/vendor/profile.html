@@ -42,8 +42,18 @@ requireLogin(['vendor']);
 const me = getUser();
 
 async function loadTrustScore() {
-  const res = await fetchWithAuth(`/api/vendors/${me.vendor_id}/platform-summary`);
   const box = document.getElementById('trustScoreContent');
+  // Stored login may predate vendor_id (stale session) — fall back to /me for the id.
+  let vendorId = me && me.vendor_id;
+  if (!vendorId) {
+    const meRes = await fetchWithAuth('/api/vendors/me');
+    if (meRes && meRes.ok) vendorId = (await meRes.json()).id;
+  }
+  if (!vendorId) {
+    box.innerHTML = `<p class="text-muted small mb-0">Could not load your trust score. Try logging out and back in.</p>`;
+    return;
+  }
+  const res = await fetchWithAuth(`/api/vendors/${vendorId}/platform-summary`);
   if (!res) return;
   const s = await res.json();
   if (!res.ok) { box.innerHTML = `<p class="text-danger small mb-0">${s.error || 'Could not load your trust score.'}</p>`; return; }

@@ -20,14 +20,25 @@ const router = express.Router();
 // vendor with no platform-verified activity yet, since "not yet established" is a
 // normal state here, not an error.
 router.get('/:id/platform-summary', requireAuth, async (req, res) => {
-  const result = await db.query(`SELECT * FROM vendor_platform_summary WHERE vendor_id = $1`, [req.params.id]);
-  res.json(result.rows[0] || {
-    vendor_id: Number(req.params.id),
-    total_platform_verified_events: 0,
-    aggregate_on_time_pct: null,
-    num_companies_worked_with: 0,
-    last_updated: null
-  });
+  try {
+    // Reject non-numeric ids ("undefined", "abc") up front — otherwise Postgres throws
+    // 22P02 and, since Express 4 doesn't catch async errors, the whole process crashes.
+    const vendorId = Number(req.params.id);
+    if (!Number.isInteger(vendorId) || vendorId <= 0) {
+      return res.status(400).json({ error: 'Invalid vendor id' });
+    }
+    const result = await db.query(`SELECT * FROM vendor_platform_summary WHERE vendor_id = $1`, [vendorId]);
+    res.json(result.rows[0] || {
+      vendor_id: vendorId,
+      total_platform_verified_events: 0,
+      aggregate_on_time_pct: null,
+      num_companies_worked_with: 0,
+      last_updated: null
+    });
+  } catch (err) {
+    console.error('platform-summary failed:', err);
+    res.status(500).json({ error: 'Could not load platform summary' });
+  }
 });
 
 // GET /api/vendors/me — the vendor's own profile, including bank/address details they
